@@ -1,0 +1,140 @@
+/* Definición de la Paleta de Colores Corporativos */
+:root {
+    --corp-primary: #840028; /* Rojo corporativo principal */
+    --corp-accent: #CC2255; /* Acento más brillante */
+    --corp-text: #1f2937;    /* Texto oscuro para la tarjeta blanca */
+    --corp-dark-bg: #470016; /* Tono más oscuro para el gradiente */
+    --card-width: 320px; /* Tamaño compacto para el contenedor */
+}
+
+/* 1. Animación de Fondo: Movimiento sutil */
+@keyframes subtleMove {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    color: #f3f4f6;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1rem; 
+    overflow: hidden; 
+    
+    /* Gradiente animado */
+    background: linear-gradient(120deg, var(--corp-dark-bg) 0%, var(--corp-primary) 50%, var(--corp-dark-bg) 100%);
+    background-size: 300% 300%; 
+    animation: subtleMove 20s ease infinite alternate; 
+}
+
+/* 2. Animación de entrada de la tarjeta con efecto 3D */
+@keyframes cardEnter {
+    from { opacity: 0; transform: translate3d(0, 50px, 0) scale(0.9) rotateX(15deg); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1) rotateX(0deg); }
+}
+
+.main-container {
+    width: 100%;
+    max-width: var(--card-width); 
+}
+
+/* Estilos del Logo */
+.logo {
+    text-align: center;
+    margin-bottom: 2rem; 
+}
+
+.logo p {
+    color: white;
+    font-size: 1.2rem; 
+    font-weight: 900; 
+    letter-spacing: 0.15em; 
+    text-shadow: 0 0 8px rgba(132, 0, 40, 0.5); 
+}
+
+/* Estilos de la Tarjeta de Error */
+.error-box {
+    background-color: white;
+    padding: 2rem; 
+    border-radius: 0.8rem; 
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3); 
+    border-top: 5px solid var(--corp-accent); 
+    transform-style: preserve-3d;
+    animation: cardEnter 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    perspective: 1000px;
+}
+
+/* 3. Animación de Rebote Suave para el Código de Error */
+@keyframes codeBounce {
+    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-8px); } 
+    60% { transform: translateY(-4px); }
+}
+
+.error-code {
+    text-align: center;
+    margin-bottom: 1rem;
+    overflow: hidden; 
+}
+
+.error-code p {
+    font-size: 5rem; 
+    font-weight: 900; 
+    color: var(--corp-primary);
+    line-height: 1;
+    user-select: none;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+    display: inline-block;
+    animation: codeBounce 1.5s ease-out 0.7s; 
+}
+
+.error-title {
+    text-align: center;
+    font-size: 1.4rem; 
+    font-weight: 700; 
+    color: var(--corp-text);
+    margin-bottom: 0.5rem; 
+}
+
+.error-message {
+    text-align: center;
+    font-size: 0.9rem; 
+    color: #4b5563;
+    margin-bottom: 1.5rem; 
+    line-height: 1.5; 
+}
+
+/* 4. Animación del Botón (Hover con Elevación) */
+.action-button a {
+    display: block;
+    padding: 0.8rem 1.5rem; 
+    background-color: var(--corp-primary);
+    color: white;
+    font-weight: 600; 
+    border-radius: 0.5rem; 
+    font-size: 0.9rem; 
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(132, 0, 40, 0.2);
+    transition: all 0.2s ease-out;
+}
+
+.action-button a:hover {
+    background-color: var(--corp-accent); 
+    transform: translateY(-2px); 
+    box-shadow: 0 6px 15px rgba(204, 34, 85, 0.4);
+}
+
+.action-button a:active {
+    transform: translateY(0);
+}
+
+.reference-tag {
+    margin-top: 1rem; 
+    text-align: center;
+    font-size: 0.7rem; 
+    color: rgba(255, 255, 255, 0.5); 
+}

@@ -1,0 +1,97 @@
+        body {
+            background-color: #800020;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding-top: 80px;
+        }
+        .navbar {
+            background-color: #800020;
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 10;
+            padding: 10px 20px;
+        }
+        .navbar-brand {
+            color: white;
+            font-weight: bold;
+        }
+        .login-container {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+        }
+        .logo {
+            max-width: 230px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .btn-custom {
+            background-color: #800020;
+            color: #fff;
+            font-weight: bold;
+            width: 100%;
+            transition: 0.3s;
+        }
+        .btn-custom:hover {
+            background-color: #a52a2a;
+        }
+        .form-check {
+            text-align: left;
+        }
+        /* ---------- estilos para el ojito sutil y animado ---------- */
+        .position-relative { position: relative; }
+        
+        /* espacio para que el texto no pegue con el icono */
+        .form-control { padding-right: 48px; }
+        
+        /* botón del toggle: sutil, sin borde, dentro del input */
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            padding: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #6b6b6b;            /* color sutil */
+            opacity: 0;                /* oculto por defecto (aparece al focus/typing) */
+            pointer-events: none;      /* no clickeable cuando oculto */
+            transition: opacity .18s ease, transform .18s ease, color .18s ease;
+            border-radius: 6px;
+        }
+        
+        /* cuando aparece */
+        .password-toggle.visible {
+            opacity: 0.65;
+            pointer-events: auto;
+        }
+        .password-toggle:hover { opacity: 1; color: #800020; transform: translateY(-50%) scale(1.05); }
+        
+        /* las dos SVGs ocupan el mismo lugar; su transición crea la sensación de abrir/cerrar */
+        .eye { position: absolute; width: 20px; height: 20px; left: 0; top: 0; transition: opacity .18s ease, transform .18s ease; }
+        
+        /* estado por defecto: mostrar ojo abierto */
+        .eye-open { opacity: 1; transform: scale(1); }
+        .eye-closed { opacity: 0; transform: scale(.9); }
+        
+        /* cuando el toggle tiene clase 'show' invertimos la visibilidad (cierre) */
+        .password-toggle.show .eye-open { opacity: 0; transform: scale(.9); }
+        .password-toggle.show .eye-closed { opacity: 1; transform: scale(1); }
+        
+        /* pequeño ajuste para que sea totalmente sutil en pantallas pequeñas */
+        @media (max-width: 420px) {
+            .form-control { padding-right: 40px; }
+            .password-toggle { right: 10px; padding: 4px; }
+        }

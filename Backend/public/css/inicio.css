@@ -1,0 +1,299 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+body {
+    font-family: 'Roboto', sans-serif;
+    background: #f5f1f3;
+    color: #333;
+}
+.ciudad{
+    text-align: center;
+    color:red;
+}
+
+/* Intro animación */
+.intro-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #840028;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: introBg 2s ease forwards;
+    z-index: 999;
+}
+.intro-logo {
+    height: 120px;
+    animation: logoZoom 2s ease forwards;
+}
+@keyframes introBg {
+    0% { background: #840028; }
+    100% { background: #840028; }
+}
+@keyframes logoZoom {
+    0% { opacity: 0; transform: scale(0.5); }
+    50% { opacity: 1; transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+.fade-out {
+    animation: fadeOut 0.8s ease forwards;
+}
+@keyframes fadeOut {
+    to { opacity: 0; }
+}
+
+/* Main screen */
+.hidden {
+    display: none;
+}
+.site-header {
+    background: #840028;
+    color: #fff;
+    text-align: center;
+    padding: 20px;
+}
+.site-header .logo {
+    height: 50px;
+    margin-bottom: 10px;
+}
+.site-header h1 {
+    font-size: 1.8rem;
+}
+
+.city-options {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 60px 20px;
+    flex-wrap: wrap;
+}
+.city-btn {
+    padding: 14px 24px;
+    background: #840028;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: background 0.3s, transform 0.3s;
+}
+.city-btn:hover {
+    background: #a10b3e;
+    transform: translateY(-3px);
+}
+ .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        /* Estilos de la tarjeta/botón */
+        .card-button {
+            position: relative;
+            height: 350px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+            transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            text-decoration: none;
+            color: #fff;
+        }
+
+        /* Efecto de escalado al pasar el cursor sobre la tarjeta */
+        .card-button:hover {
+            transform: translateY(-8px);
+        }
+
+        /* Imagen de fondo de la tarjeta */
+        .card-button img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: transform 0.4s ease;
+        }
+        
+        /* Efecto de zoom en la imagen al pasar el cursor */
+        .card-button:hover img {
+            transform: scale(1.1);
+        }
+
+        .card-label {
+        position: absolute;
+        bottom: 10px; /* Cambia a top:10px si lo quieres arriba */
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.5); /* más sutil */
+        color: white;
+        padding: 6px 12px;
+        font-size: 15px;
+        font-weight: bold;
+        border-radius: 5px;
+        text-align: center;
+        opacity: 1; /* visible al inicio */
+        transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    
+    /* Desvanecer y mover un poco hacia abajo al hacer hover */
+    .card-button:hover .card-label {
+        opacity: 0;
+        transform: translateX(-50%) translateY(8px);
+    }
+
+        /* Superposición oscura y efecto de texto */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0) 50%);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 24px;
+            box-sizing: border-box;
+            transition: background 0.4s ease;
+        }
+     .label {
+        position: absolute;
+        bottom: 10px; /* Puedes poner top:10px si lo quieres arriba */
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.6);
+        color: white;
+        padding: 5px 10px;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 5px;
+        text-align: center;
+    }   
+ 
+        /* Efecto de hover en la superposición */
+        .card-button:hover .overlay {
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0) 60%);
+        }
+
+        .overlay h3 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 700;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: transform 0.4s ease, opacity 0.4s ease;
+        }
+
+        .overlay p {
+            margin: 8px 0 0;
+            font-size: 1rem;
+            line-height: 1.4;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: transform 0.4s ease 0.1s, opacity 0.4s ease 0.1s;
+        }
+
+        
+        /* Muestra el texto al pasar el cursor */
+        .card-button:hover h3,
+        .card-button:hover p {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .message-title {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 800; /* Extra bold */
+            color: #840028;
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em; /* Espaciado sutil */
+            text-shadow: 1px 1px 2px rgba(132, 0, 40, 0.2); /* Sombra de texto roja */
+            line-height: 1.3;
+        }
+        
+        @media (max-width: 640px) {
+            .intro-logo {
+                 height: 60px;
+                
+            }
+            
+        }
+        
+        :root {
+  --ig-gradient: linear-gradient(135deg, #840028, #a10b3e);
+  --btn-radius: 14px;
+  --shadow: 0 6px 18px rgba(132, 0, 40, 0.3);
+}
+
+.ig-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: var(--btn-radius);
+  background: var(--ig-gradient);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(6px);
+}
+
+.ig-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 26px rgba(132, 0, 40, 0.45);
+  filter: brightness(1.05);
+}
+
+.ig-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.ig-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.ig-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.ig-sub {
+  font-size: 0.72rem;
+  opacity: 0.9;
+  font-weight: 500;
+  margin-top: -2px;
+}
+
+@media (max-width: 420px) {
+  .ig-label .ig-sub {
+    display: none;
+  }
+  .ig-btn {
+    padding: 0.5rem 0.8rem;
+  }
+}
+
+        
+        

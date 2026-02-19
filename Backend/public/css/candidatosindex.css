@@ -1,0 +1,109 @@
+ body {
+        font-family: Arial, sans-serif;
+        background: #f9f9f9;
+        margin: 0;
+    }
+
+    
+    h1 {
+        text-align: center;
+        color: #333;
+        margin-top: 20px;
+    }
+
+    .container {
+        max-width: 1000px;
+        margin: 20px auto;
+        padding: 20px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    a {
+        color: #840028;
+        text-decoration: none;
+        font-weight: bold;
+    }
+
+    a:hover {
+        text-decoration: underline;
+    }
+
+    .btn-nuevo {
+        display: inline-block;
+        margin-bottom: 20px;
+        background-color: #840028;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        text-decoration: none;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+    }
+
+    table th, table td {
+        padding: 12px 15px;
+        border: 1px solid #ccc;
+        text-align: left;
+    }
+
+    table thead {
+        background-color: #840028;
+        color: #fff;
+    }
+
+    .form-inline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .form-inline input {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        min-width: 200px;
+    }
+
+    .form-inline button {
+        background-color: #840028;
+        color: #fff;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .form-inline button:hover {
+        background-color: #a83644;
+    }
+
+    button[type="submit"] {
+        background: none;
+        border: none;
+        color: red;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    button[type="submit"]:hover {
+        text-decoration: underline;
+    }
+
+    @media screen and (max-width: 600px) {
+        .navbar nav a {
+            display: block;
+            margin: 5px 0;
+        }
+
+        .form-inline {
+            flex-direction: column;
+        }
+   

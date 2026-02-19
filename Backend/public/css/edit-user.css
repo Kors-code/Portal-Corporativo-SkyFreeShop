@@ -1,0 +1,179 @@
+    
+    @font-face {
+      font-family: 'Konnect Bold';
+      src: url('fonts/Konnect-Bold.woff2') format('woff2'),
+           url('fonts/Konnect-Bold.woff') format('woff');
+      font-weight: bold;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Konnect Medium';
+      src: url('fonts/Konnect-Medium.woff2') format('woff2'),
+           url('fonts/Konnect-Medium.woff') format('woff');
+      font-weight: normal;
+      font-style: normal;
+    }
+    
+    /* ===============================
+       Reset y estilos globales
+    =============================== */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #f4f4f4;
+      font-family: 'Konnect Medium', sans-serif;
+      color: #333;
+    }
+    
+    /* ===============================
+       Cabecera y Navegación
+    =============================== */
+   
+    
+    /* ===============================
+       Contenido Principal
+    =============================== */
+    main.container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    main.container h2 {
+      text-align: center;
+      margin-bottom: 20px;
+      font-family: 'Konnect Bold', sans-serif;
+      color: #840028;
+    }
+    
+    /* ===============================
+       Estilos para el formulario
+    =============================== */
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    form label {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    form input,
+    form select {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    form button {
+      padding: 10px;
+      background-color: #840028;
+      color: #fff;
+      border: 2px solid #840028;
+      border-radius: 8px;
+      font-family: 'Konnect Bold', sans-serif;
+      cursor: pointer;
+      transition: background-color 0.4s ease, color 0.4s ease,
+                  transform 0.4s ease, box-shadow 0.4s ease;
+    }
+    form button:hover {
+      background-color: #fff;
+      color: #840028;
+      transform: translateY(-3px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    /* ===============================
+       Alertas
+    =============================== */
+    .alert {
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      font-family: 'Konnect Medium', sans-serif;
+    }
+    .alert.danger {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .alert.success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    
+    /* ===============================
+       Opciones de imagen (Galería)
+    =============================== */
+    #imagenes-container {
+      display: none;
+      margin-top: 15px;
+      text-align: center;
+    }
+    .opcion {
+      display: inline-block;
+      margin: 10px;
+      cursor: pointer;
+    }
+    .opcion input[type="radio"] {
+      display: none;
+    }
+    .opcion img {
+      width: 100px;
+      height: 100px;
+      border: 2px solid transparent;
+      transition: border 0.3s ease;
+    }
+    .opcion input[type="radio"]:checked + img {
+      border: 2px solid blue;
+    }
+    
+    /* ===============================
+       Drop Zone para subir imagen (Drag & Drop)
+    =============================== */
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 10px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      margin-bottom: 15px;
+    }
+    .drop-zone.dragover {
+      background-color: #e2eefd;
+    }
+    .drop-zone input {
+      display: none;
+    }
+    
+    /* ===============================
+       Responsive
+    =============================== */
+    @media (max-width: 768px) {
+      header.header-bar {
+        flex-direction: column;
+        height: auto;
+        padding: 10px;
+      }
+      .navbar {
+        flex-direction: column;
+      }
+      main.container {
+        margin: 20px;
+        padding: 15px;
+      }
+    }

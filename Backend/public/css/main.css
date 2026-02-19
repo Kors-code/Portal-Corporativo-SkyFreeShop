@@ -1,0 +1,66 @@
+
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f4;
+    }
+
+    .hero {
+        position: absolute;
+        width: 100%;
+        height:100%;
+        background:  #840028;
+        background-image: url('/imagenes/tienda.png');
+        background-repeat: no-repeat;
+        background-size: cover; /* o contain */
+        background-position: center;
+        color: white;
+        padding: 60px 20px;
+        text-align: center;
+        border-radius: 0 0 20px 20px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        animation: fadeIn 1s ease-in-out;
+    }
+
+    .hero h1 {
+        font-size: 3rem;
+        margin-top: 150px;
+    }
+
+    .hero p {
+        font-size: 1.2rem;
+        margin-bottom: 30px;
+    }
+
+    .hero a {
+        display: inline-block;
+        background-color: white;
+        color: #840028;
+        padding: 12px 24px;
+        border-radius: 6px;
+        font-weight: bold;
+        text-decoration: none;
+        transition: background 0.3s ease;
+    }
+
+    .hero a:hover {
+        background-color: #ffe6ec;
+    }
+
+    .footer {
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        background-color: #840028;
+        color: white;
+        text-align: center;
+        padding: 10px 0;
+        font-size: 0.9rem;
+    }
+   
+    @media (max-width: 600px) {
+        .hero h1 {
+            font-size: 2rem;
+            margin-top: 100px;
+        }
+    }

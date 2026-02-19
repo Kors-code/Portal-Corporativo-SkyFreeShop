@@ -1,0 +1,102 @@
+
+    @font-face {
+      font-family: 'Konnect Bold';
+      src: url('fonts/Konnect-Bold.woff2') format('woff2'),
+           url('fonts/Konnect-Bold.woff') format('woff');
+      font-weight: bold;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Konnect Medium';
+      src: url('fonts/Konnect-Medium.woff2') format('woff2'),
+           url('fonts/Konnect-Medium.woff') format('woff');
+      font-weight: normal;
+      font-style: normal;
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #f4f4f4;
+      font-family: 'Konnect Medium', sans-serif;
+      color: #333;
+    }
+    
+    main.container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .profile-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .profile-header img {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #840028;
+    }
+    .profile-header h2 {
+      margin-top: 10px;
+      font-family: 'Konnect Bold', sans-serif;
+      color: #840028;
+    }
+    .profile-header p {
+      margin-top: 5px;
+      font-size: 16px;
+    }
+    /* Módulo General con barra de progreso */
+    .modulo-general {
+      margin-top: 30px;
+      padding: 20px;
+      border: 2px solid #840028;
+      border-radius: 12px;
+      background-color: #f9f9f9;
+      text-align: center;
+    }
+    .modulo-general h3 {
+      font-family: 'Konnect Bold', sans-serif;
+      color: #840028;
+      margin-bottom: 10px;
+    }
+    
+    @media (max-width: 768px) {
+      header.header-bar {
+        flex-direction: column;
+        height: auto;
+        padding: 10px;
+      }
+
+      main.container {
+        margin: 20px;
+        padding: 15px;
+      }
+    }
+    .verificacion .btn {
+  display: inline-block;
+  margin: 10px;
+  padding: 12px 24px;
+  background-color: #840028;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 8px;
+  font-family: 'Konnect Bold', sans-serif;
+  transition: background 0.3s ease, transform 0.2s ease;
+}
+
+.verificacion .btn:hover {
+  background-color: #a00032;
+  transform: translateY(-2px);
+}
+
+.verificacion p {
+  margin-bottom: 20px;
+  font-size: 16px;
+}

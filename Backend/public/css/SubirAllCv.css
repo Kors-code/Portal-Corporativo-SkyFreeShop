@@ -1,0 +1,155 @@
+/* fondo global y centrado */
+
+/* contenedor central estilo "tarjeta" */
+.container {
+  width: 100%;
+  max-width: 760px;
+  margin-top: 80px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfb 100%);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+  padding: 28px 28px;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+/* encabezado */
+.container h1 {
+  margin: 0 0 12px 0;
+  font-size: 22px;
+  color: #3b0f12; /* tono oscuro relativo al marón */
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+/* subtítulo / texto pequeño */
+.container small {
+  color: #6b6b6b;
+  display: block;
+  margin-top: 4px;
+}
+
+/* formulario */
+.form-group {
+  margin-bottom: 14px;
+}
+
+/* inputs y select */
+select,
+input[type="file"],
+button,
+input[type="text"],
+input[type="email"] {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  margin-bottom: 6px;
+  border: 1px solid #e0dede;
+  border-radius: 8px;
+  background: #fff;
+  box-sizing: border-box;
+  transition: box-shadow .12s ease, border-color .12s ease;
+}
+select:focus,
+input[type="file"]:focus,
+input[type="text"]:focus,
+input[type="email"]:focus {
+  outline: none;
+  border-color: #b85a5e;
+  box-shadow: 0 4px 12px rgba(184,90,94,0.08);
+}
+
+/* área drag & drop */
+.drop-area {
+  border: 2px dashed rgba(120,30,40,0.35);
+  border-radius: 10px;
+  padding: 26px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.25s ease, border-color 0.25s ease, transform .08s;
+  background: linear-gradient(180deg, #fff 0%, #fcfcfc 100%);
+}
+.drop-area p {
+  margin: 0;
+  color: #5b1d20;
+  font-weight: 600;
+}
+.drop-area small {
+  display: block;
+  margin-top: 8px;
+  color: #7a4a4c;
+  font-size: 12px;
+}
+.drop-area.highlight {
+  background: rgba(248, 241, 241, 0.9);
+  border-color: #b85a5e;
+  transform: translateY(-2px);
+}
+
+/* preview */
+#preview {
+  margin-top: 14px;
+}
+.file-item {
+  padding: 10px 12px;
+  border: 1px solid #eee;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.file-item strong {
+  font-weight: 600;
+  color: #3b0f12;
+}
+.file-item span {
+  color: #777;
+  font-size: 12px;
+}
+
+/* botones */
+.btn {
+  background: linear-gradient(180deg, #800020 0%, #6c001a 100%);
+  color: #fff;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  box-shadow: 0 6px 18px rgba(128,0,32,0.18);
+  transition: transform .08s ease, box-shadow .12s ease, opacity .12s;
+}
+
+/* alertas */
+.alert {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+}
+.alert.success {
+  background: #eaf6ef;
+  color: #1f5f39;
+  border: 1px solid #cde9d3;
+}
+.alert.error {
+  background: #fdecef;
+  color: #7b2126;
+  border: 1px solid #f4c8c9;
+}
+
+/* responsive */
+@media (max-width: 640px) {
+  .container {
+    padding: 18px;
+    margin-top: 40px;
+  }
+  .drop-area { padding: 18px; }
+  .file-item { font-size: 13px; padding: 8px; }
+}
+
+/* pequeños toques estéticos adicionales */
+select::-ms-expand { display: none; } /* quitar flecha extra en IE */

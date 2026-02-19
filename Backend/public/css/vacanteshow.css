@@ -1,0 +1,419 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Roboto', sans-serif;
+}
+
+body {
+  background-color: #840028;
+  min-height: 100vh;
+}
+
+
+
+
+.main-container {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 100vh;
+}
+
+/* Sección izquierda */
+.left-section {
+  flex: 1;
+  min-width: 300px;
+  background-image: url('../imagenes/sky-medellin.jpg');
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: slideInLeft 1s ease-in-out;
+}.overlay {
+  background-color: #ffffff;
+  padding: 40px 30px;
+  border-radius: 12px;
+  color: #333;
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 1.2s ease;
+  border-left: 6px solid #840028;
+}
+
+.overlay h1 {
+  font-size: 26px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 10px;
+  color: #840028;
+  letter-spacing: 1px;
+  font-weight: bold;
+}
+
+.overlay ul {
+  list-style: none;
+  padding-left: 0;
+  margin-top: 10px;
+}
+
+.overlay ul li {
+  font-size: 16px;
+  margin-bottom: 14px;
+  position: relative;
+  padding-left: 28px;
+  line-height: 1.6;
+}
+
+.overlay ul li::before {
+  content: "✔";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #840028;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+
+/* ===== Right Section Alt ===== */
+.right-section-alt {
+  flex: 1;
+  min-width: 320px;
+  background: #f5f1f3;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 20px;
+}
+
+/* Nuevo contenedor central */
+.form-container-alt {
+  background: #ffffff;
+  width: 100%;
+  max-width: 460px;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+  overflow: hidden;
+  animation: fadeIn 0.8s ease;
+}
+
+/* Header justo encima del formulario */
+.form-header-alt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 25px;
+}
+
+.form-header-alt .logo-sm {
+  height: 65px;
+  filter: brightness(1.2);
+}
+
+.form-header-alt h2 {
+  font-size: 22px;
+  color: #840028;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+/* Formulario con espaciado interno */
+.alt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 30px 25px 40px;
+}
+/* Field genérico */
+.field {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+/* Estilo común para todos los inputs */
+.field input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 15px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Float‑label */
+.field label {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+  background: #ffffff;
+  padding: 0 4px;
+  color: #999;
+  font-size: 14px;
+  pointer-events: none;
+  transition: top 0.3s ease, font-size 0.3s ease, color 0.3s ease;
+}
+
+/* Cuando el campo tiene foco o contenido */
+.field input:focus + label,
+.field input:not(:placeholder-shown) + label {
+  top: -8px;
+  font-size: 12px;
+  color: #840028;
+}
+
+/* Enfoque */
+.field input:focus {
+  border-color: #840028;
+  box-shadow: 0 0 0 3px rgba(132,0,40,0.15);
+  outline: none;
+}
+
+/* Específico para file inputs */
+.field input[type="file"] {
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+/* Opcional: cambiar texto “Seleccionar archivo” */
+.field input[type="file"]::-webkit-file-upload-button {
+  background: #840028;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+.field input[type="file"]::-webkit-file-upload-button:hover {
+  background: #a10b3e;
+}
+
+.field input[type="checkbox"] {
+    width: auto !important;
+    display: inline-block;
+    margin-right: 8px;
+}
+/* Bloque de consentimiento: checkbox + texto */
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.consent .form-check-input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+  /* opcional: color del check */
+  accent-color: #840028;
+}
+
+.consent .form-check-label {
+  position: static;   /* MUY importante: nada de absolute aquí */
+  transform: none;
+  background: transparent;
+  padding: 0;
+  line-height: 1.4;
+}
+
+/* Botón corporativo */
+.btn-alt {
+  align-self: center;
+  width: 100%;
+  max-width: 280px;
+  padding: 14px;
+  background: #840028;
+  color: #fff;
+  font-size: 16px;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(132,0,40,0.3);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.btn-alt:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(132,0,40,0.4);
+}
+
+/* Animación de entrada */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsivo */
+@media (max-width: 576px) {
+  .right-section-alt {
+    padding: 20px 10px;
+  }
+  .form-header-alt {
+    padding: 16px 20px;
+  }
+  .alt-form {
+    padding: 24px 20px 32px;
+  }
+}  
+
+/* Animaciones */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-50%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(50%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Responsividad */
+@media screen and (max-width: 768px) {
+  .main-container {
+    flex-direction: column;
+  }
+
+  .overlay {
+    width: 90%;
+    padding: 30px;
+  }
+
+  .form-container {
+    padding: 20px;
+    width: 100%;
+  }
+}
+@keyframes gradientMove {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 15, 15, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.popup-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 30px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.spinner {
+  border: 4px solid #eee;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  margin: 20px auto;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.popup-close {
+  background: #840028;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  margin-top: 20px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.popup-close:hover {
+  background: #7A3E49;
+}
+/* Popup personalizado */
+.popup-logo {
+  max-width: 140px;
+  display: block;
+  margin: 0 auto 20px auto;
+}
+
+.popup-title {
+  margin: 0;
+  font-size: 1.4rem;
+  text-align: center;
+  color: #222;
+}
+
+.popup-text {
+  margin-top: 15px;
+  line-height: 1.6;
+  text-align: center;
+  color: #444;
+}
+
+

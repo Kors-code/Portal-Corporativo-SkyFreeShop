@@ -1,0 +1,110 @@
+/* ==== Reset y Fuente Base ==== */
+body {
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    background-color: #f0f2f5;
+    color: #333;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.6s ease-in-out;
+}
+
+/* ==== Animación de Entrada General ==== */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==== Contenedor Formulario ==== */
+.container {
+    width: 100%;
+    max-width: 500px;
+    background: #ffffff;
+    padding: 40px 30px;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    animation: fadeIn 1s ease-in-out;
+    position: relative;
+}
+
+/* ==== Título del Formulario ==== */
+h1 {
+    text-align: center;
+    color: #840028;
+    margin-bottom: 30px;
+    font-size: 28px;
+    position: relative;
+}
+
+/* ==== Campo con Etiqueta flotante ==== */
+.form-group {
+    position: relative;
+    margin-bottom: 25px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 14px 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 16px;
+    outline: none;
+    transition: all 0.3s ease;
+    background-color: #fff;
+}
+
+.form-group input:focus {
+    border-color: #840028;
+    box-shadow: 0 0 0 4px rgba(132, 0, 40, 0.1);
+}
+
+.form-group label {
+    position: absolute;
+    left: 12px;
+    top: 14px;
+    color: #666;
+    font-size: 15px;
+    pointer-events: none;
+    background: #fff;
+    padding: 0 5px;
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus + label,
+.form-group input:not(:placeholder-shown) + label {
+    top: -9px;
+    left: 10px;
+    font-size: 13px;
+    color: #840028;
+}
+
+/* ==== Botón Profesional ==== */
+button[type="submit"] {
+    width: 100%;
+    background: linear-gradient(135deg, #840028, #5a001c);
+    color: white;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.3s ease;
+}
+
+button[type="submit"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(132, 0, 40, 0.3);
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 600px) {
+    .container {
+        padding: 30px 20px;
+    }
+}

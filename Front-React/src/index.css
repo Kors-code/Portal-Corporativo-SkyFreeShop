@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #840028;
+}
+
+.bg-primary {
+  background-color: var(--color-primary);
+}
+
+.text-primary {
+  color: var(--color-primary);
+}
+
+
+/* ----- Enhancements (append to index.css) ----- */
+
+/* smooth page transitions */
+html { scroll-behavior: smooth; }
+
+/* focus visible */
+:focus { outline: none; }
+:focus-visible { outline: 3px solid rgba(132,0,40,0.18); outline-offset: 2px; }
+
+/* subtle backdrop on hover for module card */
+.group-hover\:translate-y--1 { transform: translateY(-4px); }
+
+/* small utility for primary translucency used in components */
+.bg-primary\/10 { background-color: rgba(132,0,40,0.10); }
+.bg-primary\/5 { background-color: rgba(132,0,40,0.05); }
+
+/* mobile panel transition guard (already Tailwind but safe) */
+@media (max-width: 767px) {
+  header ~ div[role="mobile-panel"] {
+    transition: max-height .28s ease, opacity .2s ease;
+  }
+}

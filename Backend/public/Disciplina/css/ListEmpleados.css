@@ -1,0 +1,151 @@
+/* === Estilos principales === */
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #f5f6fa;
+  color: #333;
+  margin: 0;
+  padding: 20px;
+}
+
+h1 {
+  color: #840028;
+  margin-bottom: 20px;
+  font-size: 28px;
+  text-align: center;
+}
+
+/* === Formularios === */
+.filter-form, .export-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.filter-form label, .export-form label {
+  font-weight: 600;
+  margin-right: 5px;
+}
+
+.filter-form input[type="date"],
+.filter-form input[type="text"],
+.filter-form select {
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
+.btn-primary, .btn-secondary {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-weight: bold;
+}
+
+.btn-primary {
+  background: #840028;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #a10034;
+}
+
+.btn-secondary {
+  background: #f2f2f2;
+  color: #333;
+}
+
+.btn-secondary:hover {
+  background: #e0e0e0;
+}
+
+/* === Tabla === */
+.empleados-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.empleados-table th {
+  background: #840028;
+  color: #fff;
+  text-align: left;
+  padding: 10px;
+}
+
+.empleados-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.empleados-table tr:hover {
+  background: #f9f9f9;
+}
+
+/* === Sin resultados === */
+.no-results {
+  text-align: center;
+  padding: 20px;
+  background: #fff3f3;
+  color: #840028;
+  border-radius: 8px;
+  font-weight: bold;
+}
+
+/* Ocultar lista de cards en escritorio */
+.card-list {
+  display: none;
+}
+
+/* === Vista móvil === */
+@media (max-width: 768px) {
+  .empleados-table {
+    display: none;
+  }
+
+  .card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card-item {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    padding: 15px;
+  }
+
+  .card-item strong {
+    color: #840028;
+  }
+
+  .card-item p {
+    margin: 4px 0;
+    font-size: 14px;
+  }
+
+  .link-download {
+    display: inline-block;
+    margin-top: 8px;
+    color: #840028;
+    font-weight: bold;
+    text-decoration: none;
+  }
+
+  .link-download:hover {
+    text-decoration: underline;
+  }
+}

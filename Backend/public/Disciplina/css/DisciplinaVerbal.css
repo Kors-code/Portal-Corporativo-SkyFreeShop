@@ -1,0 +1,307 @@
+ /* ---------- Variables (tema claro con acento vino) ---------- */
+  :root{
+    --primary: #840028;        /* vino */
+    --primary-dark: #6b0021;
+    --bg: #ffffff;             /* fondo general */
+    --page-bg: #fafafa;        /* fondo tarjetas */
+    --card-bg: #ffffff;
+    --muted: #6b0021;          /* texto secundario (vino oscuro) */
+    --text: #2b2b2b;           /* texto principal (oscuro) */
+    --input-bg: #fff5f8;       /* input rosa suave */
+    --input-border: #d7aab0;   /* borde suave */
+    --radius: 10px;
+    --shadow: 0 6px 20px rgba(0,0,0,0.06);
+  }
+
+  /* ALERTAS - simple y elegante */
+.alert {
+  position: fixed;
+  right: 18px;
+  top: 18px;
+  z-index: 9999;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  font-weight:600;
+}
+.alert.success { background: linear-gradient(90deg, #eaf9f1, #ffffff); border: 1px solid #bfe8d0; color: #085f33; }
+.alert.error { background: linear-gradient(90deg,#fff6f6,#fff); border:1px solid #f2b3b3; color:#8a1b1b; }
+.alert .close {
+  margin-left:auto;
+  background:transparent;border:0;font-size:18px;cursor:pointer;color:inherit;font-weight:700;
+}
+
+/* error debajo de inputs */
+.field-error { color:#8a1b1b; font-size:13px; margin-top:6px; }
+
+/* box general de errores (lista) */
+.error-list {
+  position: fixed;
+  left: 18px;
+  top: 18px;
+  z-index: 9999;
+  background: #fff6f6;
+  border: 1px solid #f2b3b3;
+  color: #8a1b1b;
+  padding: 12px 14px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+}
+
+  /* ---------- Reset ligero ---------- */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    padding:16px;
+    line-height:1.35;
+    font-size:15px;
+  }
+
+  .wrap{max-width:1200px;margin:0 auto;padding-bottom:40px}
+
+  /* ---------- Header ---------- */
+  header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .logo{
+    width:56px;height:56px;border-radius:12px;
+    background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:white;font-size:18px;
+    box-shadow:0 8px 22px rgba(132,0,40,0.12)
+  }
+  .brand h1{font-size:20px;color:var(--primary);margin-bottom:4px}
+  .brand p{color:var(--muted);font-size:13px;margin:0}
+
+  /* ---------- Card ---------- */
+  .card{
+    background:var(--card-bg);
+    border-radius:14px;
+    padding:18px;
+    border:1px solid rgba(0,0,0,0.04);
+    box-shadow:var(--shadow);
+  }
+
+  /* ---------- Grid responsive ---------- */
+  form.grid{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap:18px;
+  }
+
+  @media (min-width: 900px){
+    form.grid{grid-template-columns: 1fr 360px;gap:22px}
+  }
+
+  /* ---------- Fields ---------- */
+  .field{margin-bottom:12px}
+  label{display:block;color:var(--muted);font-size:13px;margin-bottom:8px;font-weight:600}
+  input[type="text"], input[type="date"], input[type="time"], textarea, select {
+    width:100%;
+    padding:11px 14px;
+    border-radius:var(--radius);
+    background:var(--input-bg);
+    border:1px solid var(--input-border);
+    color:var(--primary-dark);
+    font-size:15px;
+    outline:none;
+    transition: all .18s ease;
+    -webkit-appearance: none; /* quita estilos nativos */
+  }
+
+  /* placeholder */
+  input::placeholder, textarea::placeholder { color: #b59aa0 }
+  select::placeholder { color: #b59aa0 }
+
+  /* focus */
+  input:focus, textarea:focus, select:focus {
+    background: #ffffff;
+    border-color: var(--primary);
+    box-shadow: 0 6px 18px rgba(132,0,40,0.08);
+  }
+
+  /* readonly inputs slightly muted but readable */
+  input[readonly], textarea[readonly] {
+    background: #fffafc;
+    color: var(--primary-dark);
+    opacity: 1;
+  }
+
+  textarea { min-height:140px; resize:vertical }
+
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1;min-width:140px}
+  .w180{width:180px;min-width:120px}
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;
+    background:linear-gradient(90deg,var(--primary),var(--primary-dark));
+    color:#fff;border:none;cursor:pointer;font-weight:700;
+    box-shadow:0 6px 18px rgba(132,0,40,0.12);
+  }
+  .btn.secondary{
+    background:transparent;
+    border:1px solid rgba(132,0,40,0.08);
+    color:var(--primary);
+    font-weight:600;
+  }
+  .small{font-size:13px;color:var(--muted)}
+
+  /* ---------- Separators & misc ---------- */
+  hr.sep{border:none;height:1px;background:linear-gradient(90deg,transparent, rgba(0,0,0,0.06), transparent);margin:12px 0;border-radius:4px}
+  .form-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px}
+
+.sign-row{display:flex;gap:10px;flex-wrap:wrap} .sign-box{flex:1;min-width:180px;background:rgba(255,255,255,0.01);padding:10px;border-radius:10px;border:1px dashed rgba(255,255,255,0.03)} .sign-box img{max-width:100%;height:auto;border-radius:6px;display:block}
+  .spinner{display:inline-block;width:18px;height:18px;border-radius:50%;border:2px solid rgba(0,0,0,0.08);border-top-color:var(--primary);animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- Select-search dropdown ---------- */
+  .select-search{
+      position:relative;
+      width:100%;
+      z-index: 1;
+    }
+  .select-search input{background:var(--input-bg); color:var(--primary-dark)}
+  .dropdown{
+    position:absolute;left:0;right:0;top:calc(100% + 8px);
+    max-height:260px;overflow:auto;background:#fff;border:1px solid rgba(0,0,0,0.06);
+    border-radius:10px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,0.06);z-index:40;display:none;
+  }
+  .dropdown div{padding:10px;border-radius:8px;cursor:pointer;color:var(--text)}
+  .dropdown div:hover{background:#f7f5f6}
+
+  /* ---------- Small screens ---------- */
+  @media (max-width:420px){
+    body{padding:10px;font-size:14px}
+    .logo{width:44px;height:44px}
+    .w180{width:140px}
+    .btn{padding:9px 12px}
+    .card{padding:12px}
+  }
+
+  /* helper: force inputs inside this form to use our palette (high specificity) */
+  .card form input, .card form textarea, .card form select {
+    background: var(--input-bg) !important;
+    color: var(--primary-dark) !important;
+    border: 1px solid var(--input-border) !important;
+  }
+/* ---------------------------
+   Clases que reemplazan inline styles
+   --------------------------- */
+
+.alert-content { flex: 1; }
+
+.small-note {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: inherit;
+}
+
+/* ocultar (sin !important para que JS pueda usar style.display si lo hace) */
+.hidden { display: none; }
+
+/* Errores list */
+.errors-ul { margin: 8px 0 0 18px; padding: 0; list-style: disc; }
+.errors-footer { text-align: right; margin-top: 8px; }
+
+/* Botón pequeño (cerrar errores) */
+.btn-small { padding: 6px 10px; }
+
+/* Header inline -> ahora clase */
+.header-row {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ya existía .year en tu CSS base; si no existe, esta mantiene el estilo original */
+.year { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+/* utilidades para filas */
+.items-end { align-items: flex-end; }
+.input-row { display: flex; gap: 8px; align-items: center; }
+.flex-1 { flex: 1; }
+
+/* loader pequeño */
+.loader {
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* estilo contador */
+.contador { text-align: right; margin-top: 6px; }
+
+/* títulos con color primario y márgenes */
+.h3-primary { color: var(--primary); margin: 0 0 10px 0; }
+.h4-primary { color: var(--primary); margin: 0 0 10px 0; }
+
+/* sign boxes: la fila superior con botones */
+.sign-top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sign-actions { display: flex; gap: 8px; }
+
+/* imagen de firma inicialmente oculta */
+.hidden-img { display: none; }
+
+/* margen superior usado varias veces */
+.mt-2 { margin-top: 8px; }
+
+/* acciones del formulario (botones agrupados) */
+.form-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Modal de firma - reemplaza el inline del modal principal */
+.modal-firma {
+  display: none; /* estado inicial */
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex; /* para centrar contenido */
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+/* interior del modal */
+.modal-inner {
+  background: #fff;
+  padding: 14px;
+  border-radius: 10px;
+  max-width: 720px;
+  width: 94%;
+  text-align: center;
+}
+
+/* título modal */
+.modal-title { color: var(--primary); margin-bottom: 10px; }
+
+/* canvas estilo */
+.canvas-style {
+  border: 2px solid rgba(132,0,40,0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+/* contenedor botones modal */
+.modal-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* al final del archivo, asegurar que hidden vence a modal-firma */
+.modal-firma.hidden {
+  display: none;
+}
