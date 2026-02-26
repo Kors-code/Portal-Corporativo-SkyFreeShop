@@ -24,3 +24,7 @@ export async function updateBudget(id: number, payload: Partial<Budget>) {
 export async function deleteBudget(id: number) {
   return api.delete(`/budgets/${id}`);
 }
+export const closeBudget = async (id: number) => {
+  const { data } = await api.post(`/budgets/${id}/close`);
+  return data;
+};

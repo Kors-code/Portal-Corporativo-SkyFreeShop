@@ -1,11 +1,13 @@
-import  { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../../../api/axios';
 
 function moneyUSD(v: any): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+  const val = Number(v ?? 0);
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 }
 function moneyCOP(v: any): string {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v || 0));
+  const val = Number(v ?? 0);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val);
 }
 
 function getField(obj: any, ...keys: string[]): any {
@@ -15,8 +17,6 @@ function getField(obj: any, ...keys: string[]): any {
   }
   return undefined;
 }
-
-
 
 interface BudgetItem {
   id: number;
@@ -36,19 +36,18 @@ interface ReportData {
   period: any;
 }
 
-
+type SortDir = 'asc' | 'desc';
 
 export default function CommisionCashierUsers() {
   const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<ReportData | null>(null); // normalized report
-  const [view, setView] = useState<'table' | 'cards'>('table'); // 'table' | 'cards'
+  const [report, setReport] = useState<ReportData | null>(null);
+  const [view, setView] = useState<'table' | 'cards'>('table');
   const [selectedRow, setSelectedRow] = useState<any>(null);
   const [budgets, setBudgets] = useState<BudgetItem[]>([]);
   const [budgetId, setBudgetId] = useState<number | null>(null);
 
-  // prize editing
-
-
+  // sorting: only by ventas_usd
+  const [sortDir, setSortDir] = useState<SortDir>('desc'); // default: mayor a menor
 
   // cargar presupuestos
   useEffect(() => {
@@ -60,7 +59,6 @@ export default function CommisionCashierUsers() {
         setBudgets(list);
         if (list.length && !budgetId) {
           setBudgetId(list[0].id);
-          // set draft from first budget if available
         }
       })
       .catch(err => console.error('Error loading budgets', err));
@@ -68,11 +66,8 @@ export default function CommisionCashierUsers() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-
-  // cuando cambia budgetId, sincronizar draft con el budget seleccionado
   useEffect(() => {
     if (!budgetId) return;
-    // fetch report
     loadReport(budgetId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [budgetId, budgets]);
@@ -84,11 +79,10 @@ export default function CommisionCashierUsers() {
       const res = await api.get('/reports/cashier-awards', { params: { budget_id: bid } });
       const d = res.data || {};
 
-      // normalizar campos (maneja español/inglés/variantes)
       const totalVentas = getField(d, 'total_ventas', 'totalVentas', 'total_ventas_usd', 'totalSalesUsd') ?? 0;
-      const prizeAt120 = getField(d, 'prize_at_120', 'prizeAt120', 'prize_at_120', 'premio_base', 'prize_at_120') ?? getField(d, 'premio_base');
-      const prizeApplied = getField(d, 'prize_applied', 'prizeApplied', 'prize_aplicado', 'premio_aplicado') ?? 0;
-      const cumplimiento = getField(d, 'cumplimiento', 'cumplimiento', 'cumpliment', 'compliance') ?? 0;
+      const prizeAt120 = getField(d, 'prize_at_120', 'prizeAt120', 'premio_base') ?? 0;
+      const prizeApplied = getField(d, 'prize_applied', 'prizeApplied', 'premio_aplicado') ?? 0;
+      const cumplimiento = getField(d, 'cumplimiento', 'compliance') ?? 0;
       const rows = d.rows || d.data || [];
 
       setReport({
@@ -110,6 +104,28 @@ export default function CommisionCashierUsers() {
 
   const rows = report?.rows || [];
 
+  // Sorted only by ventas_usd (asc/desc)
+  const sortedRows = useMemo(() => {
+    if (!rows || rows.length === 0) return [];
+
+    const mapped = rows.map((r: any) => ({
+      ...r,
+      __ventas_usd: Number(getField(r, 'ventas_usd', 'ventasUSD', 'sales_usd', 'salesUsd') ?? r.ventas_usd ?? 0),
+      __pct: Number(getField(r, 'pct', 'participation_pct', 'participacion', 'participation') ?? r.pct ?? 0),
+      __premiacion: Number(getField(r, 'premiacion', 'premiation', 'prize', 'premio') ?? r.premiacion ?? r.premio ?? 0)
+    }));
+
+    const sorted = mapped.sort((a: any, b: any) => {
+      const av = a.__ventas_usd;
+      const bv = b.__ventas_usd;
+      if (av === bv) return 0;
+      const cmp = av > bv ? 1 : -1;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return sorted;
+  }, [rows, sortDir]);
+
   const totals = useMemo(() => {
     if (!report) return { total_ventas: 0, premio_total: 0, cumplimiento: 0 };
     return {
@@ -119,43 +135,36 @@ export default function CommisionCashierUsers() {
     };
   }, [report]);
 
-
-
+  function toggleSortVentas() {
+    setSortDir(prev => (prev === 'desc' ? 'asc' : 'desc'));
+  }
 
   async function downloadExcel(): Promise<void> {
-  if (!budgetId) {
-    alert('Selecciona un presupuesto');
-    return;
-  }
+    if (!budgetId) {
+      alert('Selecciona un presupuesto');
+      return;
+    }
 
-  try {
-    const res = await api.get(
-      '/reports/cashier-awards/export',
-      {
+    try {
+      const res = await api.get('/reports/cashier-awards/export', {
         params: { budget_id: budgetId },
         responseType: 'blob'
-      }
-    );
+      });
 
-    const blob = new Blob(
-      [res.data],
-      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-    );
-
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cashier_awards_budget_${budgetId}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (e) {
-    console.error(e);
-    alert('Error descargando Excel');
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cashier_awards_budget_${budgetId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert('Error descargando Excel');
+    }
   }
-}
-
 
   if (loading) return (
     <div className="p-6">
@@ -169,19 +178,20 @@ export default function CommisionCashierUsers() {
     </div>
   );
 
+  const ventasArrow = sortDir === 'desc' ? '▼' : '▲';
+
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
-                  <button
-                    onClick={() => window.location.href = 'https://skyfreeshopdutyfree.com/welcome'}
-                    className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm font-medium"
-                  >
-                    ← Volver
-                  </button>
+          <button
+            onClick={() => window.location.href = 'https://skyfreeshopdutyfree.com/welcome'}
+            className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm font-medium"
+          >
+            ← Volver
+          </button>
 
-
-          <h2 className="text-lg sm:text-2xl font-bold text-red-700">
+          <h2 className="text-lg sm:text-2xl font-bold text-red-700 mt-3">
             CAJEROS — Comisiones
           </h2>
           <div className="text-sm text-gray-500 mt-1">Premiación por cajero — presupuesto seleccionado</div>
@@ -202,8 +212,6 @@ export default function CommisionCashierUsers() {
               ))}
             </select>
           </div>
-
-
         </div>
 
         <div className="flex items-center gap-2">
@@ -242,42 +250,46 @@ export default function CommisionCashierUsers() {
             >
               Cards
             </button>
-            
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <button
-  onClick={downloadExcel}
-  className="px-3 py-1 rounded text-sm bg-green-600 text-white hover:bg-green-700"
->
-  Exportar Excel
-</button>
+      <div className="mb-4">
+        <button
+          onClick={downloadExcel}
+          className="px-3 py-1 rounded text-sm bg-green-600 text-white hover:bg-green-700"
+        >
+          Exportar Excel
+        </button>
+      </div>
 
       {view === 'table' ? (
         <div className="bg-white rounded-lg shadow overflow-x-auto">
-
           <table className="w-full text-sm">
             <thead className="bg-red-700 text-white">
               <tr>
                 <th className="p-3 text-left">Cajero</th>
-                <th className="p-3 text-right">Ventas USD</th>
+                <th className="p-3 text-right cursor-pointer" onClick={toggleSortVentas}>
+                  <div className="flex items-center justify-end gap-2">
+                    <span>Ventas USD</span>
+                    <span className="text-xs">{ventasArrow}</span>
+                  </div>
+                </th>
                 <th className="p-3 text-right">% Participación</th>
                 <th className="p-3 text-right">Total Premiación</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r: any, i: number) => (
+              {sortedRows.map((r: any, i: number) => (
                 <tr
                   key={i}
                   className="border-t hover:bg-slate-50 cursor-pointer"
                   onClick={() => setSelectedRow(r)}
                 >
-                  <td className="p-3">{r.nombre}</td>
-                  <td className="p-3 text-right text-green-700">{moneyUSD(r.ventas_usd)}</td>
-                  <td className="p-3 text-right">{Number(r.pct || 0).toFixed(2)}%</td>
-                  <td className="p-3 text-right font-semibold">{moneyUSD(r.premiacion)}</td>
+                  <td className="p-3">{r.nombre ?? r.name ?? '—'}</td>
+                  <td className="p-3 text-right text-green-700">{moneyUSD(r.__ventas_usd)}</td>
+                  <td className="p-3 text-right">{Number(r.__pct ?? r.pct ?? 0).toFixed(2)}%</td>
+                  <td className="p-3 text-right font-semibold">{moneyUSD(r.__premiacion)}</td>
                 </tr>
               ))}
             </tbody>
@@ -296,7 +308,7 @@ export default function CommisionCashierUsers() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rows.map((r: any, i: number) => (
+          {sortedRows.map((r: any, i: number) => (
             <article
               key={i}
               className="bg-white rounded-xl shadow p-4 hover:shadow-xl transform hover:-translate-y-1 transition cursor-pointer"
@@ -305,18 +317,18 @@ export default function CommisionCashierUsers() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm text-gray-500">Cajero</div>
-                  <div className="font-semibold text-slate-800">{r.nombre}</div>
+                  <div className="font-semibold text-slate-800">{r.nombre ?? r.name ?? '—'}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs text-gray-400">Premiación</div>
-                  <div className="font-bold text-lg text-red-700">{moneyUSD(r.premiacion)}</div>
-                  <div className="text-xs text-gray-500 mt-1">{Number(r.pct||0).toFixed(2)}%</div>
+                  <div className="font-bold text-lg text-red-700">{moneyUSD(r.__premiacion)}</div>
+                  <div className="text-xs text-gray-500 mt-1">{Number(r.__pct ?? r.pct ?? 0).toFixed(2)}%</div>
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <div className="text-gray-500">Ventas</div>
-                <div className="text-right font-medium text-green-700">{moneyUSD(r.ventas_usd)}</div>
+                <div className="text-right font-medium text-green-700">{moneyUSD(r.__ventas_usd)}</div>
 
                 <div className="text-gray-500">Meta / Tope</div>
                 <div className="text-right">{r.meta ? moneyUSD(r.meta) : '—'}</div>
@@ -373,14 +385,12 @@ function CashierCategoryModal({ selectedRow, budgetId, onClose }: CashierCategor
   const cashierId = selectedRow?.user_id ?? selectedRow?.id ?? selectedRow?.uid ?? selectedRow?.user?.id ?? null;
 
   useEffect(() => {
-    // bloquear scroll
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
 
-    // fetch
     async function load() {
       if (!cashierId) {
         setError('No se encontró identificador del cajero en la fila seleccionada.');
@@ -432,9 +442,7 @@ function CashierCategoryModal({ selectedRow, budgetId, onClose }: CashierCategor
           </div>
           <div className="text-sm text-gray-600 mr-4 space-y-1 text-right">
             <div>Ventas: <b>{moneyUSD(meta.totalUsd)}</b></div>
-            <div className="font-semibold text-green-700">
-              Tickets: {meta.tickets}
-            </div>
+            <div className="font-semibold text-green-700">Tickets: {meta.tickets}</div>
           </div>
         </div>
 
@@ -462,7 +470,7 @@ function CashierCategoryModal({ selectedRow, budgetId, onClose }: CashierCategor
                       <td className="p-2">{c.classification || c.category || 'Sin categoría'}</td>
                       <td className="p-2 text-right">{moneyUSD(c.sales_usd)}</td>
                       <td className="p-2 text-right">{moneyCOP(c.sales_cop)}</td>
-                      <td className="p-2 text-right">{(Number(c.pct_of_total || c.pct || 0)).toFixed(2)}%</td>
+                      <td className="p-2 text-right">{(Number(c.pct_of_total ?? c.pct ?? 0)).toFixed(2)}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -471,7 +479,7 @@ function CashierCategoryModal({ selectedRow, budgetId, onClose }: CashierCategor
                   <tr>
                     <td className="p-2">Total</td>
                     <td className="p-2 text-right">{moneyUSD(meta.totalUsd)}</td>
-                    <td className="p-2 text-right">{moneyCOP(meta.totalCop || 0)}</td>
+                    <td className="p-2 text-right">{moneyCOP(meta.totalCop ?? 0)}</td>
                     <td className="p-2 text-right">100%</td>
                   </tr>
                 </tfoot>

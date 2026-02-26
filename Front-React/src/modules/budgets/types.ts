@@ -10,4 +10,6 @@ export type Budget = {
   amount?: number;
   start?: string;
   end?: string;
+  is_closed?: boolean;
+closed_at?: string | null;
 };

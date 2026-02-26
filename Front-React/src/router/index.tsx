@@ -15,11 +15,15 @@ import UsersManager from "../modules/users/pages/UsersManager";
 import ImportCatalog from "../modules/imports/pages/importCatalog";
 import CatalogMatchPage from "../modules/WishList/pages/WishList";
 import AdminWishList from "../modules/WishList/pages/AdminWishList";
+import AdvisorSplitByCategory from "../modules/commissions/pages/AdvisorSplitByCategory";
+import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmin";
 
 
 
 
 export default function AppRouter() {
+  // Pass userId as a prop - replace with actual user ID from context or auth
+  
   return (
     <BrowserRouter basename="/panel">
 
@@ -48,6 +52,10 @@ export default function AppRouter() {
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />
+          <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
+          <Route path="/commissions/DualCommissionAdmin" element={<DualCommissionAdmin advisorAId={0} advisorBId={0} budgetIds={[]} onClose={function (): void {
+            throw new Error("Function not implemented.");
+          } }  />} />
         </Route>
       </Routes>
     </BrowserRouter>

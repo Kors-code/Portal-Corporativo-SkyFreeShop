@@ -279,7 +279,7 @@ async function loadSellers() {
 
       <header className="mb-4">
         <h1 className="text-xl sm:text-2xl font-bold text-center text-[#840028]">Wish List & Denied</h1>
-        <p className="text-xs text-gray-500 mt-1 text-center">Selecciona un item y presiona "Enviar (+1)". Evita envío repetido por 30s.</p>
+        <p className="text-xs text-gray-500 mt-1 text-center">Selecciona un item y presiona "Enviar (+1)". Evita envío repetido por 10s.</p>
       </header>
       {(
   currentUser?.role === 'super_admin' ||

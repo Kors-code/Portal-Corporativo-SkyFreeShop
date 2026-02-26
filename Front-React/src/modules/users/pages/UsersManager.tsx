@@ -5,11 +5,12 @@ type ManagedUser = {
   id: number;
   name: string;
   email: string;
+  username: string;
   seller_code?: string | null;
-  role: string; // ahora es string
+  role: string;
 };
 
-const ALLOWED_ROLES = ['seller','cashier','adminpresupuesto'];
+const ALLOWED_ROLES = ['seller','cashier','adminpresupuesto','lider'];
 
 export default function UsersManager() {
   const [loading, setLoading] = useState(true);
@@ -28,6 +29,7 @@ export default function UsersManager() {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
     seller_code: '',
     role: ALLOWED_ROLES[0],
@@ -38,23 +40,30 @@ export default function UsersManager() {
     // eslint-disable-next-line
   }, [page]);
 
+  function normalizeUser(u: any): ManagedUser {
+    return {
+      id: Number(u.id),
+      name: u.name ?? '',
+      email: u.email ?? '',
+      username: u.username ?? '',
+      seller_code: u.seller_code ?? null,
+      role: u.role ?? (u.roles ? (Array.isArray(u.roles) ? u.roles[0] : u.roles) : ''),
+    };
+  }
+
   async function loadUsers() {
     setLoading(true);
     try {
       const res = await api.get('/manage/users', {
         params: { search, page, per_page: perPage }
       });
-      const data = res.data;
-      // adapt to paginated or plain array
-      const list = data?.data ? data.data : (Array.isArray(data) ? data : data.items || []);
-      // normalize role field if backend returns differently
-      const normalized = list.map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        seller_code: u.seller_code ?? u.username ?? null,
-        role: u.role ?? (u.roles ? (Array.isArray(u.roles) ? u.roles[0] : u.roles) : ''),
-      })) as ManagedUser[];
+      const resData = res.data;
+
+      // lista robusta: soporta { data: [...] } (paginado) o array simple
+      const list = resData?.data ?? (Array.isArray(resData) ? resData : []);
+      // console.log('raw users list', list);
+
+      const normalized = (list as any[]).map(u => normalizeUser(u));
       setUsers(normalized);
     } catch (e) {
       console.error('Error loading users', e);
@@ -66,7 +75,7 @@ export default function UsersManager() {
 
   function openCreate() {
     setEditingUser(null);
-    setForm({ name:'', email:'', password:'', seller_code:'', role: ALLOWED_ROLES[0] });
+    setForm({ name:'', email:'', username:'', password:'', seller_code:'', role: ALLOWED_ROLES[0] });
     setErrors({});
     setMessage(null);
     setShowModal(true);
@@ -77,6 +86,7 @@ export default function UsersManager() {
     setForm({
       name: u.name || '',
       email: u.email || '',
+      username: u.username || '',
       password: '',
       seller_code: u.seller_code || '',
       role: u.role || ALLOWED_ROLES[0],
@@ -102,13 +112,15 @@ export default function UsersManager() {
         const payload: any = {
           name: form.name,
           email: form.email,
+          username: form.username,
           seller_code: form.seller_code,
           role: form.role,
         };
         if (form.password) payload.password = form.password;
 
         const res = await api.put(`/manage/users/${editingUser.id}`, payload);
-        const updated = res.data.user ?? { ...editingUser, ...payload };
+        const rawUpdated = res.data?.user ?? res.data ?? payload;
+        const updated = normalizeUser(rawUpdated);
 
         setUsers(prev => prev.map(u => u.id === editingUser.id ? updated : u));
         setMessage('Usuario actualizado correctamente.');
@@ -117,13 +129,15 @@ export default function UsersManager() {
         const payload = {
           name: form.name,
           email: form.email,
+          username: form.username,
           password: form.password,
           seller_code: form.seller_code,
           role: form.role
         };
         const res = await api.post('/manage/users', payload);
-        const newUser = res.data.user ?? null;
-        if (newUser) {
+        const rawNew = res.data?.user ?? res.data ?? null;
+        if (rawNew) {
+          const newUser = normalizeUser(rawNew);
           setUsers(prev => [newUser, ...prev]);
         }
         setMessage('Usuario creado correctamente.');
@@ -132,7 +146,6 @@ export default function UsersManager() {
       setShowModal(false);
     } catch (err: any) {
       console.error(err);
-      // Laravel returns validation errors in err.response.data.errors
       const resp = err?.response?.data;
       if (resp && resp.errors) {
         setErrors(resp.errors);
@@ -143,6 +156,20 @@ export default function UsersManager() {
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function deleteUser(id: number) {
+    const confirmDelete = window.confirm('¿Seguro que deseas eliminar este usuario?');
+    if (!confirmDelete) return;
+
+    try {
+      await api.delete(`/manage/users/${id}`);
+      setUsers(prev => prev.filter(u => u.id !== id));
+      setMessage('Usuario eliminado correctamente.');
+    } catch (err) {
+      console.error(err);
+      alert('Error eliminando usuario');
     }
   }
 
@@ -175,6 +202,7 @@ export default function UsersManager() {
             <tr>
               <th className="p-3 text-left">Nombre</th>
               <th className="p-3 text-left">Email</th>
+              <th className="p-3 text-left">Username</th>
               <th className="p-3 text-left">Seller code</th>
               <th className="p-3 text-left">Rol</th>
               <th className="p-3 text-right">Acciones</th>
@@ -182,13 +210,14 @@ export default function UsersManager() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="p-4 text-center text-gray-500">Cargando…</td></tr>
+              <tr><td colSpan={6} className="p-4 text-center text-gray-500">Cargando…</td></tr>
             ) : users.length === 0 ? (
-              <tr><td colSpan={5} className="p-4 text-center text-gray-500">No hay usuarios</td></tr>
+              <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay usuarios</td></tr>
             ) : users.map((u) => (
               <tr key={u.id} className="border-t hover:bg-slate-50">
                 <td className="p-3">{u.name}</td>
                 <td className="p-3">{u.email}</td>
+                <td className="p-3">{u.username || '—'}</td>
                 <td className="p-3">{u.seller_code || '—'}</td>
                 <td className="p-3">
                   <span className={
@@ -196,12 +225,25 @@ export default function UsersManager() {
                       u.role === 'seller' ? 'bg-blue-100 text-blue-800' :
                       u.role === 'cashier' ? 'bg-green-100 text-green-800' :
                       u.role === 'adminpresupuesto' ? 'bg-yellow-100 text-yellow-800' :
+                      u.role === 'lider' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-gray-100 text-gray-700'
                     }`
                   }>{u.role}</span>
                 </td>
-                <td className="p-3 text-right">
-                  <button onClick={()=>openEdit(u)} className="px-3 py-1 bg-blue-600 text-white rounded">Editar</button>
+                <td className="p-3 text-right space-x-2">
+                  <button
+                    onClick={()=>openEdit(u)}
+                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Editar
+                  </button>
+
+                  <button
+                    onClick={()=>deleteUser(u.id)}
+                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    Eliminar
+                  </button>
                 </td>
               </tr>
             ))}
@@ -237,6 +279,16 @@ export default function UsersManager() {
                 onChange={(e)=>setField('email', e.target.value)}
                 />
               {errors.email && <div className="text-xs text-red-600 mt-1">{errors.email[0]}</div>}
+            </label>
+
+            <label className="block text-sm mt-3">
+              Usuario (username)
+              <input
+                className="w-full border px-3 py-2 mt-1 rounded"
+                value={form.username}
+                onChange={(e)=>setField('username', e.target.value)}
+              />
+              {errors.username && <div className="text-xs text-red-600 mt-1">{errors.username[0]}</div>}
             </label>
 
             <label className="block text-sm mt-3">

@@ -23,7 +23,10 @@ type SaleRow = {
 
   // clave única generada en frontend (fallback si no hay id)
   rowKey?: string;
+  
 };
+
+
 
 export default function CommissionDetailModal({
   userId,
@@ -60,6 +63,14 @@ export default function CommissionDetailModal({
 
   // Guardar una representación string de budgetIds en el effect deps para detectar cambios en order/values
   const budgetIdsKey = (budgetIds || []).join(',');
+// DÍAS LABORADOS
+const [daysWorked, setDaysWorked] = useState<{
+  date: string;
+  tickets_count: number;
+  sales_usd: number;
+  sales_cop: number;
+  lines_count: number;
+}[]>([]);
 
   // Construye query params con budget_ids[]
   const buildBudgetParams = (ids: number[]) => {
@@ -91,6 +102,8 @@ export default function CommissionDetailModal({
       setBudgetInfo(d.budget || null);
       setUserBudgetUsd(d.user_budget_usd ?? 0);
       setUserName(d.user?.name ?? d.seller_name ?? 'Vendedor');
+      // días trabajados
+      setDaysWorked(d.days_worked || []);
 
       // sales: calculamos la comisión provisional en frontend (igual que exportSellerDetail)
       const avgTrm = Number(d.totals?.avg_trm || 0) || 1;
@@ -122,6 +135,7 @@ export default function CommissionDetailModal({
       });
 
       setSales(computedSales);
+
 
       // assigned_turns_for_user llega como agregado (suma) desde backend
       const assigned = Number(d.assigned_turns_for_user ?? 0);
@@ -250,6 +264,8 @@ async function downloadExcel() {
   }
 }
 
+
+
   
 
   /* ================= SALES FILTER ================= */
@@ -265,6 +281,22 @@ async function downloadExcel() {
       return `${s.product} ${s.folio}`.toLowerCase().includes(search.toLowerCase());
     });
   }, [sales, filterCat, search, filterProvider, filterBrand, filterProduct, filterFolios]);
+
+  // ===== MÉTRICAS DERIVADAS =====
+
+const ticketsCount = useMemo(() => {
+  return new Set(sales.map(s => s.folio)).size;
+}, [sales]);
+
+const diasLaboradosCount = useMemo(() => {
+  return daysWorked.length;
+}, [daysWorked]);
+
+const ticketsPorDia = useMemo(() => {
+  if (diasLaboradosCount === 0) return '—';
+  return (ticketsCount / diasLaboradosCount).toFixed(2);
+}, [ticketsCount, diasLaboradosCount]);
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -295,11 +327,37 @@ async function downloadExcel() {
         {/* TURNOS */}
         <div className="bg-white rounded-xl shadow border p-4 mb-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <div className="text-xs text-gray-500">Turnos asignados (suma)</div>
-              <div className="text-lg font-semibold">{assignedTurnsTotal}</div>
-              <div className="text-xs text-gray-400 mt-1">Sumatoria en los presupuestos seleccionados</div>
-            </div>
+            
+
+
+          {/* DÍAS LABORADOS KPI */}
+<div className="bg-white rounded-xl shadow border p-4 mb-8">
+  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-center">
+
+    <div>
+      <div className="text-xs text-gray-500">📅 Días laborados</div>
+      <div className="text-xl font-bold">{diasLaboradosCount}</div>
+    </div>
+
+    <div>
+      <div className="text-xs text-gray-500">🧾 Tickets</div>
+      <div className="text-xl font-bold">{ticketsCount}</div>
+    </div>
+
+    <div>
+      <div className="text-xs text-gray-500">📊 Tickets por día</div>
+      <div className="text-xl font-bold">{ticketsPorDia}</div>
+    </div>
+
+    <div>
+      <div className="text-xs text-gray-500">🕒 Turnos asignados</div>
+      <div className="text-xl font-bold text-indigo-600">
+        {assignedTurnsTotal}
+      </div>
+    </div>
+
+  </div>
+</div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3">
               <div className="text-xs text-gray-500">Editar turnos por presupuesto</div>

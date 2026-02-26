@@ -67,6 +67,17 @@ export default function useBudgets() {
       throw err;
     }
   }, [load, loadActive]);
-
-  return { items, loading, saving, error, activeInfo, load, create, update, remove, setItems };
+const closeBudget = useCallback(async (id: number) => {
+  setSaving(true);
+  try {
+    await svc.closeBudget(id);
+    await load();
+    await loadActive();
+  } catch (err: any) {
+    throw new Error(err.response?.data?.message || 'Error cerrando presupuesto');
+  } finally {
+    setSaving(false);
+  }
+}, [load, loadActive]);
+  return { items, loading, saving, error, activeInfo, load, create, update, remove, setItems, closeBudget };
 }

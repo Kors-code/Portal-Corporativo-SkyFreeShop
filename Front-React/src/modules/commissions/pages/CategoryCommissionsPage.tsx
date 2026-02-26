@@ -1,5 +1,5 @@
 // src/modules/commissions/pages/CategoryCommissionsPage.tsx
-import  { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getCategoriesWithCommission,
@@ -13,7 +13,7 @@ import {
 import type { CategoryWithCommission, Role } from '../types/comissionscategory';
 
 export default function CategoryCommissionsPage() {
-  const [ roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [roleId, setRoleId] = useState<number | null>(null);
 
   const [budgets, setBudgets] = useState<any[]>([]);
@@ -29,13 +29,8 @@ export default function CategoryCommissionsPage() {
   // filas marcadas como modificadas (dirty)
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set());
 
-
-  const test = roles;
-
-  console.log(test)
-
   const normalizeCategoryName = (name: string) => {
-    const n = name.toLowerCase();
+    const n = String(name).toLowerCase();
 
     if (n.includes('frag')) {
       return 'FRAGANCIA';
@@ -44,8 +39,7 @@ export default function CategoryCommissionsPage() {
     return name;
   };
 
-
-  // load roles + budgets on mount
+  // ----- Roles & budgets load -----
   useEffect(() => {
     let mounted = true;
     async function loadMeta() {
@@ -56,6 +50,7 @@ export default function CategoryCommissionsPage() {
         setBudgets(Array.isArray(budgetsData) ? budgetsData : []);
 
         if (Array.isArray(rolesData) && rolesData.length) {
+          // intentar seleccionar un "vendedor" por defecto
           const vendedor = rolesData.find(r =>
             r.name.toLowerCase().includes('vendedor')
           );
@@ -73,6 +68,9 @@ export default function CategoryCommissionsPage() {
     return () => { mounted = false; };
   }, []);
 
+  // lista de roles que consideramos "vendedores" para mostrar arriba
+  const sellerRoles = roles;
+
   // load categories when roleId or budgetId changes
   useEffect(() => {
     if (!roleId) {
@@ -87,9 +85,33 @@ export default function CategoryCommissionsPage() {
     try {
       setLoading(true);
       const res = await getCategoriesWithCommission(rId, bId ?? undefined);
+
       // backend expected to return { categories: [...] } or array directly
       const cats: CategoryWithCommission[] = res?.categories ?? res?.data ?? res ?? [];
-      setItems(Array.isArray(cats) ? cats : []);
+
+      // Si el role seleccionado es el id 2, filtramos solo las categorías indicadas
+      let filtered: CategoryWithCommission[] = Array.isArray(cats) ? cats : [];
+
+      if (rId === 2) {
+        const allowedCodes = new Set(['19','14','15','16','21','13','19.0','14.0','15.0','16.0','21.0','13.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+
+          // permitir por nombre que incluya 'frag' (fragancias)
+          if (nameNormalized.includes('frag')) return true;
+
+          // permitir si el code coincide con alguno de los permitidos
+          if (allowedCodes.has(codeNormalized)) return true;
+
+          // en caso que la API retorne code numérico
+          if (Number(codeNormalized) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+
+          return false;
+        });
+      }
+
+      setItems(filtered);
       setDirtyIds(new Set()); // reset dirty flags on fresh load
     } catch (err) {
       console.error('Error cargando categorias:', err);
@@ -112,19 +134,18 @@ export default function CategoryCommissionsPage() {
   // input handlers
   // cambiamos el tipo del field a string para poder aceptar campos nuevos como 'participation_pct'
   const onChangeField = (categoryId: number, field: string, rawVal: string) => {
-  const val = rawVal === '' ? null : Number(rawVal);
+    const val = rawVal === '' ? null : Number(rawVal);
 
-  setItems(prev =>
-    prev.map(it =>
-      it.category_id === categoryId
-        ? { ...it, [field]: val }
-        : it
-    )
-  );
+    setItems(prev =>
+      prev.map(it =>
+        it.category_id === categoryId
+          ? { ...it, [field]: val }
+          : it
+      )
+    );
 
-  markDirty(categoryId, true);
-};
-
+    markDirty(categoryId, true);
+  };
 
   const saveOne = async (it: CategoryWithCommission) => {
     if (!roleId) return;
@@ -139,13 +160,12 @@ export default function CategoryCommissionsPage() {
         commission_percentage120: Number(it.commission_percentage120 ?? 0),
         participation_pct: Number(it.participation_pct ?? 0)
       };
-      console.log('Payload enviado:', payload); // Debug
       await upsertCategoryCommission(payload);
       setMessage({ type: 'ok', text: 'Guardado' });
       markDirty(it.category_id, false);
       await loadCategories(roleId, budgetId);
     } catch (e: any) {
-      console.error('saveOne error completo:', e.response?.data || e); // Mejor logging
+      console.error('saveOne error completo:', e.response?.data || e);
       setMessage({ type: 'error', text: 'Error al guardar' + (e?.response?.data?.message ? ': ' + e.response.data.message : '') });
     } finally {
       setSavingIds(s => s.filter(id => id !== it.category_id));
@@ -201,10 +221,8 @@ export default function CategoryCommissionsPage() {
     items.forEach(it => {
       const normalizedName = normalizeCategoryName(it.name);
 
-      // clave única: FRAGANCIA o category_id normal
-      const key = it.category_id; // NO fusionar para edición
-
-      
+      // clave única: category_id
+      const key = it.category_id;
 
       if (!map.has(key)) {
         map.set(key, {
@@ -212,7 +230,7 @@ export default function CategoryCommissionsPage() {
           name: normalizedName
         });
       } else {
-        // si es FRAGANCIA, combinamos valores (por si existen duplicados)
+        // si hay duplicados (p.ej. frag), combinamos valores (por si existen duplicados)
         const existing = map.get(key)!;
         map.set(key, {
           ...existing,
@@ -243,6 +261,11 @@ export default function CategoryCommissionsPage() {
     return Array.from(map.values());
   }, [items]);
 
+  const totalParticipation = useMemo(() => {
+    return normalizedItems.reduce((acc, it) => {
+      return acc + Number((it as any).participation_pct ?? 0);
+    }, 0);
+  }, [normalizedItems]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -261,8 +284,31 @@ export default function CategoryCommissionsPage() {
           </div>
         </div>
 
-
         <div className="flex gap-3 items-center">
+          {/* ---------- Lista de vendedores arriba (botones) ---------- */}
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-500 block mb-1">Vendedores</label>
+            <div className="flex gap-2 items-center">
+              {sellerRoles.length === 0 ? (
+                <div className="text-xs text-gray-400">No hay vendedores</div>
+              ) : (
+                sellerRoles.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => setRoleId(r.id)}
+                    className={`text-sm px-3 py-1 rounded border ${
+                      roleId === r.id ? 'bg-indigo-600 text-white' : 'bg-white hover:bg-gray-50'
+                    }`}
+                    title={r.name}
+                  >
+                    {r.name}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* ---------- Selector de presupuesto ---------- */}
           <div>
             <label className="text-xs text-gray-500 block mb-1">Presupuesto</label>
             <select
@@ -278,8 +324,6 @@ export default function CategoryCommissionsPage() {
               ))}
             </select>
           </div>
-
-
 
           <div className="flex items-end gap-2">
             <button
@@ -346,7 +390,7 @@ export default function CategoryCommissionsPage() {
                       type="number"
                       step="0.01"
                       value={it.commission_percentage100 ?? ''}
-                     onChange={e => onChangeField(it.category_id, 'commission_percentage100', e.target.value)}
+                      onChange={e => onChangeField(it.category_id, 'commission_percentage100', e.target.value)}
                       className="border px-2 py-1 rounded w-28"
                     />
                   </td>
@@ -370,8 +414,6 @@ export default function CategoryCommissionsPage() {
                       className="border px-2 py-1 rounded w-28"
                     />
                   </td>
-
-
 
                   <td className="p-3 align-top">
                     <div className="flex gap-2 items-center">
@@ -397,6 +439,18 @@ export default function CategoryCommissionsPage() {
             })}
           </tbody>
         </table>
+
+        <div className="mt-4 flex justify-end">
+          <div className={`px-4 py-2 rounded text-sm font-semibold ${
+            totalParticipation === 100
+              ? 'bg-green-50 text-green-700'
+              : totalParticipation > 100
+                ? 'bg-red-50 text-red-700'
+                : 'bg-yellow-50 text-yellow-700'
+          }`}>
+            Total participación: {totalParticipation.toFixed(2)}%
+          </div>
+        </div>
       </div>
     </div>
   );

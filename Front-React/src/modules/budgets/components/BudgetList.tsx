@@ -5,9 +5,10 @@ type Props = {
   loading: boolean;
   onEdit: (b: Budget) => void;
   onDelete: (id?: number) => void;
+  onClose?: (id?: number) => void;
 };
 
-export default function BudgetList({ budgets, loading, onEdit, onDelete }: Props) {
+export default function BudgetList({ budgets, loading, onEdit, onDelete , onClose  }: Props) {
   if (loading) return <div className="text-gray-500">Cargando…</div>;
   if (!Array.isArray(budgets) || budgets.length === 0) return <div className="text-sm text-gray-500">No hay presupuestos.</div>;
 
@@ -26,6 +27,14 @@ export default function BudgetList({ budgets, loading, onEdit, onDelete }: Props
 
             <button onClick={() => onEdit(b)} className="flex items-center gap-2 bg-primary text-white px-3 py-1 rounded hover:opacity-90">✏️ Editar</button>
             <button onClick={() => onDelete(b.id)} className="flex items-center gap-2 bg-gray-800 text-white px-3 py-1 rounded hover:opacity-90">🗑️ Eliminar</button>
+            {!b.is_closed && (
+                <button
+                  onClick={() => onClose?.(b.id)}
+                  className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded hover:opacity-90"
+                >
+                  🔒 Cerrar
+                </button>
+              )}
           </div>
         </div>
       ))}

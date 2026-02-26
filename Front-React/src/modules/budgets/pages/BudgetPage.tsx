@@ -6,8 +6,16 @@ import type { Budget } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 export default function BudgetsPage() {
-  const { items: budgets, loading, saving,  activeInfo, create, update, remove } = useBudgets();
-  const [showForm, setShowForm] = useState(false);
+const {
+  items: budgets,
+  loading,
+  saving,
+  activeInfo,
+  create,
+  update,
+  remove,
+  closeBudget
+} = useBudgets();  const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Budget | null>(null);
 
   const openCreate = () => { setEditing(null); setShowForm(true); };
@@ -38,6 +46,19 @@ export default function BudgetsPage() {
       alert('Error eliminando');
     }
   };
+  const handleClose = async (id?: number) => {
+  if (!id) return;
+
+  if (!confirm('¿Seguro que deseas cerrar este presupuesto? Esta acción es irreversible.')) {
+    return;
+  }
+
+  try {
+    await closeBudget(id);
+  } catch (err: any) {
+    alert(err.message || 'Error cerrando presupuesto');
+  }
+};
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -62,7 +83,9 @@ export default function BudgetsPage() {
 
         <div className="bg-white rounded-2xl shadow p-6 mb-6">
           <h2 className="text-2xl font-bold mb-4">Lista de Presupuestos</h2>
-          <BudgetList budgets={budgets} loading={loading} onEdit={openEdit} onDelete={handleDelete} />
+          
+          <BudgetList budgets={budgets} loading={loading} onEdit={openEdit} onDelete={handleDelete} onClose={handleClose}  />
+          
         </div>
 
         {showForm && (

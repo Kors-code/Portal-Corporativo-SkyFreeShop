@@ -295,9 +295,29 @@ export default function AdminWishDashboard({ apiBase = '/api/v1' }: { apiBase?: 
   const daysCount = byDay.length;
   const topDay = useMemo(() => (byDay.length ? [...byDay].sort((a,b)=>b.total-a.total)[0] : null), [byDay]);
 
-  const topWishes = useMemo(() => {
-    return [...aggregatedWishes].sort((a,b) => (b.ventaPerdida - a.ventaPerdida)).slice(0, 50);
+  // Agrupa entradas por categoría para que la tabla "Top wishes por venta perdida"
+// muestre cada categoría sólo una vez (suma count y ventaPerdida)
+const topWishesByCategory = useMemo(() => {
+    const map = new Map<string, { category: string; count: number; ventaPerdida: number }>();
+
+    for (const w of aggregatedWishes) {
+      const cat = (w.category && w.category.trim()) ? w.category : 'Sin categoría';
+      const cur = map.get(cat) ?? { category: cat, count: 0, ventaPerdida: 0 };
+      cur.count += Number(w.count ?? 0);
+      cur.ventaPerdida += Number(w.ventaPerdida ?? 0);
+      map.set(cat, cur);
+    }
+
+    const arr = Array.from(map.values()).map(x => ({
+      ...x,
+      ventaPerdida: parseFloat((x.ventaPerdida ?? 0).toFixed(2))
+    }));
+
+    // ordenar por venta perdida descendente y limitar (ajusta el límite si quieres)
+    arr.sort((a, b) => b.ventaPerdida - a.ventaPerdida);
+    return arr.slice(0, 50);
   }, [aggregatedWishes]);
+
 
   // filtered informe rows (aplica viewMode si corresponde). IMPORTANT: NO normaliza categoría para mantener original en informe
   const filteredInformeRows = useMemo(() => {
@@ -518,7 +538,7 @@ export default function AdminWishDashboard({ apiBase = '/api/v1' }: { apiBase?: 
             </div>
 
             <div className="bg-white p-4 rounded shadow">
-              <h3 className="font-semibold mb-2">Top wishes por venta perdida</h3>
+              <h3 className="font-semibold mb-2">Resumen por venta perdida</h3>
               <div className="max-h-[380px] overflow-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="text-xs text-gray-500 uppercase">
@@ -529,14 +549,16 @@ export default function AdminWishDashboard({ apiBase = '/api/v1' }: { apiBase?: 
                     </tr>
                   </thead>
                   <tbody>
-                    {topWishes.map((w, idx) => (
-                      <tr key={w.key + '_' + idx} className="border-t">
-                        <td className="p-2">{w.category ?? w.catalog_product?.category ?? '—'}</td>
-                        <td className="p-2 text-right">{w.count ?? 0}</td>
-                        <td className="p-2 text-right">{(w as any).ventaPerdida?.toLocaleString?.() ?? '0'}</td>
+                    {topWishesByCategory.map((c, idx) => (
+                      <tr key={c.category + '_' + idx} className="border-t">
+                        <td className="p-2">{c.category}</td>
+                        <td className="p-2 text-right">{c.count ?? 0}</td>
+                        <td className="p-2 text-right">{(c.ventaPerdida ?? 0).toLocaleString()}</td>
                       </tr>
                     ))}
-                    {topWishes.length === 0 && <tr><td colSpan={6} className="p-4 text-sm text-gray-500">No hay datos.</td></tr>}
+
+
+                    {topWishesByCategory.length === 0 && <tr><td colSpan={6} className="p-4 text-sm text-gray-500">No hay datos.</td></tr>}
                   </tbody>
                 </table>
               </div>
