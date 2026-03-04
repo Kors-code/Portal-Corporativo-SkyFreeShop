@@ -1,6 +1,8 @@
 // src/modules/commissions/pages/CategoryCommissionsPage.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../../../api/axios';
+
 import {
   getCategoriesWithCommission,
   upsertCategoryCommission,
@@ -11,6 +13,13 @@ import {
 } from '../services/categoryCommissionService';
 
 import type { CategoryWithCommission, Role } from '../types/comissionscategory';
+
+/**
+ * CategoryCommissionsPage
+ * - Mantiene TODO tu comportamiento existente.
+ * - Añade una barra horizontal compacta arriba con el Split Montblanc <-> Parbel,
+ *   mostrando el asesor activo y su PPTO. Compacto, estético y sin "encoger" la lista.
+ */
 
 export default function CategoryCommissionsPage() {
   const [roles, setRoles] = useState<Role[]>([]);
@@ -24,6 +33,7 @@ export default function CategoryCommissionsPage() {
   const [saving, setSaving] = useState(false);
   const [savingIds, setSavingIds] = useState<number[]>([]);
   const [message, setMessage] = useState<{ type: 'ok'|'error', text: string } | null>(null);
+  
   const navigate = useNavigate();
 
   // filas marcadas como modificadas (dirty)
@@ -31,11 +41,7 @@ export default function CategoryCommissionsPage() {
 
   const normalizeCategoryName = (name: string) => {
     const n = String(name).toLowerCase();
-
-    if (n.includes('frag')) {
-      return 'FRAGANCIA';
-    }
-
+    if (n.includes('frag')) return 'FRAGANCIA';
     return name;
   };
 
@@ -50,18 +56,14 @@ export default function CategoryCommissionsPage() {
         setBudgets(Array.isArray(budgetsData) ? budgetsData : []);
 
         if (Array.isArray(rolesData) && rolesData.length) {
-          // intentar seleccionar un "vendedor" por defecto
-          const vendedor = rolesData.find(r =>
-            r.name.toLowerCase().includes('vendedor')
-          );
-          setRoleId(vendedor ? vendedor.id : rolesData[0].id);
+          const vendedor = rolesData.find(r => r.name.toLowerCase().includes('vendedor') && r.id !== 2);
+          const fallback = rolesData.find(r => r.id !== 2);
+          setRoleId(vendedor ? vendedor.id : (fallback ? fallback.id : rolesData[0].id));
         }
-
         if (Array.isArray(budgetsData) && budgetsData.length) setBudgetId(prev => prev ?? budgetsData[0].id);
       } catch (err) {
         console.error('Error cargando roles/presupuestos', err);
-        setRoles([]);
-        setBudgets([]);
+        setRoles([]); setBudgets([]);
       }
     }
     loadMeta();
@@ -69,7 +71,8 @@ export default function CategoryCommissionsPage() {
   }, []);
 
   // lista de roles que consideramos "vendedores" para mostrar arriba
-  const sellerRoles = roles;
+  // omitimos explícitamente el role con id === 2 (no se muestra ni se puede seleccionar)
+  const sellerRoles = useMemo(() => roles.filter(r => r.id !== 2), [roles]);
 
   // load categories when roleId or budgetId changes
   useEffect(() => {
@@ -85,34 +88,36 @@ export default function CategoryCommissionsPage() {
     try {
       setLoading(true);
       const res = await getCategoriesWithCommission(rId, bId ?? undefined);
-
-      // backend expected to return { categories: [...] } or array directly
       const cats: CategoryWithCommission[] = res?.categories ?? res?.data ?? res ?? [];
-
-      // Si el role seleccionado es el id 2, filtramos solo las categorías indicadas
       let filtered: CategoryWithCommission[] = Array.isArray(cats) ? cats : [];
 
-      if (rId === 2) {
-        const allowedCodes = new Set(['19','14','15','16','21','13','19.0','14.0','15.0','16.0','21.0','13.0']);
+      if (rId === 4) {
+        const allowedCodes = new Set(['13', '13.0']);
         filtered = filtered.filter(c => {
           const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
           const nameNormalized = String((c as any).name ?? '').toLowerCase();
-
-          // permitir por nombre que incluya 'frag' (fragancias)
           if (nameNormalized.includes('frag')) return true;
-
-          // permitir si el code coincide con alguno de los permitidos
           if (allowedCodes.has(codeNormalized)) return true;
-
-          // en caso que la API retorne code numérico
-          if (Number(codeNormalized) && allowedCodes.has(String(Number(codeNormalized)))) return true;
-
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
           return false;
         });
+      } else if (rId === 5) {
+        const allowedCodes = new Set(['14','15','16','19','21','14.0','15.0','16.0','19.0','21.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+          const keywords = ['gift', 'gifts', 'watch', 'watches', 'jewel', 'jewelry', 'sunglass', 'electronics'];
+          if (keywords.some(k => nameNormalized.includes(k))) return true;
+          if (allowedCodes.has(codeNormalized)) return true;
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+          return false;
+        });
+      } else {
+        filtered = Array.isArray(cats) ? cats : [];
       }
 
       setItems(filtered);
-      setDirtyIds(new Set()); // reset dirty flags on fresh load
+      setDirtyIds(new Set());
     } catch (err) {
       console.error('Error cargando categorias:', err);
       setItems([]);
@@ -121,29 +126,19 @@ export default function CategoryCommissionsPage() {
     }
   };
 
-  // helpers money
+  // helpers money and dirty
   const markDirty = (categoryId: number, dirty = true) => {
     setDirtyIds(prev => {
       const clone = new Set(prev);
-      if (dirty) clone.add(categoryId);
-      else clone.delete(categoryId);
+      if (dirty) clone.add(categoryId); else clone.delete(categoryId);
       return clone;
     });
   };
 
   // input handlers
-  // cambiamos el tipo del field a string para poder aceptar campos nuevos como 'participation_pct'
   const onChangeField = (categoryId: number, field: string, rawVal: string) => {
     const val = rawVal === '' ? null : Number(rawVal);
-
-    setItems(prev =>
-      prev.map(it =>
-        it.category_id === categoryId
-          ? { ...it, [field]: val }
-          : it
-      )
-    );
-
+    setItems(prev => prev.map(it => it.category_id === categoryId ? { ...it, [field]: val } : it));
     markDirty(categoryId, true);
   };
 
@@ -217,122 +212,298 @@ export default function CategoryCommissionsPage() {
 
   const normalizedItems = useMemo(() => {
     const map = new Map<number | string, CategoryWithCommission>();
-
     items.forEach(it => {
       const normalizedName = normalizeCategoryName(it.name);
-
-      // clave única: category_id
       const key = it.category_id;
-
       if (!map.has(key)) {
-        map.set(key, {
-          ...it,
-          name: normalizedName
-        });
+        map.set(key, { ...it, name: normalizedName });
       } else {
-        // si hay duplicados (p.ej. frag), combinamos valores (por si existen duplicados)
         const existing = map.get(key)!;
         map.set(key, {
           ...existing,
-          commission_percentage:
-            Math.max(
-              existing.commission_percentage ?? 0,
-              it.commission_percentage ?? 0
-            ),
-          commission_percentage100:
-            Math.max(
-              existing.commission_percentage100 ?? 0,
-              it.commission_percentage100 ?? 0
-            ),
-          commission_percentage120:
-            Math.max(
-              existing.commission_percentage120 ?? 0,
-              it.commission_percentage120 ?? 0
-            ),
-          participation_pct:
-            Math.max(
-              (existing as any).participation_pct ?? 0,
-              (it as any).participation_pct ?? 0
-            ),
+          commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
+          commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
+          commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
+          participation_pct: Math.max((existing as any).participation_pct ?? 0, (it as any).participation_pct ?? 0),
         });
       }
     });
-
     return Array.from(map.values());
   }, [items]);
 
-  const totalParticipation = useMemo(() => {
-    return normalizedItems.reduce((acc, it) => {
-      return acc + Number((it as any).participation_pct ?? 0);
-    }, 0);
-  }, [normalizedItems]);
+  const totalParticipation = useMemo(() => normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0), [normalizedItems]);
 
+  // ------------------ Split: Montblanc <-> Parbel (horizontal, top) ------------------
+  const [montSpecialists, setMontSpecialists] = useState<any[]>([]);
+  const [parbelSpecialists, setParbelSpecialists] = useState<any[]>([]);
+  const [activeMont, setActiveMont] = useState<any | null>(null);
+  const [activePar, setActivePar] = useState<any | null>(null);
+
+console.log(montSpecialists)
+console.log(parbelSpecialists)
+console.log(activeMont)
+console.log(activePar)
+
+  const [selectedAId, setSelectedAId] = useState<number | null>(null); // Montblanc active user id
+  const [selectedBId, setSelectedBId] = useState<number | null>(null); // Parbel active user id
+
+  const [aUserBudgetUsd, setAUserBudgetUsd] = useState<number>(0);
+  const [bUserBudgetUsd, setBUserBudgetUsd] = useState<number>(0);
+
+  const [advisorAPct, setAdvisorAPct] = useState<number>(50);
+  const [advisorBPct, setAdvisorBPct] = useState<number>(50);
+  const [advisorSplit, setAdvisorSplit] = useState<any>(null);
+  const [loadingSplit, setLoadingSplit] = useState(false);
+  const [savingSplit, setSavingSplit] = useState(false);
+
+  const [usersMap, setUsersMap] = useState<Record<number, string>>({}); // map user id -> name
+
+  // helper to get username
+  const findUserName = (id?: number | null) => {
+    if (!id) return '';
+    return usersMap[id] ?? `User ${id}`;
+  };
+
+  // on budget change: fetch specialists (mont/parbel) + budget-sellers map
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!budgetId) {
+        setMontSpecialists([]); setParbelSpecialists([]); setActiveMont(null); setActivePar(null);
+        setSelectedAId(null); setSelectedBId(null); setAUserBudgetUsd(0); setBUserBudgetUsd(0);
+        setUsersMap({});
+        return;
+      }
+      try {
+        // fetch specialists by line and budget-sellers (names)
+        const [mRes, pRes, uRes] = await Promise.all([
+          api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'montblanc' } }),
+          api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'parbel' } }),
+          api.get('advisors/budget-sellers', { params: { budget_id: budgetId } })
+        ]);
+
+        if (cancelled) return;
+
+        const montList = Array.isArray(mRes.data) ? mRes.data : [];
+        const parList = Array.isArray(pRes.data) ? pRes.data : [];
+        const usersList = Array.isArray(uRes.data) ? uRes.data : [];
+
+        setMontSpecialists(montList);
+        setParbelSpecialists(parList);
+        setActiveMont(montList.find((s: any) => !s.valid_to) ?? montList[0] ?? null);
+        setActivePar(parList.find((s: any) => !s.valid_to) ?? parList[0] ?? null);
+        setUsersMap(usersList.reduce((acc: Record<number,string>, u: any) => { if (u && u.id) acc[u.id] = u.name; return acc; }, {}));
+
+        // decide selected user ids (prefer already set selectedAId/selectedBId else use active)
+        const aIdToLoad = selectedAId ?? (montList.find((s: any) => !s.valid_to)?.user_id ?? montList[0]?.user_id ?? null);
+        const bIdToLoad = selectedBId ?? (parList.find((s: any) => !s.valid_to)?.user_id ?? parList[0]?.user_id ?? null);
+
+        if (!selectedAId && montList.length) setSelectedAId(aIdToLoad ?? null);
+        if (!selectedBId && parList.length) setSelectedBId(bIdToLoad ?? null);
+
+        // load user budgets for display
+        if (aIdToLoad) {
+          try {
+            const resA = await api.get('advisors/active-sales', { params: { budget_id: budgetId, business_line: 'montblanc', user_id: aIdToLoad } });
+            if (!cancelled) setAUserBudgetUsd(Number(resA.data.user_budget_usd ?? 0));
+          } catch (e) {
+            if (!cancelled) setAUserBudgetUsd(0);
+          }
+        } else setAUserBudgetUsd(0);
+
+        if (bIdToLoad) {
+          try {
+            const resB = await api.get('advisors/active-sales', { params: { budget_id: budgetId, business_line: 'parbel', user_id: bIdToLoad } });
+            if (!cancelled) setBUserBudgetUsd(Number(resB.data.user_budget_usd ?? 0));
+          } catch (e) {
+            if (!cancelled) setBUserBudgetUsd(0);
+          }
+        } else setBUserBudgetUsd(0);
+
+      } catch (e) {
+        console.warn('Error cargando especialistas/usuarios', e);
+        if (!cancelled) {
+          setMontSpecialists([]); setParbelSpecialists([]); setActiveMont(null); setActivePar(null);
+          setUsersMap({});
+          setAUserBudgetUsd(0); setBUserBudgetUsd(0);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetId]);
+
+  // when selectedAId/selectedBId change, refresh their budgets
+  useEffect(() => {
+    if (!budgetId) return;
+    let cancelled = false;
+    (async () => {
+      if (selectedAId) {
+        try {
+          const resA = await api.get('advisors/active-sales', { params: { budget_id: budgetId, business_line: 'montblanc', user_id: selectedAId } });
+          if (!cancelled) setAUserBudgetUsd(Number(resA.data.user_budget_usd ?? 0));
+        } catch {
+          if (!cancelled) setAUserBudgetUsd(0);
+        }
+      } else {
+        setAUserBudgetUsd(0);
+      }
+
+      if (selectedBId) {
+        try {
+          const resB = await api.get('advisors/active-sales', { params: { budget_id: budgetId, business_line: 'parbel', user_id: selectedBId } });
+          if (!cancelled) setBUserBudgetUsd(Number(resB.data.user_budget_usd ?? 0));
+        } catch {
+          if (!cancelled) setBUserBudgetUsd(0);
+        }
+      } else {
+        setBUserBudgetUsd(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedAId, selectedBId, budgetId]);
+
+  // Split helpers
+  const calculateAdvisorSplit = async () => {
+    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
+    if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
+    setLoadingSplit(true);
+    try {
+      const res = await api.get('advisors/split-pool', {
+        params: {
+          budget_id: budgetId,
+          advisor_a_id: selectedAId,
+          advisor_b_id: selectedBId,
+          advisor_a_pct: advisorAPct,
+          advisor_b_pct: advisorBPct,
+        }
+      });
+      setAdvisorSplit(res.data);
+    } catch (e) {
+      console.error('calc advisor split error', e);
+      setMessage({ type: 'error', text: 'Error calculando split asesores' });
+      setTimeout(()=>setMessage(null),1500);
+    } finally {
+      setLoadingSplit(false);
+    }
+  };
+
+  const saveAdvisorSplit = async () => {
+    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
+    if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
+    setSavingSplit(true);
+    try {
+      const payload = {
+        budget_id: budgetId,
+        advisor_a_id: selectedAId,
+        advisor_a_pct: Number(advisorAPct || 0),
+        advisor_b_id: selectedBId,
+        advisor_b_pct: Number(advisorBPct || 0),
+      };
+      await api.post('advisors/save-split', payload);
+      const res = await api.get('advisors/get-split', { params: { budget_id: budgetId } });
+      setAdvisorSplit(res.data);
+      setMessage({ type: 'ok', text: 'Distribución guardada' });
+    } catch (e) {
+      console.error('save split error', e);
+      setMessage({ type: 'error', text: 'Error guardando distribución' });
+    } finally {
+      setSavingSplit(false);
+      setTimeout(()=>setMessage(null),1800);
+    }
+  };
+
+  const advisorPoolTotal = Number(advisorSplit?.advisor_pool_usd ?? 0);
+  const assignedAUsd = Number(advisorSplit?.advisor_a?.assigned_usd ?? 0);
+  const assignedBUsd = Number(advisorSplit?.advisor_b?.assigned_usd ?? 0);
+  const assignedPctA = advisorPoolTotal ? (assignedAUsd / advisorPoolTotal) * 100 : Number(advisorAPct ?? 0);
+  const assignedPctB = advisorPoolTotal ? (assignedBUsd / advisorPoolTotal) * 100 : Number(advisorBPct ?? 0);
+console.log(assignedPctB)
+console.log(assignedPctA)
+  // ------------------ Render ------------------
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-4">
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={() => navigate('/budget')}
-            className="text-sm text-primary hover:underline w-fit"
-          >
-            ← Volver a Presupuesto
-          </button>
-
-          <div>
-            <h1 className="text-2xl font-bold">Configuración de participación por categoría</h1>
-            <div className="text-sm text-gray-500">Asignación de participación por categoría</div>
-          </div>
-        </div>
-
-        <div className="flex gap-3 items-center">
-          {/* ---------- Lista de vendedores arriba (botones) ---------- */}
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-500 block mb-1">Vendedores</label>
-            <div className="flex gap-2 items-center">
-              {sellerRoles.length === 0 ? (
-                <div className="text-xs text-gray-400">No hay vendedores</div>
-              ) : (
-                sellerRoles.map(r => (
-                  <button
-                    key={r.id}
-                    onClick={() => setRoleId(r.id)}
-                    className={`text-sm px-3 py-1 rounded border ${
-                      roleId === r.id ? 'bg-indigo-600 text-white' : 'bg-white hover:bg-gray-50'
-                    }`}
-                    title={r.name}
-                  >
-                    {r.name}
-                  </button>
-                ))
-              )}
+      <div className="flex flex-col gap-4 mb-4">
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2">
+            <button onClick={() => navigate('/budget')} className="text-sm text-primary hover:underline w-fit">← Volver a Presupuesto</button>
+            <div>
+              <h1 className="text-2xl font-bold">Configuración de participación por categoría</h1>
+              <div className="text-sm text-gray-500">Asignación de participación por categoría</div>
             </div>
           </div>
 
-          {/* ---------- Selector de presupuesto ---------- */}
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Presupuesto</label>
-            <select
-              value={budgetId ?? ''}
-              onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)}
-              className="border rounded px-3 py-2 text-sm"
-            >
-              <option value="">(Sin presupuesto)</option>
-              {budgets.map(b => (
-                <option key={b.id} value={b.id}>
-                  {b.name} — {b.start_date} → {b.end_date}
-                </option>
-              ))}
-            </select>
+          {/* Upper-right: preserve your sellers + budget select + save */}
+          <div className="flex gap-3 items-center">
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-500 block mb-1">Vendedores</label>
+              <div className="flex gap-2 items-center">
+                {sellerRoles.length === 0 ? (
+                  <div className="text-xs text-gray-400">No hay vendedores</div>
+                ) : (
+                  sellerRoles.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => setRoleId(r.id)}
+                      className={`text-sm px-3 py-1 rounded border ${ roleId === r.id ? 'bg-indigo-600 text-white' : 'bg-white hover:bg-gray-50' }`}
+                      title={r.name}
+                    >
+                      {r.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Presupuesto</label>
+              <select value={budgetId ?? ''} onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-3 py-2 text-sm">
+                <option value="">(Sin presupuesto)</option>
+                {budgets.map(b => <option key={b.id} value={b.id}>{b.name} — {b.start_date} → {b.end_date}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-end gap-2">
+              <button onClick={saveAll} disabled={!roleId || loading || saving || !anyDirty} className={`px-4 py-2 rounded text-white ${(!roleId || loading || saving || !anyDirty) ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600'}`}>
+                {saving ? 'Guardando...' : 'Guardar todo'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ---------------- Horizontal Split card (compact) ---------------- */}
+        <div className="bg-white rounded-2xl shadow p-3 flex items-center justify-between gap-4">
+          {/* Left: labels */}
+          <div className="flex items-center gap-4">
+            <div className="text-sm font-semibold">Split Montblanc ↔ Parbel</div>
+            <div className="text-xs text-gray-500">Presupuesto: {budgetId ?? '-'}</div>
           </div>
 
-          <div className="flex items-end gap-2">
-            <button
-              onClick={saveAll}
-              disabled={!roleId || loading || saving || !anyDirty}
-              className={`px-4 py-2 rounded text-white ${(!roleId || loading || saving || !anyDirty) ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600'}`}
-            >
-              {saving ? 'Guardando...' : 'Guardar todo'}
-            </button>
+          {/* Middle: active advisors info */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <div className="text-xxs text-gray-500">Asesor A</div>
+              <div className="text-sm font-medium">{selectedAId ? findUserName(selectedAId) : <em className="text-red-500">No seleccionado</em>}</div>
+              <div className="text-xs text-gray-400">PPTO: <strong>{Number(aUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="text-xxs text-gray-500">Asesor B</div>
+              <div className="text-sm font-medium">{selectedBId ? findUserName(selectedBId) : <em className="text-red-500">No seleccionado</em>}</div>
+              <div className="text-xs text-gray-400">PPTO: <strong>{Number(bUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
+            </div>
+          </div>
+
+          {/* Right: compact controls */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <input type="number" min={0} max={100} value={advisorAPct} onChange={e => setAdvisorAPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
+              <span className="text-sm">/</span>
+              <input type="number" min={0} max={100} value={advisorBPct} onChange={e => setAdvisorBPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
+            </div>
+
+            <button onClick={calculateAdvisorSplit} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">{loadingSplit ? 'Calculando...' : 'Calcular'}</button>
+            <button onClick={saveAdvisorSplit} disabled={savingSplit || !selectedAId || !selectedBId} className={`px-3 py-1 rounded text-white text-sm ${savingSplit ? 'bg-gray-400' : (!selectedAId || !selectedBId ? 'bg-gray-300' : 'bg-emerald-600')}`}>{savingSplit ? 'Guardando...' : 'Guardar'}</button>
           </div>
         </div>
       </div>
@@ -343,6 +514,7 @@ export default function CategoryCommissionsPage() {
         </div>
       )}
 
+      {/* Main table */}
       <div className="bg-white shadow rounded overflow-x-auto">
         <table className="w-full min-w-[900px]">
           <thead className="bg-gray-100">
@@ -375,63 +547,26 @@ export default function CategoryCommissionsPage() {
                   <td className="p-3 text-sm text-gray-500 align-top">{it.code}</td>
 
                   <td className="p-3 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.commission_percentage ?? ''}
-                      onChange={e => onChangeField(it.category_id, 'commission_percentage', e.target.value)}
-                      className="border px-2 py-1 rounded w-28"
-                    />
+                    <input type="number" step="0.01" value={it.commission_percentage ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage', e.target.value)} className="border px-2 py-1 rounded w-28" />
                     {isDirty && <div className="text-xxs text-indigo-600 mt-1">modificado</div>}
                   </td>
 
                   <td className="p-3 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.commission_percentage100 ?? ''}
-                      onChange={e => onChangeField(it.category_id, 'commission_percentage100', e.target.value)}
-                      className="border px-2 py-1 rounded w-28"
-                    />
+                    <input type="number" step="0.01" value={it.commission_percentage100 ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage100', e.target.value)} className="border px-2 py-1 rounded w-28" />
                   </td>
 
                   <td className="p-3 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.commission_percentage120 ?? ''}
-                      onChange={e => onChangeField(it.category_id, 'commission_percentage120', e.target.value)}
-                      className="border px-2 py-1 rounded w-28"
-                    />
+                    <input type="number" step="0.01" value={it.commission_percentage120 ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage120', e.target.value)} className="border px-2 py-1 rounded w-28" />
                   </td>
 
                   <td className="p-3 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={(it as any).participation_pct ?? ''}
-                      onChange={e => onChangeField(it.category_id, 'participation_pct', e.target.value)}
-                      className="border px-2 py-1 rounded w-28"
-                    />
+                    <input type="number" step="0.01" value={(it as any).participation_pct ?? ''} onChange={e => onChangeField(it.category_id, 'participation_pct', e.target.value)} className="border px-2 py-1 rounded w-28" />
                   </td>
 
                   <td className="p-3 align-top">
                     <div className="flex gap-2 items-center">
-                      <button
-                        onClick={() => saveOne(it)}
-                        disabled={isSaving}
-                        className={`px-3 py-1 rounded border ${isSaving ? 'bg-gray-100 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
-                      >
-                        {isSaving ? 'Guardando...' : 'Guardar'}
-                      </button>
-
-                      <button
-                        onClick={() => onDelete(it.category_id)}
-                        className="px-3 py-1 rounded border bg-white hover:bg-gray-50 text-red-600"
-                        title="Eliminar configuración"
-                      >
-                        Eliminar
-                      </button>
+                      <button onClick={() => saveOne(it)} disabled={isSaving} className={`px-3 py-1 rounded border ${isSaving ? 'bg-gray-100 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>{isSaving ? 'Guardando...' : 'Guardar'}</button>
+                      <button onClick={() => onDelete(it.category_id)} className="px-3 py-1 rounded border bg-white hover:bg-gray-50 text-red-600" title="Eliminar configuración">Eliminar</button>
                     </div>
                   </td>
                 </tr>
@@ -440,14 +575,8 @@ export default function CategoryCommissionsPage() {
           </tbody>
         </table>
 
-        <div className="mt-4 flex justify-end">
-          <div className={`px-4 py-2 rounded text-sm font-semibold ${
-            totalParticipation === 100
-              ? 'bg-green-50 text-green-700'
-              : totalParticipation > 100
-                ? 'bg-red-50 text-red-700'
-                : 'bg-yellow-50 text-yellow-700'
-          }`}>
+        <div className="mt-4 flex justify-end p-4">
+          <div className={`px-4 py-2 rounded text-sm font-semibold ${ totalParticipation === 100 ? 'bg-green-50 text-green-700' : totalParticipation > 100 ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700' }`}>
             Total participación: {totalParticipation.toFixed(2)}%
           </div>
         </div>

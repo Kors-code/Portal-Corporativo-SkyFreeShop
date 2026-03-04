@@ -1,54 +1,11 @@
-// DualCommissionAdmin.tsx
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../../api/axios';
 
-/* ================= TYPES ================= */
-type CategorySummary = {
-  classification_code: string;
-  category?: string;
-  sales_sum_usd?: number;
-  category_budget_usd_for_user?: number;
-  pct_user_of_category_budget?: number;
-  applied_commission_pct?: number;
-  commission_sum_usd?: number;
-};
-
-type SaleRow = {
-  id?: number | string;
-  sale_date?: string;
-  folio?: string;
-  product?: string;
-  amount_cop?: number;
-  value_usd?: number;
-  provider?: string;
-  brand?: string;
-  category_code?: string;
-  commission_amount?: number;
-  rowKey?: string;
-};
-
-type SellerPayload = {
-  user?: any;
-  categories?: CategorySummary[];
-  sales?: SaleRow[];
-  totals?: any;
-  assigned_turns_for_user?: number;
-  user_budget_usd?: number;
-  days_worked?: any[];
-};
-
-type Specialist = {
-  id?: number;
-  budget_id: number;
-  user_id: number;
-  business_line?: string | null;
-  category_id?: number | null;
-  valid_from?: string;
-  valid_to?: string | null;
-  note?: string | null;
-};
-
-type User = { id: number; name: string };
+/* ================= TYPES (sin cambios) ================= */
+type CategorySummary = { /* ...igual que antes... */ classification_code: string; category?: string; sales_sum_usd?: number; category_budget_usd_for_user?: number; pct_user_of_category_budget?: number; applied_commission_pct?: number; commission_sum_usd?: number; };
+type SaleRow = { id?: number | string; sale_date?: string; folio?: string; product?: string; amount_cop?: number; value_usd?: number; provider?: string; brand?: string; category_code?: string; commission_amount?: number; rowKey?: string; };
+type SellerPayload = { user?: any; categories?: CategorySummary[]; sales?: SaleRow[]; totals?: any; assigned_turns_for_user?: number; user_budget_usd?: number; days_worked?: any[]; };
+type Specialist = { id?: number; budget_id: number; user_id: number; business_line?: string | null; category_id?: number | null; valid_from?: string; valid_to?: string | null; note?: string | null; user?: { id?: number; name?: string }; user_name?: string; };
 
 /* ================= COMPONENT ================= */
 
@@ -60,9 +17,10 @@ export default function DualCommissionAdmin({
 }: {
   advisorAId?: number;
   advisorBId?: number;
-  budgetIds?: number[]; // optional initial selection(s)
-  onClose: () => void;
+  budgetIds?: number[];
+  onClose?: () => void;
 }) {
+  // loading / data
   const [loading, setLoading] = useState(true);
   const [aData, setAData] = useState<SellerPayload | null>(null);
   const [bData, setBData] = useState<SellerPayload | null>(null);
@@ -75,45 +33,43 @@ export default function DualCommissionAdmin({
 
   const [message, setMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
 
-  // filters / search for sales tables
-  const [filterProviderA, setFilterProviderA] = useState<string>('ALL');
-  const [filterBrandA, setFilterBrandA] = useState<string>('ALL');
-  const [filterProductA, setFilterProductA] = useState<string>('ALL');
-  const [searchA, setSearchA] = useState<string>('');
+  // filters / search for sales table
+  const [filterProvider, setFilterProvider] = useState<string>('ALL');
+  const [filterBrand, setFilterBrand] = useState<string>('ALL');
+  const [filterProduct, setFilterProduct] = useState<string>('ALL');
+  const [search, setSearch] = useState<string>('');
 
-  const [filterProviderB, setFilterProviderB] = useState<string>('ALL');
-  const [filterBrandB, setFilterBrandB] = useState<string>('ALL');
-  const [filterProductB, setFilterProductB] = useState<string>('ALL');
-  const [searchB, setSearchB] = useState<string>('');
-
-  // budgets (to allow viewing per-budget)
+  // budgets (per-budget view)
   const [budgets, setBudgets] = useState<{ id: number; name: string }[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | null>(initialBudgetIds && initialBudgetIds.length ? initialBudgetIds[0] : null);
 
-  // specialists per line (used to filter advisor dropdowns)
+  // specialists per line (options)
   const [montSpecialists, setMontSpecialists] = useState<Specialist[]>([]);
   const [parbelSpecialists, setParbelSpecialists] = useState<Specialist[]>([]);
 
-  // mapping userId -> name (from /users/sellers)
+  // mapping userId -> name
   const [usersMap, setUsersMap] = useState<Record<number, string>>({});
 
-  // selected advisors (local controlled, inicializados desde props si vienen)
-  const [selectedAId, setSelectedAId] = useState<number | null>(initialAdvisorAId ?? null); // Asesor A = Montblanc
-  const [selectedBId, setSelectedBId] = useState<number | null>(initialAdvisorBId ?? null); // Asesor B = Parbel
+  // ALL advisors (from users table or budget-sellers)
+  const [advisors, setAdvisors] = useState<any[]>([]);
 
-  // split UI
-  const [advisorAPct, setAdvisorAPct] = useState<number>(50);
-  const [advisorBPct, setAdvisorBPct] = useState<number>(50);
-  const [advisorSplit, setAdvisorSplit] = useState<any>(null);
-  const [savingSplit, setSavingSplit] = useState(false);
+  // selected advisors (these drive loadSeller)
+  const [selectedAId, setSelectedAId] = useState<number | null>(initialAdvisorAId ?? null); // Montblanc
+  const [selectedBId, setSelectedBId] = useState<number | null>(initialAdvisorBId ?? null); // Parbel
 
-  const budgetsKey = (initialBudgetIds || []).join(',');
-console.log(budgetsKey)
+  // UI: which line's data to show in the big table (single-table mode)
+  const [viewLine, setViewLine] = useState<'montblanc' | 'parbel'>('montblanc');
+
+  // local caches for specialist active (for sidebar display & assign)
+  const [activeMont, setActiveMont] = useState<Specialist | null>(null);
+  const [activePar, setActivePar] = useState<Specialist | null>(null);
+  const [historyMont, setHistoryMont] = useState<Specialist[]>([]);
+  const [historyPar, setHistoryPar] = useState<Specialist[]>([]);
+  const [assigning, setAssigning] = useState(false);
+
   // money formatters
-  const moneyUSD = (v: any) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
-  const moneyCOP = (v: any) =>
-    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v || 0));
+  const moneyUSD = (v: any) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+  const moneyCOP = (v: any) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v || 0));
 
   const aCategories = useMemo(() => aData?.categories ?? [], [aData]);
   const bCategories = useMemo(() => bData?.categories ?? [], [bData]);
@@ -122,33 +78,64 @@ console.log(budgetsKey)
     return Math.round((Number(salesUsd || 0) * (Number(pct || 0) / 100)) * 100) / 100;
   };
 
-  // --- initial meta load: budgets + users ---
+  // helper para construir mapping robusto userId -> name desde arrays variados
+  const buildUsersMapFromArray = (arr: any[] = []) => {
+    const map: Record<number, string> = {};
+    arr.forEach(u => {
+      const id = u?.id ?? u?.user?.id ?? u?.user_id;
+      const name = u?.name ?? u?.user?.name ?? u?.user_name ?? u?.display_name ?? null;
+      if (id && name) map[id] = name;
+    });
+    return map;
+  };
+
+  /* ---------------- INITIAL META LOAD (budgets + all advisors) ----------------
+     - traemos budgets y lista general de sellers (advisors/budget-sellers sin budget_id)
+     - dejamos loading = false para no bloquear la UI
+  */
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const [bRes, uRes] = await Promise.all([api.get('budgets'), api.get('/users/sellers')]);
+        const [bRes, uRes] = await Promise.all([
+          api.get('budgets'),
+          api.get('advisors/budget-sellers') // listado general de vendedores
+        ]);
+        if (cancelled) return;
+
         const budgetsList = Array.isArray(bRes.data) ? bRes.data : [];
         setBudgets(budgetsList);
         if (!selectedBudgetId && budgetsList.length) setSelectedBudgetId(budgetsList[0].id);
 
-        const usersList: User[] = Array.isArray(uRes.data) ? uRes.data : [];
-        const map: Record<number, string> = {};
-        usersList.forEach(u => { if (u && u.id) map[u.id] = u.name; });
-        setUsersMap(map);
+        const usersList: any[] = Array.isArray(uRes.data) ? uRes.data : [];
+        setAdvisors(usersList);
+        const mapFromUsers = buildUsersMapFromArray(usersList);
+        setUsersMap(prev => ({ ...prev, ...mapFromUsers }));
       } catch (e) {
         console.warn('meta load failed', e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- when selectedBudgetId changes: load specialists for each line and reload advisor data ---
+  /* ---------------- when budget changes: load specialists (per line) AND advisors scoped to that budget ----------------
+     - also decide active specialists and load their seller payloads
+  */
   useEffect(() => {
     if (!selectedBudgetId) {
       setMontSpecialists([]);
       setParbelSpecialists([]);
       setAData(null);
       setBData(null);
+      setActiveMont(null);
+      setActivePar(null);
+      setHistoryMont([]);
+      setHistoryPar([]);
+      setAOverrides({});
+      setBOverrides({});
       return;
     }
 
@@ -156,42 +143,80 @@ console.log(budgetsKey)
     (async () => {
       setLoading(true);
       try {
-        // specialists per business line
-        try {
-          const [mRes, pRes] = await Promise.all([
-            api.get('advisors/specialists', { params: { budget_id: selectedBudgetId, business_line: 'montblanc' } }),
-            api.get('advisors/specialists', { params: { budget_id: selectedBudgetId, business_line: 'parbel' } }),
-          ]);
-          if (!cancelled) {
-            setMontSpecialists(Array.isArray(mRes.data) ? mRes.data : []);
-            setParbelSpecialists(Array.isArray(pRes.data) ? pRes.data : []);
-            // if there is an active specialist and none selected, auto-select active ones
-            const activeMont = (Array.isArray(mRes.data) ? mRes.data : []).find(s => !s.valid_to) ?? null;
-            const activePar = (Array.isArray(pRes.data) ? pRes.data : []).find(s => !s.valid_to) ?? null;
-            if (activeMont && !selectedAId) setSelectedAId(activeMont.user_id ?? null);
-            if (activePar && !selectedBId) setSelectedBId(activePar.user_id ?? null);
+        // fetch specialists by line (may fail independently)
+        const [mRes, pRes, advisorsRes] = await Promise.all([
+          api.get('advisors/specialists', { params: { budget_id: selectedBudgetId, business_line: 'montblanc' } }),
+          api.get('advisors/specialists', { params: { budget_id: selectedBudgetId, business_line: 'parbel' } }),
+          api.get('advisors/budget-sellers', { params: { budget_id: selectedBudgetId } }) // advisors filtered by budget
+        ]);
+
+        if (cancelled) return;
+
+        const montList: Specialist[] = Array.isArray(mRes.data) ? mRes.data : [];
+        const parList: Specialist[] = Array.isArray(pRes.data) ? pRes.data : [];
+        const advisorsList: any[] = Array.isArray(advisorsRes.data) ? advisorsRes.data : [];
+
+        // merge maps
+        const montMap = buildUsersMapFromArray(montList.map(s => s.user ? s.user : { id: s.user_id, name: s.user_name }));
+        const parMap = buildUsersMapFromArray(parList.map(s => s.user ? s.user : { id: s.user_id, name: s.user_name }));
+        const advMap = buildUsersMapFromArray(advisorsList);
+
+        setUsersMap(prev => ({ ...prev, ...montMap, ...parMap, ...advMap }));
+
+        setMontSpecialists(montList);
+        setParbelSpecialists(parList);
+        setAdvisors(advisorsList);
+
+        const activeM = montList.find((s: any) => !s.valid_to) ?? montList[0] ?? null;
+        const activeP = parList.find((s: any) => !s.valid_to) ?? parList[0] ?? null;
+
+        setActiveMont(activeM);
+        setActivePar(activeP);
+        setHistoryMont(montList);
+        setHistoryPar(parList);
+
+        // Determine which user ids to load
+        const aIdToLoad = selectedAId ?? (activeM ? activeM.user_id : null);
+        const bIdToLoad = selectedBId ?? (activeP ? activeP.user_id : null);
+
+        // Keep selected* state in sync with active if not set before.
+        if (!selectedAId && activeM?.user_id) setSelectedAId(activeM.user_id);
+        if (!selectedBId && activeP?.user_id) setSelectedBId(activeP.user_id);
+
+        // load initial seller payloads for resolved advisor ids
+        if (aIdToLoad) {
+          try {
+            const resA = await loadSeller(aIdToLoad, selectedBudgetId, 'montblanc');
+            if (!cancelled) {
+              setAData(resA ?? null);
+              const ovA = await fetchOverridesFor(aIdToLoad, selectedBudgetId);
+              if (!cancelled) setAOverrides(ovA);
+            }
+          } catch (err) {
+            if (!cancelled) { console.warn('load seller A failed', err); setAData(null); setAOverrides({}); }
           }
-        } catch (e) {
-          // ignore if endpoint unsupported
-          console.warn('specialists fetch failed', e);
+        } else {
+          setAData(null); setAOverrides({});
         }
 
-        // load seller payloads for currently selected advisors (if any)
-        if (selectedAId) {
-          const resA = await loadSeller(selectedAId, selectedBudgetId);
-          if (!cancelled) setAData(resA ?? null);
+        if (bIdToLoad) {
+          try {
+            const resB = await loadSeller(bIdToLoad, selectedBudgetId, 'parbel');
+            if (!cancelled) {
+              setBData(resB ?? null);
+              const ovB = await fetchOverridesFor(bIdToLoad, selectedBudgetId);
+              if (!cancelled) setBOverrides(ovB);
+            }
+          } catch (err) {
+            if (!cancelled) { console.warn('load seller B failed', err); setBData(null); setBOverrides({}); }
+          }
         } else {
-          setAData(null);
+          setBData(null); setBOverrides({});
         }
-        if (selectedBId) {
-          const resB = await loadSeller(selectedBId, selectedBudgetId);
-          if (!cancelled) setBData(resB ?? null);
-        } else {
-          setBData(null);
-        }
+
       } catch (err) {
         console.error('load on budget change failed', err);
-        setMessage({ type: 'error', text: 'Error cargando datos para el presupuesto seleccionado' });
+        if (!cancelled) setMessage({ type: 'error', text: 'Error cargando datos para el presupuesto seleccionado' });
         setTimeout(() => setMessage(null), 3000);
       } finally {
         if (!cancelled) setLoading(false);
@@ -202,7 +227,7 @@ console.log(budgetsKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBudgetId]);
 
-  // when selected advisor ids change, reload their seller payloads (using currently selectedBudgetId)
+  // reload seller payloads when selectedAId/selectedBId change
   useEffect(() => {
     if (!selectedBudgetId) return;
     let cancelled = false;
@@ -210,16 +235,33 @@ console.log(budgetsKey)
       setLoading(true);
       try {
         if (selectedAId) {
-          const resA = await loadSeller(selectedAId, selectedBudgetId);
-          if (!cancelled) setAData(resA ?? null);
+          try {
+            const resA = await loadSeller(selectedAId, selectedBudgetId , 'montblanc');
+            if (!cancelled) {
+              setAData(resA ?? null);
+              const ovA = await fetchOverridesFor(selectedAId, selectedBudgetId);
+              if (!cancelled) setAOverrides(ovA);
+            }
+          } catch (err) {
+            if (!cancelled) { console.warn('reload seller A failed', err); setAData(null); setAOverrides({}); }
+          }
         } else {
-          setAData(null);
+          setAData(null); setAOverrides({});
         }
+
         if (selectedBId) {
-          const resB = await loadSeller(selectedBId, selectedBudgetId);
-          if (!cancelled) setBData(resB ?? null);
+          try {
+            const resB = await loadSeller(selectedBId, selectedBudgetId, 'parbel');
+            if (!cancelled) {
+              setBData(resB ?? null);
+              const ovB = await fetchOverridesFor(selectedBId, selectedBudgetId);
+              if (!cancelled) setBOverrides(ovB);
+            }
+          } catch (err) {
+            if (!cancelled) { console.warn('reload seller B failed', err); setBData(null); setBOverrides({}); }
+          }
         } else {
-          setBData(null);
+          setBData(null); setBOverrides({});
         }
       } catch (e) {
         console.warn('reload sellers on advisor change failed', e);
@@ -228,22 +270,47 @@ console.log(budgetsKey)
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAId, selectedBId]);
+  }, [selectedAId, selectedBId, selectedBudgetId]);
 
-  // --- API helpers (updated to accept budgetId single) ---
-  async function loadSeller(userId: number, budgetId: number) {
-    const res = await api.get<SellerPayload>(`commissions/by-seller/${userId}`, {
-      params: { budget_ids: [budgetId] },
+  // --- API helpers (single-budget) ---
+  async function loadSeller(
+    userId: number,
+    budgetId: number,
+    line: 'montblanc' | 'parbel'
+  ) {
+    const res = await api.get('advisors/active-sales', {
+      params: { budget_id: budgetId, business_line: line, user_id: userId }
     });
-    return res.data;
+
+    const breakdown = res.data.breakdown || {};
+
+    const categories: CategorySummary[] = Object.values(breakdown).map((row: any) => ({
+      classification_code: row.classification_key,
+      sales_sum_usd: row.sales_usd,
+      category: row.classification_name,
+      category_budget_usd_for_user: row.category_budget_usd_for_user ?? 0,
+      pct_user_of_category_budget: row.pct_user_of_category_budget ?? 0,
+      applied_commission_pct: row.applied_commission_pct ?? 0,
+      commission_sum_usd: row.commission_usd ?? 0,
+    }));
+
+    // si la API devuelve el especialista con nombre, aprovechamos para mapearlo
+    if (res.data?.specialist?.id && res.data.specialist?.name) {
+      setUsersMap(prev => ({ ...prev, [res.data.specialist.id]: res.data.specialist.name }));
+    }
+
+    return {
+      user: res.data.specialist,
+      user_budget_usd: Number(res.data.user_budget_usd ?? 0),
+      categories,
+      sales: res.data.sales ?? [],
+      totals: res.data.totals
+    };
   }
 
   async function fetchOverridesFor(userId: number, budgetId: number) {
     try {
-      const res = await api.get('commissions/category-commissions/overrides', {
-        params: { user_id: userId, budget_ids: [budgetId] },
-      });
+      const res = await api.get('commissions/category-commissions/overrides', { params: { user_id: userId, budget_ids: [budgetId] } });
       const rows = res.data?.overrides ?? {};
       const merged: Record<string, number> = {};
       Object.keys(rows).forEach(bid => {
@@ -256,16 +323,11 @@ console.log(budgetsKey)
       });
       return merged;
     } catch (e: any) {
-      console.warn('No overrides for user', userId, e?.response?.status ?? e);
       return {};
     }
   }
 
-  async function saveOverridesFor(
-    userId: number,
-    overridesMap: Record<string, number>,
-    setSaving: (v: boolean) => void
-  ) {
+  async function saveOverridesFor(userId: number, overridesMap: Record<string, number>, setSaving: (v: boolean) => void) {
     if (!userId || !selectedBudgetId) return;
     setSaving(true);
     try {
@@ -277,8 +339,9 @@ console.log(budgetsKey)
       await api.post('commissions/category-commissions/overrides', payload);
       setMessage({ type: 'ok', text: `Overrides guardados para user ${userId}` });
 
-      // recargar data del user guardado
-      const fresh = await loadSeller(userId, selectedBudgetId);
+      // reload seller and overrides
+      const line = userId === selectedAId ? 'montblanc' : 'parbel';
+      const fresh = await loadSeller(userId, selectedBudgetId, line);
       if (userId === selectedAId) {
         setAData(fresh ?? null);
         const freshOverrides = await fetchOverridesFor(userId, selectedBudgetId);
@@ -298,13 +361,12 @@ console.log(budgetsKey)
       if (status === 401 || status === 403) text = 'No autorizado (inicia sesión)';
       setMessage({ type: 'error', text });
       setTimeout(() => setMessage(null), 4200);
-      console.log(e?.response?.data);
     } finally {
       setSaving(false);
     }
   }
 
-  // export CSV helper (unchanged except uses selectedBudgetId for filename)
+  // export CSV helper (igual que antes)
   function exportCsvFor(userLabel: string, categories: CategorySummary[], overrides: Record<string, number>) {
     const header = ['classification_code', 'category', 'ppto_usd', 'sales_usd', 'pct_cumpl', 'applied_pct', 'commission_usd'];
     const lines = [header.join(',')];
@@ -336,417 +398,297 @@ console.log(budgetsKey)
     window.URL.revokeObjectURL(url);
   }
 
-  // filtered sales (same)
-  const providersA = useMemo(() => Array.from(new Set((aData?.sales || []).map(s => s.provider).filter(Boolean))), [aData]);
-  const brandsA = useMemo(() => Array.from(new Set((aData?.sales || []).map(s => s.brand).filter(Boolean))), [aData]);
-  const productsA = useMemo(() => Array.from(new Set((aData?.sales || []).map(s => s.product).filter(Boolean))), [aData]);
+  // filtered sales for currently visible advisor
+  const currentData = viewLine === 'montblanc' ? aData : bData;
+  const currentCategories = viewLine === 'montblanc' ? aCategories : bCategories;
+  const currentOverrides = viewLine === 'montblanc' ? aOverrides : bOverrides;
+  const currentSaveOverrides = viewLine === 'montblanc' ? ((v: Record<string, number>) => saveOverridesFor(selectedAId ?? 0, v, setSavingA)) : ((v: Record<string, number>) => saveOverridesFor(selectedBId ?? 0, v, setSavingB));
 
-  const providersB = useMemo(() => Array.from(new Set((bData?.sales || []).map(s => s.provider).filter(Boolean))), [bData]);
-  const brandsB = useMemo(() => Array.from(new Set((bData?.sales || []).map(s => s.brand).filter(Boolean))), [bData]);
-  const productsB = useMemo(() => Array.from(new Set((bData?.sales || []).map(s => s.product).filter(Boolean))), [bData]);
+  const providers = useMemo(() => Array.from(new Set((currentData?.sales || []).map(s => s.provider).filter(Boolean))), [currentData]);
+  const brands = useMemo(() => Array.from(new Set((currentData?.sales || []).map(s => s.brand).filter(Boolean))), [currentData]);
+  const products = useMemo(() => Array.from(new Set((currentData?.sales || []).map(s => s.product).filter(Boolean))), [currentData]);
 
-  const filteredSalesA = useMemo(() => {
-    return (aData?.sales || []).filter(s => {
-      if (filterProviderA !== 'ALL' && String(s.provider ?? '') !== String(filterProviderA)) return false;
-      if (filterBrandA !== 'ALL' && String(s.brand ?? '') !== String(filterBrandA)) return false;
-      if (filterProductA !== 'ALL' && String(s.product ?? '') !== String(filterProductA)) return false;
-      if (!searchA) return true;
-      return `${s.product ?? ''} ${s.folio ?? ''}`.toLowerCase().includes(searchA.toLowerCase());
+  const filteredSales = useMemo(() => {
+    return (currentData?.sales || []).filter(s => {
+      if (filterProvider !== 'ALL' && String(s.provider ?? '') !== String(filterProvider)) return false;
+      if (filterBrand !== 'ALL' && String(s.brand ?? '') !== String(filterBrand)) return false;
+      if (filterProduct !== 'ALL' && String(s.product ?? '') !== String(filterProduct)) return false;
+      if (!search) return true;
+      return `${s.product ?? ''} ${s.folio ?? ''}`.toLowerCase().includes(search.toLowerCase());
     });
-  }, [aData, filterProviderA, filterBrandA, filterProductA, searchA]);
+  }, [currentData, filterProvider, filterBrand, filterProduct, search]);
 
-  const filteredSalesB = useMemo(() => {
-    return (bData?.sales || []).filter(s => {
-      if (filterProviderB !== 'ALL' && String(s.provider ?? '') !== String(filterProviderB)) return false;
-      if (filterBrandB !== 'ALL' && String(s.brand ?? '') !== String(filterBrandB)) return false;
-      if (filterProductB !== 'ALL' && String(s.product ?? '') !== String(filterProductB)) return false;
-      if (!searchB) return true;
-      return `${s.product ?? ''} ${s.folio ?? ''}`.toLowerCase().includes(searchB.toLowerCase());
-    });
-  }, [bData, filterProviderB, filterBrandB, filterProductB, searchB]);
-
-  // --- advisor split helpers (use selectedAId / selectedBId and selectedBudgetId) ---
-  const calculateAdvisorSplit = async () => {
+  // --- Assign specialist for a line ---
+  const assignSpecialistForLine = async (userIdToAssign: number, line: 'montblanc' | 'parbel') => {
     if (!selectedBudgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
-    if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
+    setAssigning(true);
     try {
-      const res = await api.get('advisors/split-pool', {
-        params: {
-          budget_id: selectedBudgetId,
-          advisor_a_id: selectedAId,
-          advisor_b_id: selectedBId,
-          advisor_a_pct: advisorAPct,
-          advisor_b_pct: advisorBPct,
+      await api.post('advisors/specialists', { budget_id: selectedBudgetId, user_id: userIdToAssign, business_line: line });
+      // reload that line's specialists
+      const res = await api.get('advisors/specialists', { params: { budget_id: selectedBudgetId, business_line: line } });
+      const list: Specialist[] = Array.isArray(res.data) ? res.data : [];
+      if (line === 'montblanc') {
+        const active = list.find(s => !s.valid_to) ?? list[0] ?? null;
+        setActiveMont(active);
+        setHistoryMont(list);
+        if (active?.user_id) {
+          setSelectedAId(active.user_id);
+        } else {
+          setSelectedAId(userIdToAssign);
         }
-      });
-      setAdvisorSplit(res.data);
-    } catch (e) {
-      console.error('calc advisor split error', e);
-      setMessage({ type: 'error', text: 'Error calculando split asesores' });
-      setTimeout(()=>setMessage(null),1500);
-    }
-  };
+      } else {
+        const active = list.find(s => !s.valid_to) ?? list[0] ?? null;
+        setActivePar(active);
+        setHistoryPar(list);
+        if (active?.user_id) {
+          setSelectedBId(active.user_id);
+        } else {
+          setSelectedBId(userIdToAssign);
+        }
+      }
 
-  const saveAdvisorSplit = async () => {
-    if (!selectedBudgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
-    if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
-    setSavingSplit(true);
-    try {
-      const payload = {
-        budget_id: selectedBudgetId,
-        advisor_a_id: selectedAId,
-        advisor_a_pct: Number(advisorAPct || 0),
-        advisor_b_id: selectedBId,
-        advisor_b_pct: Number(advisorBPct || 0),
-      };
-      await api.post('advisors/save-split', payload);
-      const res = await api.get('advisors/get-split', { params: { budget_id: selectedBudgetId } });
-      setAdvisorSplit(res.data);
-      setMessage({ type: 'ok', text: 'Distribución guardada' });
+      // enrich usersMap (if specialist items contain user)
+      const newMap = buildUsersMapFromArray(list.map(s => s.user ? s.user : { id: s.user_id, name: s.user_name }));
+      setUsersMap(prev => ({ ...prev, ...newMap }));
+
+      setMessage({ type: 'ok', text: 'Asesor asignado' });
     } catch (e) {
-      console.error('save split error', e);
-      setMessage({ type: 'error', text: 'Error guardando distribución' });
+      console.error('assign error', e);
+      setMessage({ type: 'error', text: 'Error asignando asesor' });
     } finally {
-      setSavingSplit(false);
-      setTimeout(()=>setMessage(null),1800);
+      setAssigning(false);
+      setTimeout(() => setMessage(null), 1800);
     }
   };
 
   const findUserName = (id?: number | null) => {
     if (!id) return '';
-    return usersMap[id] ?? `User ${id}`;
+    return usersMap[id] ?? `Usuario ${id}`;
   };
 
+  // UI: loading indicator for page (not modal)
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-        <div className="relative bg-white rounded-xl shadow p-8 text-center">
-          <div className="text-gray-600">Cargando datos…</div>
-        </div>
+      <div className="p-6">
+        <div className="text-gray-600">Cargando datos…</div>
       </div>
     );
   }
 
+  // helpers to render the single selector section
+  const currentActive = viewLine === 'montblanc' ? activeMont : activePar;
+  const currentHistory = viewLine === 'montblanc' ? historyMont : historyPar;
+  const currentOptions = viewLine === 'montblanc' ? montSpecialists : parbelSpecialists;
+
+  // --- RENDER (page layout: header + single big table + sidebar) ---
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-auto">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
-      <div className="relative bg-gray-50 rounded-2xl shadow-2xl w-full max-w-7xl p-6 overflow-visible">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">Administración Comisiones — Comparativa</h2>
-            <div className="text-sm text-gray-500">Presupuesto: &nbsp;
-              <select value={selectedBudgetId ?? ''} onChange={e => setSelectedBudgetId(e.target.value ? Number(e.target.value) : null)} className="border px-2 py-1 rounded">
-                <option value="">Selecciona presupuesto</option>
-                {budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button onClick={() => exportCsvFor(`advisor_${selectedAId ?? 'A'}`, aCategories, aOverrides)} className="px-3 py-2 rounded bg-sky-600 text-white">Export A CSV</button>
-            <button onClick={() => exportCsvFor(`advisor_${selectedBId ?? 'B'}`, bCategories, bOverrides)} className="px-3 py-2 rounded bg-sky-600 text-white">Export B CSV</button>
-            <button onClick={() => { setBOverrides(prev => ({ ...prev, ...aOverrides })); setMessage({ type: 'ok', text: 'Copiado A → B (recuerda guardar)' }); setTimeout(()=>setMessage(null),1500); }} className="px-3 py-2 rounded bg-amber-500 text-white">Copiar A → B</button>
-            <button onClick={onClose} className="px-3 py-2 rounded bg-gray-200">Cerrar</button>
+    <div className="p-6 w-full max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Administración Comisiones — Comparativa</h2>
+          <div className="text-sm text-gray-500">Presupuesto:
+            <select value={selectedBudgetId ?? ''} onChange={e => setSelectedBudgetId(e.target.value ? Number(e.target.value) : null)} className="ml-3 border px-2 py-1 rounded">
+              <option value="">Selecciona presupuesto</option>
+              {budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
           </div>
         </div>
 
-        {message && <div className={`mb-4 p-3 rounded ${message.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-gray-100 rounded overflow-hidden">
+            <button onClick={() => setViewLine('montblanc')} className={`px-3 py-2 ${viewLine === 'montblanc' ? 'bg-indigo-600 text-white' : 'text-gray-700'}`}>Montblanc</button>
+            <button onClick={() => setViewLine('parbel')} className={`px-3 py-2 ${viewLine === 'parbel' ? 'bg-indigo-600 text-white' : 'text-gray-700'}`}>Parbel</button>
+          </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <button onClick={() => exportCsvFor(`advisor_${viewLine}`, currentCategories, currentOverrides)} className="px-3 py-2 rounded bg-sky-600 text-white">Export CSV</button>
+          <button onClick={() => { (viewLine === 'montblanc' ? setBOverrides(prev => ({ ...prev, ...aOverrides })) : setAOverrides(prev => ({ ...prev, ...bOverrides }))); setMessage({ type: 'ok', text: 'Copiado (recuerda guardar)' }); setTimeout(()=>setMessage(null),1500); }} className="px-3 py-2 rounded bg-amber-500 text-white">Copiar a par</button>
+          {onClose && <button onClick={onClose} className="px-3 py-2 rounded bg-gray-200">Cerrar</button>}
+        </div>
+      </div>
 
-          {/* LEFT: Asesor A (Montblanc) */}
-          <div className="bg-white rounded-2xl shadow p-4">
-            <div className="flex items-center justify-between mb-3">
+      {message && <div className={`mb-4 p-3 rounded ${message.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* MAIN: big table (occupies 2 cols on lg) */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-sm text-gray-500">Mostrando: <strong>{viewLine === 'montblanc' ? 'Montblanc' : 'Parbel'}</strong></div>
+              <div className="text-lg font-semibold">
+                {viewLine === 'montblanc'
+                  ? (aData?.user?.name ?? '')
+                  : (bData?.user?.name ?? '')}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-gray-500 text-right">
+                <div>PPTO usuario</div>
+                <div className="font-bold">{moneyUSD(currentData?.user_budget_usd ?? 0)}</div>
+              </div>
               <div>
-                <div className="text-sm text-gray-500">Asesor A (Montblanc)</div>
-                <div className="font-semibold">{findUserName(selectedAId) || `User ${selectedAId ?? ''}`}</div>
+                <button onClick={() => currentSaveOverrides(currentOverrides)} disabled={(viewLine === 'montblanc' ? savingA : savingB) || !(viewLine === 'montblanc' ? selectedAId : selectedBId) || !selectedBudgetId} className={`px-3 py-2 rounded ${((viewLine === 'montblanc' ? savingA : savingB) ? 'bg-gray-300 text-gray-600' : 'bg-emerald-600 text-white')}`}>
+                  {(viewLine === 'montblanc' ? savingA : savingB) ? 'Guardando...' : 'Guardar comisiones'}
+                </button>
               </div>
-
-              <div className="flex items-center gap-2">
-                <div className="text-sm text-gray-500 text-right">
-                  <div>PPTO usuario</div>
-                  <div className="font-bold">{moneyUSD(aData?.user_budget_usd ?? 0)}</div>
-                </div>
-                <div>
-                  <button onClick={() => saveOverridesFor(selectedAId ?? 0, aOverrides, setSavingA)} disabled={savingA || !selectedAId || !selectedBudgetId} className={`px-3 py-2 rounded ${savingA ? 'bg-gray-300 text-gray-600' : 'bg-emerald-600 text-white'}`}>{savingA ? 'Guardando...' : 'Guardar comisiones'}</button>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-3 grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-              <div>
-                <label className="text-xs">Seleccionar Asesor (Montblanc)</label>
-                <select value={selectedAId ?? ''} onChange={e => setSelectedAId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-2 py-2 text-sm w-full">
-                  <option value="">-- Selecciona Asesor Montblanc --</option>
-                  {montSpecialists.map(s => <option key={`msp-${s.user_id}`} value={s.user_id}>{findUserName(s.user_id)}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs">Filtrar proveedor</label>
-                <select value={filterProviderA} onChange={e => setFilterProviderA(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
-                  <option value="ALL">Proveedor: Todos</option>
-                  {providersA.map((p, i) => <option key={`provA-${p}-${i}`} value={p}>{p}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* categories table */}
-            <div className="overflow-x-auto mb-4">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="p-2 text-left">Categoría</th>
-                    <th className="p-2 text-right">PPTO</th>
-                    <th className="p-2 text-right">Ventas</th>
-                    <th className="p-2 text-right">% Cumpl.</th>
-                    <th className="p-2 text-right">% Comisión</th>
-                    <th className="p-2 text-right">Comisión USD</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aCategories.map((c, idx) => {
-                    const code = String(c.classification_code);
-                    const ppto = Number(c.category_budget_usd_for_user ?? 0);
-                    const sales = Number(c.sales_sum_usd ?? 0);
-                    const pct = Number(c.pct_user_of_category_budget ?? 0);
-                    const applied = aOverrides[code] ?? Number(c.applied_commission_pct ?? 0);
-                    const commUsd = computeCommissionUsd(sales, applied);
-                    return (
-                      <tr key={`a-cat-${code}-${idx}`} className="border-t">
-                        <td className="p-2">{c.category ?? code}</td>
-                        <td className="p-2 text-right">{moneyUSD(ppto)}</td>
-                        <td className="p-2 text-right">{moneyUSD(sales)}</td>
-                        <td className="p-2 text-right">{pct.toFixed(1)}%</td>
-                        <td className="p-2 text-right">
-                          <input type="number" step="0.01" value={applied} onChange={e => {
-                            const v = Number(e.target.value || 0);
-                            setAOverrides(prev => ({ ...prev, [code]: v }));
-                          }} className="w-20 text-right border rounded px-1 py-1" /> %
-                        </td>
-                        <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(commUsd)}</td>
-                      </tr>
-                    );
-                  })}
-                  {aCategories.length === 0 && (
-                    <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay categorías para el Asesor A</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* sales list */}
-            <div className="mb-3 grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
-              <select value={filterBrandA} onChange={e => setFilterBrandA(e.target.value)} className="border rounded px-2 py-2 text-sm">
-                <option value="ALL">Marca: Todas</option>
-                {brandsA.map((b, i) => <option key={`brandA-${b}-${i}`} value={b}>{b}</option>)}
-              </select>
-              <select value={filterProductA} onChange={e => setFilterProductA(e.target.value)} className="border rounded px-2 py-2 text-sm">
-                <option value="ALL">Producto: Todos</option>
-                {productsA.map((p, i) => <option key={`prodA-${p}-${i}`} value={p}>{p}</option>)}
-              </select>
-              <input value={searchA} onChange={e => setSearchA(e.target.value)} placeholder="Buscar…" className="border rounded px-2 py-2 text-sm" />
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-2 text-left">Fecha</th>
-                    <th className="p-2 text-left">Proveedor</th>
-                    <th className="p-2 text-left">Marca</th>
-                    <th className="p-2 text-left">Producto</th>
-                    <th className="p-2 text-right">USD</th>
-                    <th className="p-2 text-right">Comisión (COP)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSalesA.map((s, idx) => (
-                    <tr key={`a-sale-${s.id ?? s.rowKey ?? idx}`} className="border-t hover:bg-gray-50">
-                      <td className="p-2">{s.sale_date}</td>
-                      <td className="p-2">{s.provider ?? '—'}</td>
-                      <td className="p-2">{s.brand ?? '—'}</td>
-                      <td className="p-2">{s.product ?? s.folio ?? '—'}</td>
-                      <td className="p-2 text-right">{moneyUSD(s.value_usd ?? 0)}</td>
-                      <td className="p-2 text-right">{moneyCOP(s.commission_amount ?? 0)}</td>
-                    </tr>
-                  ))}
-                  {filteredSalesA.length === 0 && (
-                    <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay ventas para el Asesor A (según filtros)</td></tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
 
-          {/* RIGHT: Asesor B (Parbel) */}
-          <div className="bg-white rounded-2xl shadow p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm text-gray-500">Asesor B (Parbel)</div>
-                <div className="font-semibold">{findUserName(selectedBId) || `User ${selectedBId ?? ''}`}</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="text-sm text-gray-500 text-right">
-                  <div>PPTO usuario</div>
-                  <div className="font-bold">{moneyUSD(bData?.user_budget_usd ?? 0)}</div>
-                </div>
-                <div>
-                  <button onClick={() => saveOverridesFor(selectedBId ?? 0, bOverrides, setSavingB)} disabled={savingB || !selectedBId || !selectedBudgetId} className={`px-3 py-2 rounded ${savingB ? 'bg-gray-300 text-gray-600' : 'bg-emerald-600 text-white'}`}>{savingB ? 'Guardando...' : 'Guardar comisiones'}</button>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-3 grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-              <div>
-                <label className="text-xs">Seleccionar Asesor (Parbel)</label>
-                <select value={selectedBId ?? ''} onChange={e => setSelectedBId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-2 py-2 text-sm w-full">
-                  <option value="">-- Selecciona Asesor Parbel --</option>
-                  {parbelSpecialists.map(s => <option key={`psp-${s.user_id}`} value={s.user_id}>{findUserName(s.user_id)}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs">Filtrar proveedor</label>
-                <select value={filterProviderB} onChange={e => setFilterProviderB(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
-                  <option value="ALL">Proveedor: Todos</option>
-                  {providersB.map((p, i) => <option key={`provB-${p}-${i}`} value={p}>{p}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto mb-4">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="p-2 text-left">Categoría</th>
-                    <th className="p-2 text-right">PPTO</th>
-                    <th className="p-2 text-right">Ventas</th>
-                    <th className="p-2 text-right">% Cumpl.</th>
-                    <th className="p-2 text-right">% Comisión</th>
-                    <th className="p-2 text-right">Comisión USD</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bCategories.map((c, idx) => {
-                    const code = String(c.classification_code);
-                    const ppto = Number(c.category_budget_usd_for_user ?? 0);
-                    const sales = Number(c.sales_sum_usd ?? 0);
-                    const pct = Number(c.pct_user_of_category_budget ?? 0);
-                    const applied = bOverrides[code] ?? Number(c.applied_commission_pct ?? 0);
-                    const commUsd = computeCommissionUsd(sales, applied);
-                    return (
-                      <tr key={`b-cat-${code}-${idx}`} className="border-t">
-                        <td className="p-2">{c.category ?? code}</td>
-                        <td className="p-2 text-right">{moneyUSD(ppto)}</td>
-                        <td className="p-2 text-right">{moneyUSD(sales)}</td>
-                        <td className="p-2 text-right">{pct.toFixed(1)}%</td>
-                        <td className="p-2 text-right">
-                          <input type="number" step="0.01" value={applied} onChange={e => {
-                            const v = Number(e.target.value || 0);
-                            setBOverrides(prev => ({ ...prev, [code]: v }));
-                          }} className="w-20 text-right border rounded px-1 py-1" /> %
-                        </td>
-                        <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(commUsd)}</td>
-                      </tr>
-                    );
-                  })}
-                  {bCategories.length === 0 && (
-                    <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay categorías para el Asesor B</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mb-3 grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
-              <select value={filterBrandB} onChange={e => setFilterBrandB(e.target.value)} className="border rounded px-2 py-2 text-sm">
-                <option value="ALL">Marca: Todas</option>
-                {brandsB.map((b, i) => <option key={`brandB-${b}-${i}`} value={b}>{b}</option>)}
-              </select>
-              <select value={filterProductB} onChange={e => setFilterProductB(e.target.value)} className="border rounded px-2 py-2 text-sm">
-                <option value="ALL">Producto: Todos</option>
-                {productsB.map((p, i) => <option key={`prodB-${p}-${i}`} value={p}>{p}</option>)}
-              </select>
-              <input value={searchB} onChange={e => setSearchB(e.target.value)} placeholder="Buscar…" className="border rounded px-2 py-2 text-sm" />
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="p-2 text-left">Fecha</th>
-                    <th className="p-2 text-left">Proveedor</th>
-                    <th className="p-2 text-left">Marca</th>
-                    <th className="p-2 text-left">Producto</th>
-                    <th className="p-2 text-right">USD</th>
-                    <th className="p-2 text-right">Comisión (COP)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSalesB.map((s, idx) => (
-                    <tr key={`b-sale-${s.id ?? s.rowKey ?? idx}`} className="border-t hover:bg-gray-50">
-                      <td className="p-2">{s.sale_date}</td>
-                      <td className="p-2">{s.provider ?? '—'}</td>
-                      <td className="p-2">{s.brand ?? '—'}</td>
-                      <td className="p-2">{s.product ?? s.folio ?? '—'}</td>
-                      <td className="p-2 text-right">{moneyUSD(s.value_usd ?? 0)}</td>
-                      <td className="p-2 text-right">{moneyCOP(s.commission_amount ?? 0)}</td>
+          {/* categories table (single table) */}
+          <div className="overflow-x-auto mb-4">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-2 text-left">Categoría</th>
+                  <th className="p-2 text-right">PPTO</th>
+                  <th className="p-2 text-right">Ventas</th>
+                  <th className="p-2 text-right">% Cumpl.</th>
+                  <th className="p-2 text-right">% Comisión</th>
+                  <th className="p-2 text-right">Comisión USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentCategories.map((c, idx) => {
+                  const code = String(c.classification_code);
+                  const ppto = Number(c.category_budget_usd_for_user ?? 0);
+                  const sales = Number(c.sales_sum_usd ?? 0);
+                  const pct = Number(c.pct_user_of_category_budget ?? 0);
+                  const applied = currentOverrides[code] ?? Number(c.applied_commission_pct ?? 0);
+                  const commUsd = Number(c.commission_sum_usd ?? 0);
+                  return (
+                    <tr key={`cat-${viewLine}-${code}-${idx}`} className="border-t">
+                      <td className="p-2">{c.category ?? code}</td>
+                      <td className="p-2 text-right">{moneyUSD(ppto)}</td>
+                      <td className="p-2 text-right">{moneyUSD(sales)}</td>
+                      <td className="p-2 text-right">{pct.toFixed(1)}%</td>
+                      <td className="p-2 text-right">
+                        {applied.toFixed(2)} %
+                      </td>
+                      <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(commUsd)}</td>
                     </tr>
-                  ))}
-                  {filteredSalesB.length === 0 && (
-                    <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay ventas para el Asesor B (según filtros)</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Split panel (below tables for visibility) */}
-            <div className="mt-4 border-t pt-3">
-              <h4 className="font-semibold">Split Montblanc ↔ Parbel</h4>
-              <div className="mt-2 text-sm text-gray-700">
-                <div className="mb-2">
-                  <div className="text-xxs text-gray-500">Asesor A (Montblanc)</div>
-                  <div className="font-medium">{findUserName(selectedAId) || <em className="text-red-500">No seleccionado</em>}</div>
-                  <div className="text-xs text-gray-500">PPTO: <strong>{moneyUSD(aData?.user_budget_usd ?? 0)}</strong></div>
-                </div>
-
-                <div className="mb-2">
-                  <div className="text-xxs text-gray-500">Asesor B (Parbel)</div>
-                  <div className="font-medium">{findUserName(selectedBId) || <em className="text-red-500">No seleccionado</em>}</div>
-                  <div className="text-xs text-gray-500">PPTO: <strong>{moneyUSD(bData?.user_budget_usd ?? 0)}</strong></div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div>
-                    <label className="text-xs">Asesor A %</label>
-                    <input type="number" min={0} max={100} value={advisorAPct} onChange={e => setAdvisorAPct(Number(e.target.value || 0))} className="w-full rounded px-2 py-1 text-sm border" />
-                  </div>
-                  <div>
-                    <label className="text-xs">Asesor B %</label>
-                    <input type="number" min={0} max={100} value={advisorBPct} onChange={e => setAdvisorBPct(Number(e.target.value || 0))} className="w-full rounded px-2 py-1 text-sm border" />
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button onClick={calculateAdvisorSplit} className="px-3 py-2 rounded text-white bg-indigo-600">Calcular distribución</button>
-                  <button onClick={saveAdvisorSplit} disabled={savingSplit || !selectedAId || !selectedBId} className={`px-3 py-2 rounded text-white ${savingSplit ? 'bg-gray-400' : (!selectedAId || !selectedBId ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-600')}`}>{savingSplit ? 'Guardando...' : 'Guardar distribución'}</button>
-                </div>
-
-                {advisorSplit && (
-                  <div className="mt-2 text-sm text-gray-700">
-                    <div><strong>Pool total:</strong> {Number(advisorSplit.advisor_pool_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                    <div>Asesor A: {Number(advisorSplit.advisor_a?.assigned_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                    <div>Asesor B: {Number(advisorSplit.advisor_b?.assigned_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                  </div>
+                  );
+                })}
+                {currentCategories.length === 0 && (
+                  <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay categorías para la vista actual</td></tr>
                 )}
-              </div>
-            </div>
+              </tbody>
+            </table>
+          </div>
 
+          {/* filters & sales list */}
+          <div className="mb-3 grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+            <select value={filterProvider} onChange={e => setFilterProvider(e.target.value)} className="border rounded px-2 py-2 text-sm">
+              <option value="ALL">Proveedor: Todos</option>
+              {providers.map((p, i) => <option key={`prov-${p}-${i}`} value={p}>{p}</option>)}
+            </select>
+            <select value={filterBrand} onChange={e => setFilterBrand(e.target.value)} className="border rounded px-2 py-2 text-sm">
+              <option value="ALL">Marca: Todas</option>
+              {brands.map((b, i) => <option key={`brand-${b}-${i}`} value={b}>{b}</option>)}
+            </select>
+            <select value={filterProduct} onChange={e => setFilterProduct(e.target.value)} className="border rounded px-2 py-2 text-sm">
+              <option value="ALL">Producto: Todos</option>
+              {products.map((p, i) => <option key={`prod-${p}-${i}`} value={p}>{p}</option>)}
+            </select>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar…" className="border rounded px-2 py-2 text-sm" />
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="p-2 text-left">Fecha</th>
+                  <th className="p-2 text-left">Proveedor</th>
+                  <th className="p-2 text-left">Marca</th>
+                  <th className="p-2 text-left">Producto</th>
+                  <th className="p-2 text-right">USD</th>
+                  <th className="p-2 text-right">Comisión (COP)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSales.map((s, idx) => (
+                  <tr key={`sale-${viewLine}-${s.id ?? s.rowKey ?? idx}`} className="border-t hover:bg-gray-50">
+                    <td className="p-2">{s.sale_date}</td>
+                    <td className="p-2">{s.provider ?? '—'}</td>
+                    <td className="p-2">{s.brand ?? '—'}</td>
+                    <td className="p-2">{s.product ?? s.folio ?? '—'}</td>
+                    <td className="p-2 text-right">{moneyUSD(s.value_usd ?? 0)}</td>
+                    <td className="p-2 text-right">{moneyCOP(s.commission_amount ?? 0)}</td>
+                  </tr>
+                ))}
+                {filteredSales.length === 0 && (
+                  <tr><td colSpan={6} className="p-4 text-center text-gray-500">No hay ventas (según filtros)</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
+
+        {/* SIDEBAR (selector especialistas) */}
+        <aside className="space-y-4">
+          <div className="bg-white shadow rounded p-4">
+            <h3 className="font-semibold">Especialistas por línea</h3>
+            <div className="mt-3">
+              <div className="flex gap-2 mb-3">
+                <button onClick={() => setViewLine('montblanc')} className={`px-3 py-1 rounded ${viewLine === 'montblanc' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>Montblanc</button>
+                <button onClick={() => setViewLine('parbel')} className={`px-3 py-1 rounded ${viewLine === 'parbel' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>Parbel</button>
+              </div>
+
+              <div className="text-sm text-gray-600 mb-2">Activo: {currentActive ? findUserName(currentActive.user_id) : 'Ninguno'}</div>
+
+              {/* <-- Aquí el cambio importante: usamos optgroups: primero especialistas (history), luego "Todos los vendedores" */}
+              <select
+                value={currentActive?.user_id ?? ''}
+                onChange={e => {
+                  const uid = Number(e.target.value || 0);
+                  if (!uid) return;
+                  if (viewLine === 'montblanc') {
+                    setActiveMont(prev => ({ ...(prev ?? { budget_id: selectedBudgetId ?? 0, user_id: 0 }), user_id: uid, business_line: 'montblanc' }));
+                    setSelectedAId(uid || null);
+                  } else {
+                    setActivePar(prev => ({ ...(prev ?? { budget_id: selectedBudgetId ?? 0, user_id: 0 }), user_id: uid, business_line: 'parbel' }));
+                    setSelectedBId(uid || null);
+                  }
+                }}
+                className="border rounded px-2 py-2 w-full mb-2"
+              >
+                <option value="">Selecciona asesor {viewLine === 'montblanc' ? 'Montblanc' : 'Parbel'}</option>
+
+                {/* especialistas / historial (si existen) */}
+                {currentOptions.length > 0 && <optgroup label="Especialistas (historial)">
+                  {currentOptions.map(s => {
+                    const label = findUserName(s.user_id) || `Usuario ${s.user_id}`;
+                    return <option key={`spec-${s.user_id}`} value={s.user_id}>{label}</option>;
+                  })}
+                </optgroup>}
+
+                {/* todos los vendedores (lista completa) */}
+                <optgroup label="Todos los vendedores">
+                  {advisors.map(u => (
+                    <option key={`adv-${u.id}`} value={u.id}>
+                      {u.name ?? u.display_name ?? `Usuario ${u.id}`}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+
+              <button onClick={() => currentActive?.user_id && assignSpecialistForLine(currentActive.user_id, viewLine)} disabled={assigning || !currentActive?.user_id} className={`w-full px-3 py-2 rounded text-white ${assigning ? 'bg-gray-400' : 'bg-emerald-600'}`}>
+                {assigning ? 'Asignando...' : `Asignar ${viewLine === 'montblanc' ? 'Montblanc' : 'Parbel'}`}
+              </button>
+
+              <div className="mt-3 text-sm text-gray-600">
+                <div className="font-medium">Historial</div>
+                <div className="max-h-36 overflow-auto mt-2">
+                  {currentHistory.length ? currentHistory.map(h => (
+                    <div key={`${h.user_id}-${h.valid_from ?? ''}`} className="py-1 border-b last:border-b-0">
+                      <div>{findUserName(h.user_id)}</div>
+                      <div className="text-xxs text-gray-500">{h.valid_from ?? '-'} → {h.valid_to ?? 'activo'}</div>
+                    </div>
+                  )) : <div className="text-xs text-gray-400">Sin historial</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );

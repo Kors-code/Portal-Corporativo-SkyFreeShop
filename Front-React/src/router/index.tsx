@@ -17,6 +17,7 @@ import CatalogMatchPage from "../modules/WishList/pages/WishList";
 import AdminWishList from "../modules/WishList/pages/AdminWishList";
 import AdvisorSplitByCategory from "../modules/commissions/pages/AdvisorSplitByCategory";
 import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmin";
+import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
 
 
 
@@ -40,6 +41,7 @@ export default function AppRouter() {
           <Route path="/CatalogMatchPage" element={<CatalogMatchPage />} />
           <Route path="/AdminWishList" element={<AdminWishList />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
+          <Route path="/commissions/SpecialistCommissionsPanel" element={<SpecialistCommissionsPanel  />} />
         <Route element={<MainLayout />}>
           <Route path="/" element={<HomePage />} />
 
