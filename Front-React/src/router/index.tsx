@@ -18,6 +18,7 @@ import AdminWishList from "../modules/WishList/pages/AdminWishList";
 import AdvisorSplitByCategory from "../modules/commissions/pages/AdvisorSplitByCategory";
 import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmin";
 import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
+import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
 
 
 
@@ -55,6 +56,7 @@ export default function AppRouter() {
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
+          <Route path="/commissions/CommissionLeadersPage" element={<CommissionLeadersPage />} />
           <Route path="/commissions/DualCommissionAdmin" element={<DualCommissionAdmin advisorAId={0} advisorBId={0} budgetIds={[]} onClose={function (): void {
             throw new Error("Function not implemented.");
           } }  />} />

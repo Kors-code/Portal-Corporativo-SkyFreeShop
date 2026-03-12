@@ -114,6 +114,7 @@ export default function CommissionCardsPage() {
         setTicketsSummary(null);
         setTurnsSummary(null);
         setLoading(false);
+        
         return;
       }
 
@@ -128,6 +129,7 @@ export default function CommissionCardsPage() {
         setCategoriesSummaryGlobal(res.data.categories_summary ?? []);
         setTicketsSummary(res.data.tickets_summary ?? null);
         setTurnsSummary(res.data.turns ?? null);
+        setBudgetInfo(res.data.budget ?? null);
       } else {
         setRows([]);
         setBudgetProgress(null);
@@ -185,9 +187,8 @@ export default function CommissionCardsPage() {
 
 
   const totalUsd = (budgetProgress?.total_usd ?? categoriesSummaryGlobal.reduce((s:any,c:any)=> s + Number(c.sales_usd || 0), 0));
-  const pptoUsd = budgetProgress?.required_usd ?? (budgetProgress?.budget?.target_amount ?? 0);
-  const commissionUsd = budgetProgress?.total_commission_usd;
-
+  const [budgetInfo, setBudgetInfo] = useState<any>(null);
+const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetProgress?.total_commission_usd;
   const totalCommissionCop = (budgetProgress?.total_commission_cop ?? rows.reduce((s,r)=> s + Number(r.total_commission_cop || 0), 0));
   const trm = (() => {
     if (budgetProgress?.trm) return budgetProgress.trm;

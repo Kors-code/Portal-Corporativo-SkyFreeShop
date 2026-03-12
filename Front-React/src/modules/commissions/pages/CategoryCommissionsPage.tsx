@@ -16,9 +16,16 @@ import type { CategoryWithCommission, Role } from '../types/comissionscategory';
 
 /**
  * CategoryCommissionsPage
- * - Mantiene TODO tu comportamiento existente.
- * - Añade una barra horizontal compacta arriba con el Split Montblanc <-> Parbel,
- *   mostrando el asesor activo y su PPTO. Compacto, estético y sin "encoger" la lista.
+ * - Mantiene el comportamiento anterior.
+ * - Si DB sólo trae participation_pct calculamos participation_value al cargar.
+ * - participation_pct es sólo visual (readOnly).
+ *
+ * Ajustes:
+ * - UI mejorada para el "Split" (más limpia).
+ * - Los porcentajes ingresados para A/B se respetan tal cual (no se normalizan).
+ * - Total participación redondeado a 2 decimales (para validación y color).
+ * - Valor participación mostrado sin decimales (redondeo integer).
+ * - Se agrega "Total presupuesto asignado" (2 decimales).
  */
 
 export default function CategoryCommissionsPage() {
@@ -33,10 +40,9 @@ export default function CategoryCommissionsPage() {
   const [saving, setSaving] = useState(false);
   const [savingIds, setSavingIds] = useState<number[]>([]);
   const [message, setMessage] = useState<{ type: 'ok'|'error', text: string } | null>(null);
-  
+
   const navigate = useNavigate();
 
-  // filas marcadas como modificadas (dirty)
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set());
 
   const normalizeCategoryName = (name: string) => {
@@ -70,201 +76,53 @@ export default function CategoryCommissionsPage() {
     return () => { mounted = false; };
   }, []);
 
-  // lista de roles que consideramos "vendedores" para mostrar arriba
-  // omitimos explícitamente el role con id === 2 (no se muestra ni se puede seleccionar)
   const sellerRoles = useMemo(() => roles.filter(r => r.id !== 2), [roles]);
 
-  // load categories when roleId or budgetId changes
-  useEffect(() => {
-    if (!roleId) {
-      setItems([]);
-      return;
-    }
-    loadCategories(roleId, budgetId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleId, budgetId]);
-
-  const loadCategories = async (rId: number, bId?: number | null) => {
-    try {
-      setLoading(true);
-      const res = await getCategoriesWithCommission(rId, bId ?? undefined);
-      const cats: CategoryWithCommission[] = res?.categories ?? res?.data ?? res ?? [];
-      let filtered: CategoryWithCommission[] = Array.isArray(cats) ? cats : [];
-
-      if (rId === 4) {
-        const allowedCodes = new Set(['13', '13.0']);
-        filtered = filtered.filter(c => {
-          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
-          const nameNormalized = String((c as any).name ?? '').toLowerCase();
-          if (nameNormalized.includes('frag')) return true;
-          if (allowedCodes.has(codeNormalized)) return true;
-          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
-          return false;
-        });
-      } else if (rId === 5) {
-        const allowedCodes = new Set(['14','15','16','19','21','14.0','15.0','16.0','19.0','21.0']);
-        filtered = filtered.filter(c => {
-          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
-          const nameNormalized = String((c as any).name ?? '').toLowerCase();
-          const keywords = ['gift', 'gifts', 'watch', 'watches', 'jewel', 'jewelry', 'sunglass', 'electronics'];
-          if (keywords.some(k => nameNormalized.includes(k))) return true;
-          if (allowedCodes.has(codeNormalized)) return true;
-          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
-          return false;
-        });
-      } else {
-        filtered = Array.isArray(cats) ? cats : [];
-      }
-
-      setItems(filtered);
-      setDirtyIds(new Set());
-    } catch (err) {
-      console.error('Error cargando categorias:', err);
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
+  // ---- Helper: obtener total del presupuesto global ----
+  const getBudgetTotal = (bId?: number | null) => {
+    if (!bId) return 0;
+    const b = budgets.find(b => b.id === bId);
+    if (!b) return 0;
+    const candidate = Number(b.target_amount ?? b.total ?? b.total_usd ?? b.budget_usd ?? b.value ?? 0);
+    return isNaN(candidate) ? 0 : candidate;
   };
 
-  // helpers money and dirty
-  const markDirty = (categoryId: number, dirty = true) => {
-    setDirtyIds(prev => {
-      const clone = new Set(prev);
-      if (dirty) clone.add(categoryId); else clone.delete(categoryId);
-      return clone;
-    });
-  };
-
-  // input handlers
-  const onChangeField = (categoryId: number, field: string, rawVal: string) => {
-    const val = rawVal === '' ? null : Number(rawVal);
-    setItems(prev => prev.map(it => it.category_id === categoryId ? { ...it, [field]: val } : it));
-    markDirty(categoryId, true);
-  };
-
-  const saveOne = async (it: CategoryWithCommission) => {
-    if (!roleId) return;
-    setSavingIds(s => [...s, it.category_id]);
-    try {
-      const payload = {
-        category_id: it.category_id,
-        role_id: roleId,
-        budget_id: budgetId,
-        commission_percentage: Number(it.commission_percentage ?? 0),
-        commission_percentage100: Number(it.commission_percentage100 ?? 0),
-        commission_percentage120: Number(it.commission_percentage120 ?? 0),
-        participation_pct: Number(it.participation_pct ?? 0)
-      };
-      await upsertCategoryCommission(payload);
-      setMessage({ type: 'ok', text: 'Guardado' });
-      markDirty(it.category_id, false);
-      await loadCategories(roleId, budgetId);
-    } catch (e: any) {
-      console.error('saveOne error completo:', e.response?.data || e);
-      setMessage({ type: 'error', text: 'Error al guardar' + (e?.response?.data?.message ? ': ' + e.response.data.message : '') });
-    } finally {
-      setSavingIds(s => s.filter(id => id !== it.category_id));
-      setTimeout(() => setMessage(null), 2000);
-    }
-  };
-
-  const saveAll = async () => {
-    if (!roleId) return;
-    setSaving(true);
-    try {
-      const payload = items.map(i => ({
-        category_id: i.category_id,
-        role_id: roleId,
-        budget_id: budgetId,
-        commission_percentage: Number(i.commission_percentage ?? 0),
-        commission_percentage100: Number(i.commission_percentage100 ?? 0),
-        commission_percentage120: Number(i.commission_percentage120 ?? 0),
-        participation_pct: Number(i.participation_pct ?? 0)
-      }));
-      await bulkSaveCategoryCommissions(roleId, payload);
-      setMessage({ type: 'ok', text: 'Guardado masivo exitoso' });
-      setDirtyIds(new Set());
-      await loadCategories(roleId, budgetId);
-    } catch (e) {
-      console.error('saveAll error', e);
-      setMessage({ type: 'error', text: 'Error al guardar masivo' });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(null), 2000);
-    }
-  };
-
-  const onDelete = async (categoryId: number) => {
-    if (!confirm('¿Eliminar configuración de comisión para esta categoría?')) return;
-    try {
-      await deleteCategoryCommission(categoryId);
-      setMessage({ type: 'ok', text: 'Configuración eliminada' });
-      await loadCategories(roleId as number, budgetId);
-    } catch (e) {
-      console.error('delete error', e);
-      setMessage({ type: 'error', text: 'Error al eliminar' });
-    } finally {
-      setTimeout(() => setMessage(null), 2000);
-    }
-  };
-
-  const anyDirty = useMemo(() => dirtyIds.size > 0, [dirtyIds]);
-
-  const normalizedItems = useMemo(() => {
-    const map = new Map<number | string, CategoryWithCommission>();
-    items.forEach(it => {
-      const normalizedName = normalizeCategoryName(it.name);
-      const key = it.category_id;
-      if (!map.has(key)) {
-        map.set(key, { ...it, name: normalizedName });
-      } else {
-        const existing = map.get(key)!;
-        map.set(key, {
-          ...existing,
-          commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
-          commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
-          commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
-          participation_pct: Math.max((existing as any).participation_pct ?? 0, (it as any).participation_pct ?? 0),
-        });
-      }
-    });
-    return Array.from(map.values());
-  }, [items]);
-
-  const totalParticipation = useMemo(() => normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0), [normalizedItems]);
-
-  // ------------------ Split: Montblanc <-> Parbel (horizontal, top) ------------------
+  // ---------------------------
+  // Split Montblanc (A) <-> Parbel (B)
+  // ---------------------------
   const [montSpecialists, setMontSpecialists] = useState<any[]>([]);
   const [parbelSpecialists, setParbelSpecialists] = useState<any[]>([]);
   const [activeMont, setActiveMont] = useState<any | null>(null);
   const [activePar, setActivePar] = useState<any | null>(null);
+  console.log(montSpecialists)
+  console.log(parbelSpecialists)
+  console.log(activeMont)
+  console.log(activePar)
+  const [selectedAId, setSelectedAId] = useState<number | null>(null); // Montblanc user id (A)
+  const [selectedBId, setSelectedBId] = useState<number | null>(null); // Parbel user id (B)
 
-console.log(montSpecialists)
-console.log(parbelSpecialists)
-console.log(activeMont)
-console.log(activePar)
+  const [aUserBudgetUsd, setAUserBudgetUsd] = useState<number>(0); // Montblanc budget
+  const [bUserBudgetUsd, setBUserBudgetUsd] = useState<number>(0); // Parbel budget
 
-  const [selectedAId, setSelectedAId] = useState<number | null>(null); // Montblanc active user id
-  const [selectedBId, setSelectedBId] = useState<number | null>(null); // Parbel active user id
+  // presupuesto "efectivo" usado en la UI (asesor A/B si aplica, si no -> global)
+  const [displayedBudgetAmount, setDisplayedBudgetAmount] = useState<number | null>(null);
 
-  const [aUserBudgetUsd, setAUserBudgetUsd] = useState<number>(0);
-  const [bUserBudgetUsd, setBUserBudgetUsd] = useState<number>(0);
-
+  // **Estos son los porcentajes que el usuario escribe. Los mostramos tal cual.**
   const [advisorAPct, setAdvisorAPct] = useState<number>(50);
   const [advisorBPct, setAdvisorBPct] = useState<number>(50);
+
   const [advisorSplit, setAdvisorSplit] = useState<any>(null);
   const [loadingSplit, setLoadingSplit] = useState(false);
   const [savingSplit, setSavingSplit] = useState(false);
 
-  const [usersMap, setUsersMap] = useState<Record<number, string>>({}); // map user id -> name
+  const [usersMap, setUsersMap] = useState<Record<number, string>>({});
 
-  // helper to get username
   const findUserName = (id?: number | null) => {
     if (!id) return '';
     return usersMap[id] ?? `User ${id}`;
   };
 
-  // on budget change: fetch specialists (mont/parbel) + budget-sellers map
+  // on budget change: fetch specialists + budget-sellers
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -272,10 +130,10 @@ console.log(activePar)
         setMontSpecialists([]); setParbelSpecialists([]); setActiveMont(null); setActivePar(null);
         setSelectedAId(null); setSelectedBId(null); setAUserBudgetUsd(0); setBUserBudgetUsd(0);
         setUsersMap({});
+        setDisplayedBudgetAmount(null);
         return;
       }
       try {
-        // fetch specialists by line and budget-sellers (names)
         const [mRes, pRes, uRes] = await Promise.all([
           api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'montblanc' } }),
           api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'parbel' } }),
@@ -290,18 +148,19 @@ console.log(activePar)
 
         setMontSpecialists(montList);
         setParbelSpecialists(parList);
-        setActiveMont(montList.find((s: any) => !s.valid_to) ?? montList[0] ?? null);
-        setActivePar(parList.find((s: any) => !s.valid_to) ?? parList[0] ?? null);
+        const aActive = montList.find((s: any) => !s.valid_to) ?? montList[0] ?? null;
+        const bActive = parList.find((s: any) => !s.valid_to) ?? parList[0] ?? null;
+        setActiveMont(aActive);
+        setActivePar(bActive);
         setUsersMap(usersList.reduce((acc: Record<number,string>, u: any) => { if (u && u.id) acc[u.id] = u.name; return acc; }, {}));
 
-        // decide selected user ids (prefer already set selectedAId/selectedBId else use active)
-        const aIdToLoad = selectedAId ?? (montList.find((s: any) => !s.valid_to)?.user_id ?? montList[0]?.user_id ?? null);
-        const bIdToLoad = selectedBId ?? (parList.find((s: any) => !s.valid_to)?.user_id ?? parList[0]?.user_id ?? null);
+        const aIdToLoad = selectedAId ?? (aActive?.user_id ?? montList[0]?.user_id ?? null);
+        const bIdToLoad = selectedBId ?? (bActive?.user_id ?? parList[0]?.user_id ?? null);
 
         if (!selectedAId && montList.length) setSelectedAId(aIdToLoad ?? null);
         if (!selectedBId && parList.length) setSelectedBId(bIdToLoad ?? null);
 
-        // load user budgets for display
+        // load user budgets
         if (aIdToLoad) {
           try {
             const resA = await api.get('advisors/active-sales', { params: { budget_id: budgetId, business_line: 'montblanc', user_id: aIdToLoad } });
@@ -326,6 +185,7 @@ console.log(activePar)
           setMontSpecialists([]); setParbelSpecialists([]); setActiveMont(null); setActivePar(null);
           setUsersMap({});
           setAUserBudgetUsd(0); setBUserBudgetUsd(0);
+          setDisplayedBudgetAmount(null);
         }
       }
     })();
@@ -363,12 +223,302 @@ console.log(activePar)
     return () => { cancelled = true; };
   }, [selectedAId, selectedBId, budgetId]);
 
-  // Split helpers
+  // Effect: decidir qué presupuesto mostrar según role seleccionado.
+  // Mapeo claro: Montblanc -> A (aUserBudgetUsd), Parbel or Skin -> B (bUserBudgetUsd)
+  useEffect(() => {
+    const role = roles.find(r => r.id === roleId);
+    const name = (role?.name ?? '').toLowerCase();
+
+    const isMontblanc = /montblanc|mont blanc|mont-blanc|montblanc/i.test(name);
+    const isParbel = /parbel|parbel/i.test(name);
+    const isSkin = /skin|skincare|skin care/i.test(name);
+
+    // Montblanc => A
+    if (isMontblanc) {
+      setDisplayedBudgetAmount(aUserBudgetUsd > 0 ? aUserBudgetUsd : null);
+      return;
+    }
+
+    // Skin or Parbel => B
+    if (isSkin || isParbel) {
+      setDisplayedBudgetAmount(bUserBudgetUsd > 0 ? bUserBudgetUsd : null);
+      return;
+    }
+
+    // Si no es un asesor específico -> usar presupuesto global
+    setDisplayedBudgetAmount(null);
+  }, [roleId, roles, aUserBudgetUsd, bUserBudgetUsd]);
+
+  // --------------------------
+  // UTIL: obtener presupuesto "efectivo"
+  // --------------------------
+  const getEffectiveBudgetTotal = (bId?: number | null) => {
+    if (displayedBudgetAmount !== null && displayedBudgetAmount !== undefined && !isNaN(Number(displayedBudgetAmount)) && Number(displayedBudgetAmount) > 0) {
+      return Number(displayedBudgetAmount);
+    }
+    return getBudgetTotal(bId);
+  };
+
+  // load categories when roleId or budgetId or displayedBudgetAmount changes
+  useEffect(() => {
+    if (!roleId) {
+      setItems([]);
+      return;
+    }
+    loadCategories(roleId, budgetId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleId, budgetId, displayedBudgetAmount]);
+
+  const loadCategories = async (rId: number, bId?: number | null) => {
+    try {
+      setLoading(true);
+      const res = await getCategoriesWithCommission(rId, bId ?? undefined);
+      const cats: CategoryWithCommission[] = res?.categories ?? res?.data ?? res ?? [];
+      let filtered: CategoryWithCommission[] = Array.isArray(cats) ? cats : [];
+
+      if (rId === 4) {
+        const allowedCodes = new Set(['13', '13.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+          if (nameNormalized.includes('frag')) return true;
+          if (allowedCodes.has(codeNormalized)) return true;
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+          return false;
+        });
+      } else if (rId === 5) {
+        const allowedCodes = new Set(['14','15','16','19','21','14.0','15.0','16.0','19.0','21.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+          const keywords = ['gift', 'gifts', 'watch', 'watches', 'jewel', 'jewelry', 'sunglass', 'electronics'];
+          if (keywords.some(k => nameNormalized.includes(k))) return true;
+          if (allowedCodes.has(codeNormalized)) return true;
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+          return false;
+        });
+      } else {
+        filtered = Array.isArray(cats) ? cats : [];
+      }
+
+      // --------------------------
+      // Si backend envía participation_pct pero no participation_value,
+      // calculamos participation_value = effectiveBudgetTotal * pct / 100 (si hay presupuesto).
+      // --------------------------
+      const budgetTotal = getEffectiveBudgetTotal(bId);
+      const withValues = filtered.map(f => {
+        const rawPct = (f as any).participation_pct;
+        const rawVal = (f as any).participation_value;
+
+        const pctNum = rawPct !== undefined && rawPct !== null && !isNaN(Number(rawPct)) ? Number(rawPct) : null;
+        let valNum = rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal)) ? Number(rawVal) : null;
+
+        if ((valNum === null || valNum === undefined) && pctNum !== null && budgetTotal) {
+          valNum = (pctNum / 100) * budgetTotal;
+        }
+
+        let pctComputed = pctNum;
+        if (valNum !== null && budgetTotal) {
+          pctComputed = (valNum / budgetTotal) * 100;
+        } else if (pctNum !== null) {
+          pctComputed = pctNum;
+        } else {
+          pctComputed = null;
+        }
+
+        return {
+          ...f,
+          participation_value: valNum ?? undefined,
+          participation_pct: pctComputed ?? undefined
+        };
+      });
+
+      setItems(withValues);
+      setDirtyIds(new Set());
+    } catch (err) {
+      console.error('Error cargando categorias:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // helpers money and dirty
+  const markDirty = (categoryId: number, dirty = true) => {
+    setDirtyIds(prev => {
+      const clone = new Set(prev);
+      if (dirty) clone.add(categoryId); else clone.delete(categoryId);
+      return clone;
+    });
+  };
+
+  const onChangeField = (categoryId: number, field: string, rawVal: string) => {
+    if (field === 'participation_pct') return;
+    const val = rawVal === '' ? null : Number(rawVal);
+
+    if (field === 'participation_value') {
+      const budgetTotal = getEffectiveBudgetTotal(budgetId);
+      const valueNum = val ?? 0;
+      const pct = budgetTotal ? (valueNum / budgetTotal) * 100 : 0;
+      setItems(prev => prev.map(it =>
+        it.category_id === categoryId ? { ...it, participation_value: valueNum, participation_pct: Number(pct) } : it
+      ));
+      markDirty(categoryId, true);
+      return;
+    }
+
+    setItems(prev => prev.map(it => it.category_id === categoryId ? { ...it, [field]: val } : it));
+    markDirty(categoryId, true);
+  };
+
+  const saveOne = async (it: CategoryWithCommission) => {
+    if (!roleId) return;
+    setSavingIds(s => [...s, it.category_id]);
+    try {
+      const budgetTotal = getEffectiveBudgetTotal(budgetId);
+      const valNum = (it as any).participation_value;
+      const computedPct = budgetTotal && valNum !== null && valNum !== undefined ? (Number(valNum) / budgetTotal) * 100 : Number((it as any).participation_pct ?? 0);
+
+      const payload = {
+        category_id: it.category_id,
+        role_id: roleId,
+        budget_id: budgetId,
+        commission_percentage: Number(it.commission_percentage ?? 0),
+        commission_percentage100: Number(it.commission_percentage100 ?? 0),
+        commission_percentage120: Number(it.commission_percentage120 ?? 0),
+        participation_pct: Number(Number(computedPct).toFixed(6)),
+        participation_value: Number((it as any).participation_value ?? 0)
+      };
+      await upsertCategoryCommission(payload);
+      setMessage({ type: 'ok', text: 'Guardado' });
+      markDirty(it.category_id, false);
+      await loadCategories(roleId, budgetId);
+    } catch (e: any) {
+      console.error('saveOne error completo:', e.response?.data || e);
+      setMessage({ type: 'error', text: 'Error al guardar' + (e?.response?.data?.message ? ': ' + e.response.data.message : '') });
+    } finally {
+      setSavingIds(s => s.filter(id => id !== it.category_id));
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const saveAll = async () => {
+    if (!roleId) return;
+    setSaving(true);
+    try {
+      const budgetTotal = getEffectiveBudgetTotal(budgetId);
+      const payload = items.map(i => {
+        const valNum = (i as any).participation_value;
+        const computedPct = budgetTotal && valNum !== null && valNum !== undefined ? (Number(valNum) / budgetTotal) * 100 : Number((i as any).participation_pct ?? 0);
+        return {
+          category_id: i.category_id,
+          role_id: roleId,
+          budget_id: budgetId,
+          commission_percentage: Number(i.commission_percentage ?? 0),
+          commission_percentage100: Number(i.commission_percentage100 ?? 0),
+          commission_percentage120: Number(i.commission_percentage120 ?? 0),
+          participation_pct: Number(Number(computedPct).toFixed(6)),
+          participation_value: Number((i as any).participation_value ?? 0)
+        };
+      });
+      await bulkSaveCategoryCommissions(roleId, payload);
+      setMessage({ type: 'ok', text: 'Guardado masivo exitoso' });
+      setDirtyIds(new Set());
+      await loadCategories(roleId, budgetId);
+    } catch (e) {
+      console.error('saveAll error', e);
+      setMessage({ type: 'error', text: 'Error al guardar masivo' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const onDelete = async (categoryId: number) => {
+    if (!confirm('¿Eliminar configuración de comisión para esta categoría?')) return;
+    try {
+      await deleteCategoryCommission(categoryId);
+      setMessage({ type: 'ok', text: 'Configuración eliminada' });
+      await loadCategories(roleId as number, budgetId);
+    } catch (e) {
+      console.error('delete error', e);
+      setMessage({ type: 'error', text: 'Error al eliminar' });
+    } finally {
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const anyDirty = useMemo(() => dirtyIds.size > 0, [dirtyIds]);
+
+  const normalizedItems = useMemo(() => {
+    const map = new Map<number | string, CategoryWithCommission>();
+    items.forEach(it => {
+      const normalizedName = normalizeCategoryName(it.name);
+      const key = it.category_id;
+      const currentVal = (it as any).participation_value;
+      const currentPct = (it as any).participation_pct;
+
+      if (!map.has(key)) {
+        map.set(key, { ...it, name: normalizedName });
+      } else {
+        const existing = map.get(key)!;
+        const existingVal = (existing as any).participation_value;
+        const existingPct = (existing as any).participation_pct;
+
+        let mergedVal: number | null = null;
+        const na = existingVal === null || existingVal === undefined ? null : Number(existingVal);
+        const nb = currentVal === null || currentVal === undefined ? null : Number(currentVal);
+        if (na === null && nb === null) mergedVal = null;
+        else mergedVal = Math.max(na ?? 0, nb ?? 0);
+
+        let mergedPct: number | null = null;
+        const pa = existingPct === null || existingPct === undefined ? null : Number(existingPct);
+        const pb = currentPct === null || currentPct === undefined ? null : Number(currentPct);
+        if (pa === null && pb === null) mergedPct = null;
+        else mergedPct = Math.max(pa ?? 0, pb ?? 0);
+
+        map.set(key, {
+          ...existing,
+          ...it,
+          name: normalizedName,
+          commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
+          commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
+          commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
+          participation_value: mergedVal === null ? undefined : Number(Number(mergedVal).toFixed(2)),
+          participation_pct: mergedPct === null ? undefined : Number(Number(mergedPct).toFixed(6)),
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [items]);
+
+  // total participación (2 decimales, number)
+  const totalParticipation = useMemo(() => {
+    const total = normalizedItems.reduce(
+      (acc, it) => acc + Number((it as any).participation_pct ?? 0),
+      0
+    );
+
+    return Number(total.toFixed(2));
+  }, [normalizedItems]);
+
+  // total participación valor (suma de participation_value) -> 2 decimales
+  const totalParticipationValue = useMemo(() => {
+    const total = normalizedItems.reduce(
+      (acc, it) => acc + Number((it as any).participation_value ?? 0),
+      0
+    );
+
+    return Number(total.toFixed(2));
+  }, [normalizedItems]);
+
+  // ------------------ Split helpers ------------------
   const calculateAdvisorSplit = async () => {
     if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
     if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
     setLoadingSplit(true);
     try {
+      // enviamos exactamente lo que ingresó el usuario
       const res = await api.get('advisors/split-pool', {
         params: {
           budget_id: budgetId,
@@ -378,9 +528,15 @@ console.log(activePar)
           advisor_b_pct: advisorBPct,
         }
       });
-      setAdvisorSplit(res.data);
+      // guardamos la respuesta (pool, assigned_usd, etc.)
+      setAdvisorSplit(res.data ?? {});
+      if (!res.data) {
+        setMessage({ type: 'error', text: 'La API no devolvió datos al calcular.' });
+        setTimeout(()=>setMessage(null),1500);
+      }
     } catch (e) {
       console.error('calc advisor split error', e);
+      setAdvisorSplit(null);
       setMessage({ type: 'error', text: 'Error calculando split asesores' });
       setTimeout(()=>setMessage(null),1500);
     } finally {
@@ -393,6 +549,7 @@ console.log(activePar)
     if (!selectedAId || !selectedBId) { setMessage({ type: 'error', text: 'Selecciona ambos asesores (Montblanc/Parbel)' }); setTimeout(()=>setMessage(null),1500); return; }
     setSavingSplit(true);
     try {
+      // guardamos exactamente los porcentajes que el usuario ingresó
       const payload = {
         budget_id: budgetId,
         advisor_a_id: selectedAId,
@@ -402,7 +559,7 @@ console.log(activePar)
       };
       await api.post('advisors/save-split', payload);
       const res = await api.get('advisors/get-split', { params: { budget_id: budgetId } });
-      setAdvisorSplit(res.data);
+      setAdvisorSplit(res.data ?? {});
       setMessage({ type: 'ok', text: 'Distribución guardada' });
     } catch (e) {
       console.error('save split error', e);
@@ -416,10 +573,11 @@ console.log(activePar)
   const advisorPoolTotal = Number(advisorSplit?.advisor_pool_usd ?? 0);
   const assignedAUsd = Number(advisorSplit?.advisor_a?.assigned_usd ?? 0);
   const assignedBUsd = Number(advisorSplit?.advisor_b?.assigned_usd ?? 0);
-  const assignedPctA = advisorPoolTotal ? (assignedAUsd / advisorPoolTotal) * 100 : Number(advisorAPct ?? 0);
-  const assignedPctB = advisorPoolTotal ? (assignedBUsd / advisorPoolTotal) * 100 : Number(advisorBPct ?? 0);
-console.log(assignedPctB)
-console.log(assignedPctA)
+
+  // **Mostrar los porcentajes EXACTOS que el usuario ingresó**
+  const displayedAssignedPctA = Number(advisorAPct ?? 0);
+  const displayedAssignedPctB = Number(advisorBPct ?? 0);
+
   // ------------------ Render ------------------
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -433,7 +591,7 @@ console.log(assignedPctA)
             </div>
           </div>
 
-          {/* Upper-right: preserve your sellers + budget select + save */}
+          {/* Upper-right: sellers + budget select + save */}
           <div className="flex gap-3 items-center">
             <div className="flex flex-col">
               <label className="text-xs text-gray-500 block mb-1">Vendedores</label>
@@ -457,10 +615,24 @@ console.log(assignedPctA)
 
             <div>
               <label className="text-xs text-gray-500 block mb-1">Presupuesto</label>
-              <select value={budgetId ?? ''} onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-3 py-2 text-sm">
-                <option value="">(Sin presupuesto)</option>
-                {budgets.map(b => <option key={b.id} value={b.id}>{b.name} — {b.start_date} → {b.end_date}</option>)}
-              </select>
+              <div className="flex items-center gap-2">
+                <select value={budgetId ?? ''} onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-3 py-2 text-sm">
+                  <option value="">(Sin presupuesto)</option>
+                  {budgets.map(b => <option key={b.id} value={b.id}>{b.name} — {b.start_date} → {b.end_date}</option>)}
+                </select>
+
+                <div className="text-xs text-gray-600">
+                  <div>
+                    {displayedBudgetAmount !== null ? (
+                      <>Presupuesto asesor (override): <strong>{Number(displayedBudgetAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong></>
+                    ) : budgetId ? (
+                      <>Total presupuesto: <strong>{getBudgetTotal(budgetId).toLocaleString()}</strong></>
+                    ) : (
+                      <>Seleccione presupuesto</>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-end gap-2">
@@ -471,39 +643,82 @@ console.log(assignedPctA)
           </div>
         </div>
 
-        {/* ---------------- Horizontal Split card (compact) ---------------- */}
-        <div className="bg-white rounded-2xl shadow p-3 flex items-center justify-between gap-4">
-          {/* Left: labels */}
-          <div className="flex items-center gap-4">
-            <div className="text-sm font-semibold">Split Montblanc ↔ Parbel</div>
-            <div className="text-xs text-gray-500">Presupuesto: {budgetId ?? '-'}</div>
+        {/* ---------------- Horizontal Split card (mejorado) ---------------- */}
+        <div className="bg-white rounded-2xl shadow p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+          {/* Left: title + budget */}
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-semibold">Split Montblanc (A) ↔ Parbel (B)</div>
+            <div className="text-xs text-gray-500">Presupuesto: <strong>{budgetId ?? '-'}</strong></div>
+            <div className="text-xxs text-gray-400 mt-1">Los porcentajes ingresados se respetan tal cual (no se normalizan automáticamente a 100%).</div>
           </div>
 
-          {/* Middle: active advisors info */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="text-xxs text-gray-500">Asesor A</div>
-              <div className="text-sm font-medium">{selectedAId ? findUserName(selectedAId) : <em className="text-red-500">No seleccionado</em>}</div>
-              <div className="text-xs text-gray-400">PPTO: <strong>{Number(aUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="text-xxs text-gray-500">Asesor B</div>
+          {/* Middle: advisors info */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-center gap-4">
+            <div className="flex items-start gap-3">
+              <div className="text-xxs text-gray-500">Asesor (Parbel)</div>
               <div className="text-sm font-medium">{selectedBId ? findUserName(selectedBId) : <em className="text-red-500">No seleccionado</em>}</div>
-              <div className="text-xs text-gray-400">PPTO: <strong>{Number(bUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
+              <div className="text-xs text-gray-400 ml-2">PPTO: <strong>{Number(bUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
+            </div>
+
+            <div className="hidden md:block border-l h-8 self-stretch" />
+
+            <div className="flex items-start gap-3">
+              <div className="text-xxs text-gray-500">Asesor (Montblanc)</div>
+              <div className="text-sm font-medium">{selectedAId ? findUserName(selectedAId) : <em className="text-red-500">No seleccionado</em>}</div>
+              <div className="text-xs text-gray-400 ml-2">PPTO: <strong>{Number(aUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
             </div>
           </div>
 
-          {/* Right: compact controls */}
-          <div className="flex items-center gap-3">
+          {/* Right: controls + summary card */}
+          <div className="flex flex-col md:items-end gap-3">
             <div className="flex items-center gap-2">
-              <input type="number" min={0} max={100} value={advisorAPct} onChange={e => setAdvisorAPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={advisorAPct}
+                onChange={e => setAdvisorAPct(Number(e.target.value || 0))}
+                className="w-20 rounded px-2 py-1 text-sm border"
+                title="Porcentaje A (se respeta tal cual)"
+              />
               <span className="text-sm">/</span>
-              <input type="number" min={0} max={100} value={advisorBPct} onChange={e => setAdvisorBPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={advisorBPct}
+                onChange={e => setAdvisorBPct(Number(e.target.value || 0))}
+                className="w-20 rounded px-2 py-1 text-sm border"
+                title="Porcentaje B (se respeta tal cual)"
+              />
             </div>
 
-            <button onClick={calculateAdvisorSplit} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">{loadingSplit ? 'Calculando...' : 'Calcular'}</button>
-            <button onClick={saveAdvisorSplit} disabled={savingSplit || !selectedAId || !selectedBId} className={`px-3 py-1 rounded text-white text-sm ${savingSplit ? 'bg-gray-400' : (!selectedAId || !selectedBId ? 'bg-gray-300' : 'bg-emerald-600')}`}>{savingSplit ? 'Guardando...' : 'Guardar'}</button>
+            <div className="flex items-center gap-2">
+              <button onClick={calculateAdvisorSplit} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">
+                {loadingSplit ? 'Calculando...' : 'Calcular'}
+              </button>
+              <button onClick={saveAdvisorSplit} disabled={savingSplit || !selectedAId || !selectedBId} className={`px-3 py-1 rounded text-white text-sm ${savingSplit ? 'bg-gray-400' : (!selectedAId || !selectedBId ? 'bg-gray-300' : 'bg-emerald-600')}`}>
+                {savingSplit ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+
+            {/* Small summary card */}
+            <div className="mt-2 w-full md:w-auto bg-gray-50 border rounded p-3 text-right">
+              <div className="text-xs text-gray-500">Pool</div>
+              <div className="font-semibold">{Number(advisorPoolTotal).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</div>
+
+              <div className="mt-2 text-xs text-gray-500">A asignado</div>
+              <div className="flex items-baseline justify-end gap-2">
+                <div className="font-semibold">{Number(assignedAUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</div>
+                <div className="text-xxs text-gray-500">({displayedAssignedPctA.toFixed(2)}%)</div>
+              </div>
+
+              <div className="mt-1 text-xs text-gray-500">B asignado</div>
+              <div className="flex items-baseline justify-end gap-2">
+                <div className="font-semibold">{Number(assignedBUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</div>
+                <div className="text-xxs text-gray-500">({displayedAssignedPctB.toFixed(2)}%)</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -524,6 +739,7 @@ console.log(assignedPctA)
               <th className="p-3 text-left">Comisión %</th>
               <th className="p-3 text-left">Comisión 100%</th>
               <th className="p-3 text-left">Comisión 120%</th>
+              <th className="p-3 text-left">Valor participación</th>
               <th className="p-3 text-left">Participación %</th>
               <th className="p-3 text-left">Acciones</th>
             </tr>
@@ -531,9 +747,9 @@ console.log(assignedPctA)
 
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="p-6 text-center text-gray-500">Cargando categorías…</td></tr>
+              <tr><td colSpan={8} className="p-6 text-center text-gray-500">Cargando categorías…</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={7} className="p-6 text-center text-gray-500">No hay categorías.</td></tr>
+              <tr><td colSpan={8} className="p-6 text-center text-gray-500">No hay categorías.</td></tr>
             ) : normalizedItems.map((it) => {
               const isSaving = savingIds.includes(it.category_id);
               const isDirty = dirtyIds.has(it.category_id);
@@ -560,7 +776,33 @@ console.log(assignedPctA)
                   </td>
 
                   <td className="p-3 align-top">
-                    <input type="number" step="0.01" value={(it as any).participation_pct ?? ''} onChange={e => onChangeField(it.category_id, 'participation_pct', e.target.value)} className="border px-2 py-1 rounded w-28" />
+                    {/* Valor participación: mostrar SIN decimales (rounded integer) */}
+                    <input
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={
+                        (it as any).participation_value !== undefined &&
+                        (it as any).participation_value !== null
+                          ? Math.round(Number((it as any).participation_value))
+                          : ''
+                      }
+                      onChange={e => onChangeField(it.category_id, 'participation_value', e.target.value)}
+                      className="border px-2 py-1 rounded w-36"
+                      placeholder={getEffectiveBudgetTotal(budgetId) ? `Presupuesto: ${getEffectiveBudgetTotal(budgetId).toLocaleString()}` : 'Sin presupuesto'}
+                    />
+                    <div className="text-xxs text-gray-400 mt-1">
+                      {displayedBudgetAmount !== null ? `Usando presupuesto asesor: ${displayedBudgetAmount.toLocaleString()}` : (budgetId ? `Total presupuesto: ${getBudgetTotal(budgetId).toLocaleString()}` : 'Seleccione presupuesto para calcular %')}
+                    </div>
+                  </td>
+
+                  <td className="p-3 align-top">
+                    <input
+                      type="number"
+                      value={Number((it as any).participation_pct ?? 0).toFixed(2)}
+                      readOnly
+                      className="border px-2 py-1 rounded w-28 bg-gray-50"
+                    />
                   </td>
 
                   <td className="p-3 align-top">
@@ -575,8 +817,15 @@ console.log(assignedPctA)
           </tbody>
         </table>
 
-        <div className="mt-4 flex justify-end p-4">
-          <div className={`px-4 py-2 rounded text-sm font-semibold ${ totalParticipation === 100 ? 'bg-green-50 text-green-700' : totalParticipation > 100 ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700' }`}>
+        <div className="mt-4 flex flex-col md:flex-row items-end justify-end gap-4 p-4">
+          <div className="mt-2 px-4 py-2 rounded text-sm font-semibold bg-blue-50 text-blue-700">
+            Total presupuesto asignado: {totalParticipationValue.toLocaleString(undefined,{
+              minimumFractionDigits:2,
+              maximumFractionDigits:2
+            })} USD
+          </div>
+
+          <div className={`px-4 py-2 rounded text-sm font-semibold ${ Math.abs(totalParticipation - 100) < 0.01 ? 'bg-green-50 text-green-700' : totalParticipation > 100 ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700' }`}>
             Total participación: {totalParticipation.toFixed(2)}%
           </div>
         </div>

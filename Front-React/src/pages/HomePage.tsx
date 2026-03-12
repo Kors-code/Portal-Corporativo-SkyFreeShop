@@ -40,6 +40,7 @@ export default function HomePage() {
           <ModuleCard title="Seguimiento Cajeros" to="/CashierAwards" description="Seguimiento de comisiones por cajero" />
           <ModuleCard title="Gestion De Usuarios" to="/users" description="Administra usuarios del sistema" />
           <ModuleCard title="Seguimiento de Asesores Especializados" to="/commissions/DualCommissionAdmin" description="Seguimiento de Asesores Especializados" />
+          <ModuleCard title="Seguimiento de Comisiones de Lideres" to="/commissions/CommissionLeadersPage" description="Seguimiento de Comisiones de Lideres" />
         </div>
       </section>
 

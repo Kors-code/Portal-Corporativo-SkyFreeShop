@@ -9,6 +9,8 @@ export interface CategoryWithCommission {
     commission_percentage100?: number | null;
     commission_percentage120?: number | null;
     participation_pct?: number;
+    participation_value?: number;    
+
 }
 
 export type Role = { id: number; name: string; };

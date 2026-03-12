@@ -1,185 +1,441 @@
-// AdvisorBudgetsPage.tsx
+// src/modules/commissions/pages/CategoryCommissionsPage.tsx
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
 
-/* ================= TYPES ================= */
-type Budget = { id: number; name: string; start_date?: string; end_date?: string };
-type User = { id: number; name: string };
-type Row = {
-  id?: number | null;
-  category_id?: number | null;
-  category_classification: string;
-  name: string;
-  budget_usd: number;
-  updated?: boolean;
-};
+import {
+  getCategoriesWithCommission,
+  upsertCategoryCommission,
+  bulkSaveCategoryCommissions,
+  deleteCategoryCommission,
+  getRoles,
+  getBudgets
+} from '../services/categoryCommissionService';
 
+import type { CategoryWithCommission, Role } from '../types/comissionscategory';
+
+/**
+ * CategoryCommissionsPage
+ * - Mantiene TODO tu comportamiento existente.
+ * - Corrección: si DB sólo trae participation_pct calculamos participation_value al cargar.
+ * - participation_pct es sólo visual (readOnly).
+ * - Split Montblanc <-> Parbel: usa especialistas activos + commissions/by-seller/:userId para PPTO.
+ */
+
+/* ---------- Helper types locales ---------- */
 type Specialist = {
   id?: number;
-  budget_id: number;
-  user_id: number;
+  budget_id?: number;
+  user_id?: number;
   business_line?: string | null;
-  category_id?: number | null;
-  valid_from?: string;
+  valid_from?: string | null;
   valid_to?: string | null;
   note?: string | null;
 };
 
-/* ================= COMPONENT ================= */
-export default function AdvisorBudgetsPage() {
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+export default function CategoryCommissionsPage() {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [roleId, setRoleId] = useState<number | null>(null);
 
+  const [budgets, setBudgets] = useState<any[]>([]);
   const [budgetId, setBudgetId] = useState<number | null>(null);
-  const [userId, setUserId] = useState<number | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
+
+  const [items, setItems] = useState<CategoryWithCommission[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
-console.log(loading)
-  // Advisor split UI (Asesor A = Montblanc active, Asesor B = Parbel active)
-  const [advisorAPct, setAdvisorAPct] = useState<number>(50);
-  const [advisorBPct, setAdvisorBPct] = useState<number>(50);
-  const [advisorSplit, setAdvisorSplit] = useState<any>(null);
-  const [savingSplit, setSavingSplit] = useState(false);
+  const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [message, setMessage] = useState<{ type: 'ok'|'error', text: string } | null>(null);
 
-  // advisor budgets (from commissions/by-seller)
-  const [montAdvisorBudgetUsd, setMontAdvisorBudgetUsd] = useState<number>(0);
-  const [parbelAdvisorBudgetUsd, setParbelAdvisorBudgetUsd] = useState<number>(0);
+  const navigate = useNavigate();
 
-  // specialists per line
-  const [specialistMont, setSpecialistMont] = useState<Specialist | null>(null);
-  const [specialistParbel, setSpecialistParbel] = useState<Specialist | null>(null);
-  const [historyMont, setHistoryMont] = useState<Specialist[]>([]);
-  const [historyParbel, setHistoryParbel] = useState<Specialist[]>([]);
-  const [assigning, setAssigning] = useState(false);
+  // filas marcadas como modificadas (dirty)
+  const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set());
 
-  // UI: active tab/line
-  const [activeLine, setActiveLine] = useState<'montblanc' | 'parbel'>('montblanc');
-
-  // split UI Montblanc <-> Parbel (category split)
-  const [montPct, setMontPct] = useState<number | null>(40);
-  const [parbelPct, setParbelPct] = useState<number | null>(60);
-  const [splitCalc, setSplitCalc] = useState<any>(null);
-  const [calculatingSplit, setCalculatingSplit] = useState(false);
-console.log(setMontPct)
-console.log(setParbelPct)
-console.log(calculatingSplit)
-  const [advisorPct, setAdvisorPct] = useState<number>(0);
-  const [advisorPoolUsd, setAdvisorPoolUsd] = useState<number>(0);
-
-  const DEFAULT_MONT = useMemo(() => [
-    { category_classification: '19', name: 'Gifts' },
-    { category_classification: '14', name: 'Watches' },
-    { category_classification: '15', name: 'Jewerly' },
-    { category_classification: '16', name: 'Sunglasses' },
-    { category_classification: '21', name: 'Electronics' },
-  ], []);
-
-  const DEFAULT_PARBEL = useMemo(() => [
-    { category_classification: '13', name: 'Skin care' },
-    { category_classification: 'fragancias', name: 'Fragancias' },
-  ], []);
-
-  const isParbelClassification = (c: string) => {
-    const key = String(c).toLowerCase();
-    return key === '13' || key === 'fragancias' || key.includes('frag') || key.includes('skin');
+  const normalizeCategoryName = (name: string) => {
+    const n = String(name).toLowerCase();
+    if (n.includes('frag')) return 'FRAGANCIA';
+    return name;
   };
 
-  // load budgets & sellers meta
+  // ----- Roles & budgets load -----
   useEffect(() => {
-    (async function loadMeta() {
+    let mounted = true;
+    async function loadMeta() {
       try {
-        const [bRes, uRes] = await Promise.all([api.get('budgets'), api.get('/users/sellers')]);
-        setBudgets(bRes.data ?? []);
-        setUsers(uRes.data ?? []);
-      } catch (e) {
-        console.error(e);
+        const [rolesData, budgetsData] = await Promise.all([getRoles(), getBudgets()]);
+        if (!mounted) return;
+        setRoles(Array.isArray(rolesData) ? rolesData : []);
+        setBudgets(Array.isArray(budgetsData) ? budgetsData : []);
+
+        if (Array.isArray(rolesData) && rolesData.length) {
+          const vendedor = rolesData.find(r => String(r.name ?? '').toLowerCase().includes('vendedor') && r.id !== 2);
+          const fallback = rolesData.find(r => r.id !== 2);
+          setRoleId(vendedor ? vendedor.id : (fallback ? fallback.id : rolesData[0].id));
+        }
+        if (Array.isArray(budgetsData) && budgetsData.length) setBudgetId(prev => prev ?? budgetsData[0].id);
+      } catch (err) {
+        console.error('Error cargando roles/presupuestos', err);
+        setRoles([]); setBudgets([]);
       }
-    })();
+    }
+    loadMeta();
+    return () => { mounted = false; };
   }, []);
 
-  // reload category budgets & specialists & saved split
+  // lista de roles que consideramos "vendedores" para mostrar arriba
+  // omitimos explícitamente el role con id === 2 (no se muestra ni se puede seleccionar)
+  const sellerRoles = useMemo(() => roles.filter(r => r.id !== 2), [roles]);
+
+  // ---- Helper: intentar obtener el total del presupuesto seleccionado ----
+  // Intenta varias propiedades comunes (amount, total, total_usd, budget_usd, value)
+  const getBudgetTotal = (bId?: number | null) => {
+    if (!bId) return 0;
+    const b = budgets.find(b => b.id === bId);
+    if (!b) return 0;
+    const candidate = Number(b.target_amount ?? b.total ?? b.total_usd ?? b.budget_usd ?? b.value ?? 0);
+    return isNaN(candidate) ? 0 : candidate;
+  };
+
+  // load categories when roleId or budgetId changes
   useEffect(() => {
-    if (!budgetId) {
-      setRows([]);
-      setSpecialistMont(null);
-      setSpecialistParbel(null);
-      setHistoryMont([]);
-      setHistoryParbel([]);
-      setAdvisorPct(0);
-      setAdvisorPoolUsd(0);
-      setAdvisorSplit(null);
-      setMontAdvisorBudgetUsd(0);
-      setParbelAdvisorBudgetUsd(0);
+    if (!roleId) {
+      setItems([]);
+      return;
+    }
+    loadCategories(roleId, budgetId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleId, budgetId]);
+
+  const loadCategories = async (rId: number, bId?: number | null) => {
+    try {
+      setLoading(true);
+      const res = await getCategoriesWithCommission(rId, bId ?? undefined);
+      const cats: CategoryWithCommission[] = res?.categories ?? res?.data ?? res ?? [];
+      let filtered: CategoryWithCommission[] = Array.isArray(cats) ? cats : [];
+
+      if (rId === 4) {
+        const allowedCodes = new Set(['13', '13.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+          if (nameNormalized.includes('frag')) return true;
+          if (allowedCodes.has(codeNormalized)) return true;
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+          return false;
+        });
+      } else if (rId === 5) {
+        const allowedCodes = new Set(['14','15','16','19','21','14.0','15.0','16.0','19.0','21.0']);
+        filtered = filtered.filter(c => {
+          const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
+          const nameNormalized = String((c as any).name ?? '').toLowerCase();
+          const keywords = ['gift', 'gifts', 'watch', 'watches', 'jewel', 'jewelry', 'sunglass', 'electronics'];
+          if (keywords.some(k => nameNormalized.includes(k))) return true;
+          if (allowedCodes.has(codeNormalized)) return true;
+          if (!isNaN(Number(codeNormalized)) && allowedCodes.has(String(Number(codeNormalized)))) return true;
+          return false;
+        });
+      } else {
+        filtered = Array.isArray(cats) ? cats : [];
+      }
+
+      // --------------------------
+      // CORRECCIÓN: si backend envía participation_pct pero no participation_value,
+      // calculamos participation_value = budgetTotal * pct / 100 (si hay presupuesto).
+      // Normalizamos tipos a Number / undefined (compatible con interfaces TS).
+      // --------------------------
+      const budgetTotal = getBudgetTotal(bId);
+      const withValues = filtered.map(f => {
+        const rawPct = (f as any).participation_pct;
+        const rawVal = (f as any).participation_value;
+
+        const pctNum = rawPct !== undefined && rawPct !== null && !isNaN(Number(rawPct)) ? Number(rawPct) : undefined;
+        let valNum = rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal)) ? Number(rawVal) : undefined;
+
+        // Si no hay value pero hay pct y hay presupuesto -> calcular value
+        if ((valNum === undefined) && (pctNum !== undefined) && budgetTotal) {
+          valNum = (pctNum / 100) * budgetTotal;
+        }
+
+        // Si hay value y hay presupuesto -> recalcular pct para consistencia
+        let pctComputed = pctNum;
+        if (valNum !== undefined && budgetTotal) {
+          pctComputed = (valNum / budgetTotal) * 100;
+        } else if (pctNum !== undefined) {
+          pctComputed = pctNum;
+        } else {
+          pctComputed = undefined;
+        }
+
+        return {
+          ...f,
+          participation_value: valNum,
+          participation_pct: pctComputed
+        };
+      });
+
+      setItems(withValues);
+      setDirtyIds(new Set());
+    } catch (err) {
+      console.error('Error cargando categorias:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // helpers money and dirty
+  const markDirty = (categoryId: number, dirty = true) => {
+    setDirtyIds(prev => {
+      const clone = new Set(prev);
+      if (dirty) clone.add(categoryId); else clone.delete(categoryId);
+      return clone;
+    });
+  };
+
+  // input handlers
+  const onChangeField = (categoryId: number, field: string, rawVal: string) => {
+    // si se intenta cambiar participation_pct desde UI (no debería poder), ignoramos
+    if (field === 'participation_pct') return;
+
+    const val = rawVal === '' ? undefined : Number(rawVal);
+
+    // Si cambian el valor en "participation_value", recalculamos participation_pct automáticamente
+    if (field === 'participation_value') {
+      const budgetTotal = getBudgetTotal(budgetId);
+      const valueNum = val ?? 0;
+      const pct = budgetTotal ? (valueNum / budgetTotal) * 100 : 0;
+      setItems(prev => prev.map(it =>
+        it.category_id === categoryId ? { ...it, participation_value: valueNum, participation_pct: Number(pct) } : it
+      ));
+      markDirty(categoryId, true);
       return;
     }
 
-    (async function loadAll() {
-      setLoading(true);
+    // comportamiento por defecto (ediciones manuales)
+    setItems(prev => prev.map(it => it.category_id === categoryId ? { ...it, [field]: val } : it));
+    markDirty(categoryId, true);
+  };
+
+  const saveOne = async (it: CategoryWithCommission) => {
+    if (!roleId) return;
+    setSavingIds(s => [...s, it.category_id]);
+    try {
+      const budgetTotal = getBudgetTotal(budgetId);
+      const valNum = (it as any).participation_value;
+      const computedPct = (budgetTotal && valNum !== undefined && valNum !== null)
+        ? (Number(valNum) / budgetTotal) * 100
+        : Number((it as any).participation_pct ?? 0);
+
+      const payload = {
+        category_id: it.category_id,
+        role_id: roleId,
+        budget_id: budgetId,
+        commission_percentage: Number(it.commission_percentage ?? 0),
+        commission_percentage100: Number(it.commission_percentage100 ?? 0),
+        commission_percentage120: Number(it.commission_percentage120 ?? 0),
+        participation_pct: Number(Number(computedPct).toFixed(6)),
+        // valor numérico absoluto (ej: COP / USD según tu backend)
+        participation_value: Number((it as any).participation_value ?? 0)
+      };
+      await upsertCategoryCommission(payload);
+      setMessage({ type: 'ok', text: 'Guardado' });
+      markDirty(it.category_id, false);
+      await loadCategories(roleId, budgetId);
+    } catch (e: any) {
+      console.error('saveOne error completo:', e.response?.data || e);
+      setMessage({ type: 'error', text: 'Error al guardar' + (e?.response?.data?.message ? ': ' + e.response.data.message : '') });
+    } finally {
+      setSavingIds(s => s.filter(id => id !== it.category_id));
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const saveAll = async () => {
+    if (!roleId) return;
+    setSaving(true);
+    try {
+      const budgetTotal = getBudgetTotal(budgetId);
+      const payload = items.map(i => {
+        const valNum = (i as any).participation_value;
+        const computedPct = (budgetTotal && valNum !== undefined && valNum !== null)
+          ? (Number(valNum) / budgetTotal) * 100
+          : Number((i as any).participation_pct ?? 0);
+        return {
+          category_id: i.category_id,
+          role_id: roleId,
+          budget_id: budgetId,
+          commission_percentage: Number(i.commission_percentage ?? 0),
+          commission_percentage100: Number(i.commission_percentage100 ?? 0),
+          commission_percentage120: Number(i.commission_percentage120 ?? 0),
+          participation_pct: Number(Number(computedPct).toFixed(6)),
+          participation_value: Number((i as any).participation_value ?? 0)
+        };
+      });
+      await bulkSaveCategoryCommissions(roleId, payload);
+      setMessage({ type: 'ok', text: 'Guardado masivo exitoso' });
+      setDirtyIds(new Set());
+      await loadCategories(roleId, budgetId);
+    } catch (e) {
+      console.error('saveAll error', e);
+      setMessage({ type: 'error', text: 'Error al guardar masivo' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const onDelete = async (categoryId: number) => {
+    if (!confirm('¿Eliminar configuración de comisión para esta categoría?')) return;
+    try {
+      await deleteCategoryCommission(categoryId);
+      setMessage({ type: 'ok', text: 'Configuración eliminada' });
+      await loadCategories(roleId as number, budgetId);
+    } catch (e) {
+      console.error('delete error', e);
+      setMessage({ type: 'error', text: 'Error al eliminar' });
+    } finally {
+      setTimeout(() => setMessage(null), 2000);
+    }
+  };
+
+  const anyDirty = useMemo(() => dirtyIds.size > 0, [dirtyIds]);
+
+  // Normalización: unimos duplicados y preferimos participation_value si existe;
+  // usamos merge seguro que respeta undefineds.
+  const normalizedItems = useMemo(() => {
+    const map = new Map<number | string, CategoryWithCommission>();
+    items.forEach(it => {
+      const normalizedName = normalizeCategoryName(it.name);
+      const key = it.category_id;
+      const currentVal = (it as any).participation_value;
+      const currentPct = (it as any).participation_pct;
+
+      if (!map.has(key)) {
+        map.set(key, { ...it, name: normalizedName });
+      } else {
+        const existing = map.get(key)!;
+        const existingVal = (existing as any).participation_value;
+        const existingPct = (existing as any).participation_pct;
+
+        // merge participation_value: si ambos undefined -> undefined, si alguno number -> max
+        let mergedVal: number | undefined;
+        const na = existingVal === null || existingVal === undefined ? undefined : Number(existingVal);
+        const nb = currentVal === null || currentVal === undefined ? undefined : Number(currentVal);
+        if (na === undefined && nb === undefined) mergedVal = undefined;
+        else mergedVal = Math.max(na ?? 0, nb ?? 0);
+
+        // merge pct similar
+        let mergedPct: number | undefined;
+        const pa = existingPct === null || existingPct === undefined ? undefined : Number(existingPct);
+        const pb = currentPct === null || currentPct === undefined ? undefined : Number(currentPct);
+        if (pa === undefined && pb === undefined) mergedPct = undefined;
+        else mergedPct = Math.max(pa ?? 0, pb ?? 0);
+
+        map.set(key, {
+          ...existing,
+          ...it,
+          name: normalizedName,
+          commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
+          commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
+          commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
+          participation_value: mergedVal === undefined ? undefined : Number(Number(mergedVal).toFixed(2)),
+          participation_pct: mergedPct === undefined ? undefined : Number(Number(mergedPct).toFixed(6)),
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [items]);
+
+  const totalParticipation = useMemo(() => normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0), [normalizedItems]);
+
+  // ------------------ Split: Montblanc <-> Parbel (horizontal, top) ------------------
+  const [montSpecialists, setMontSpecialists] = useState<Specialist[]>([]);
+  const [parbelSpecialists, setParbelSpecialists] = useState<Specialist[]>([]);
+  const [specialistMont, setSpecialistMont] = useState<Specialist | null>(null);
+  const [specialistParbel, setSpecialistParbel] = useState<Specialist | null>(null);
+
+  const [aUserBudgetUsd, setAUserBudgetUsd] = useState<number>(0);
+  const [bUserBudgetUsd, setBUserBudgetUsd] = useState<number>(0);
+
+  const [advisorAPct, setAdvisorAPct] = useState<number>(50);
+  const [advisorBPct, setAdvisorBPct] = useState<number>(50);
+  const [advisorSplit, setAdvisorSplit] = useState<any>(null);
+  const [loadingSplit, setLoadingSplit] = useState(false);
+  const [savingSplit, setSavingSplit] = useState(false);
+
+  const [usersMap, setUsersMap] = useState<Record<number, string>>({}); // map user id -> name
+
+
+  console.log(montSpecialists)
+  console.log(parbelSpecialists)
+  // helper to get username (tolerante a claves distintas)
+  const findUserName = (id?: number | null) => {
+    if (!id) return '';
+    return usersMap[id] ?? `User ${id}`;
+  };
+
+  // on budget change: fetch specialists (mont/parbel) + budget-sellers map
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!budgetId) {
+        setMontSpecialists([]); setParbelSpecialists([]); setSpecialistMont(null); setSpecialistParbel(null);
+        setAUserBudgetUsd(0); setBUserBudgetUsd(0); setUsersMap({});
+        setAdvisorSplit(null);
+        return;
+      }
       try {
-        const res = await api.get('advisors/category-budgets', { params: { budget_id: budgetId, user_id: userId || undefined } });
+        // fetch specialists by line and budget-sellers (names)
+        const [mRes, pRes, uRes] = await Promise.all([
+          api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'montblanc' } }),
+          api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'parbel' } }),
+          api.get('advisors/budget-sellers', { params: { budget_id: budgetId } })
+        ]);
 
-        const payloadRows = Array.isArray(res.data?.rows) ? res.data.rows : [];
-        const data: Row[] = payloadRows.map((r: any) => ({
-          id: r.saved_id ?? r.id ?? null,
-          category_id: r.category_id ?? null,
-          category_classification: String(r.category_classification ?? r.category_id ?? ''),
-          name: r.name ?? (r.category_classification ?? r.category_id ?? ''),
-          budget_usd: Number(r.budget_usd ?? 0),
-        }));
+        if (cancelled) return;
 
-        const advisorPool = res.data?.advisor_pool;
-        if (advisorPool) {
-          setAdvisorPct(Number(advisorPool.pct ?? 0));
-          setAdvisorPoolUsd(Number(advisorPool.pool_usd ?? 0));
-        }
+        const montList: Specialist[] = Array.isArray(mRes.data) ? mRes.data : [];
+        const parList: Specialist[] = Array.isArray(pRes.data) ? pRes.data : [];
+        const usersList = Array.isArray(uRes.data) ? uRes.data : [];
 
-        if (!data.length) {
-          setRows([
-            ...DEFAULT_MONT.map(d => ({ id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 })),
-            ...DEFAULT_PARBEL.map(d => ({ id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 })),
-          ]);
-        } else {
-          const map = new Map<string, Row>();
-          data.forEach(r => map.set(r.category_classification, r));
-          [...DEFAULT_MONT, ...DEFAULT_PARBEL].forEach(d => {
-            if (!map.has(d.category_classification)) {
-              map.set(d.category_classification, { id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 });
-            }
-          });
-          const ordered: Row[] = [];
-          [...DEFAULT_MONT, ...DEFAULT_PARBEL].forEach(d => {
-            const key = d.category_classification;
-            if (map.has(key)) ordered.push(map.get(key)!);
-            map.delete(key);
-          });
-          map.forEach(v => ordered.push(v));
-          setRows(ordered);
-        }
+        setMontSpecialists(montList);
+        setParbelSpecialists(parList);
 
-        // load specialists per business_line
-        try {
-          const [mRes, pRes] = await Promise.all([
-            api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'montblanc' } }),
-            api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: 'parbel' } }),
-          ]);
+        // pick active specialists (valid_to null) or first
+        const activeMont = montList.find(s => !s.valid_to) ?? montList[0] ?? null;
+        const activePar = parList.find(s => !s.valid_to) ?? parList[0] ?? null;
+        setSpecialistMont(activeMont);
+        setSpecialistParbel(activePar);
 
-          const montList: Specialist[] = Array.isArray(mRes.data) ? mRes.data : [];
-          const parList: Specialist[] = Array.isArray(pRes.data) ? pRes.data : [];
+        // usersMap: soporta u.id o u.user_id, y name o full_name
+        const map = usersList.reduce((acc: Record<number,string>, u: any) => {
+          const key = u?.id ?? u?.user_id;
+          const name = u?.name ?? u?.full_name ?? u?.username;
+          if (key != null) acc[Number(key)] = name ?? `User ${key}`;
+          return acc;
+        }, {});
+        setUsersMap(map);
 
-          const activeMont = montList.find(s => !s.valid_to) ?? montList[0] ?? null;
-          const activePar = parList.find(s => !s.valid_to) ?? parList[0] ?? null;
+        // load advisor budgets for display (use commissions/by-seller/:userId endpoint)
+        const loadBudgetForUser = async (userId?: number | null) => {
+          if (!userId) return 0;
+          try {
+            const res = await api.get(`commissions/by-seller/${userId}`, { params: { budget_ids: [budgetId] } });
+            return Number(res.data?.user_budget_usd ?? 0);
+          } catch (e) {
+            return 0;
+          }
+        };
 
-          setSpecialistMont(activeMont);
-          setHistoryMont(montList);
+        if (activeMont?.user_id) {
+          const v = await loadBudgetForUser(activeMont.user_id);
+          if (!cancelled) setAUserBudgetUsd(v);
+        } else setAUserBudgetUsd(0);
 
-          setSpecialistParbel(activePar);
-          setHistoryParbel(parList);
-
-        } catch (e) {
-          // ignore if endpoint doesn't support business_line filter
-        }
+        if (activePar?.user_id) {
+          const v = await loadBudgetForUser(activePar.user_id);
+          if (!cancelled) setBUserBudgetUsd(v);
+        } else setBUserBudgetUsd(0);
 
         // load saved advisor split (if any)
         try {
@@ -191,298 +447,80 @@ console.log(calculatingSplit)
           } else {
             setAdvisorAPct(50);
             setAdvisorBPct(50);
+            setAdvisorSplit(null);
           }
-        } catch (e) {
-          // not critical
+        } catch {
+          setAdvisorSplit(null);
         }
-      } catch (err) {
-        console.error('load error', err);
-        setMessage({ type: 'error', text: 'Error cargando datos' });
-        setTimeout(() => setMessage(null), 2000);
-      } finally {
-        setLoading(false);
+
+      } catch (e) {
+        console.warn('Error cargando especialistas/usuarios', e);
+        if (!cancelled) {
+          setMontSpecialists([]); setParbelSpecialists([]); setSpecialistMont(null); setSpecialistParbel(null);
+          setUsersMap({}); setAUserBudgetUsd(0); setBUserBudgetUsd(0);
+        }
       }
     })();
-  }, [budgetId, userId, DEFAULT_MONT, DEFAULT_PARBEL]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetId]);
 
-  // helper: load advisor user_budget_usd via commissions/by-seller/:userId
-  const loadAdvisorBudget = async (userId?: number | null) => {
-    if (!userId || !budgetId) return 0;
-    try {
-      // endpoint used in DualCommissionAdmin
-      const res = await api.get(`commissions/by-seller/${userId}`, { params: { budget_ids: [budgetId] } });
-      return Number(res.data?.user_budget_usd ?? 0);
-    } catch (e: any) {
-      console.warn('could not load advisor budget', userId, e?.response?.status ?? e);
-      return 0;
-    }
-  };
-
-  // whenever active specialists change (or budgetId), refresh their individual budgets
+  // when specialistMont/specialistParbel change, refresh their budgets
   useEffect(() => {
+    if (!budgetId) return;
     let cancelled = false;
     (async () => {
-      if (!budgetId) {
-        setMontAdvisorBudgetUsd(0);
-        setParbelAdvisorBudgetUsd(0);
-        return;
-      }
+      const loadBudgetForUser = async (userId?: number | null) => {
+        if (!userId || !budgetId) return 0;
+        try {
+          const res = await api.get(`commissions/by-seller/${userId}`, { params: { budget_ids: [budgetId] } });
+          return Number(res.data?.user_budget_usd ?? 0);
+        } catch (e) {
+          return 0;
+        }
+      };
+
       if (specialistMont?.user_id) {
-        const v = await loadAdvisorBudget(specialistMont.user_id);
-        if (!cancelled) setMontAdvisorBudgetUsd(v);
+        const v = await loadBudgetForUser(specialistMont.user_id);
+        if (!cancelled) setAUserBudgetUsd(v);
       } else {
-        setMontAdvisorBudgetUsd(0);
+        setAUserBudgetUsd(0);
       }
+
       if (specialistParbel?.user_id) {
-        const v = await loadAdvisorBudget(specialistParbel.user_id);
-        if (!cancelled) setParbelAdvisorBudgetUsd(v);
+        const v = await loadBudgetForUser(specialistParbel.user_id);
+        if (!cancelled) setBUserBudgetUsd(v);
       } else {
-        setParbelAdvisorBudgetUsd(0);
+        setBUserBudgetUsd(0);
       }
     })();
     return () => { cancelled = true; };
   }, [specialistMont?.user_id, specialistParbel?.user_id, budgetId]);
 
-  const totalAssigned = useMemo(() => rows.reduce((s, r) => s + Number(r.budget_usd || 0), 0), [rows]);
-
-  const updateRow = (index: number, patch: Partial<Row>) => {
-    setRows(prev => prev.map((r, i) => i === index ? { ...r, ...patch, updated: true } : r));
-  };
-
-  const saveAll = async () => {
-    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),2000); return; }
-    setSaving(true);
-    try {
-      const payload = rows.map(r => ({
-        id: r.id ?? null,
-        budget_id: budgetId,
-        user_id: userId ?? null,
-        category_id: r.category_id,
-        category_classification: r.category_classification,
-        budget_usd: Number(r.budget_usd || 0),
-        business_line: isParbelClassification(r.category_classification) ? 'parbel' : 'montblanc',
-      }));
-
-      try {
-        await api.post('advisors/category-budgets/bulk', payload);
-      } catch (bulkErr) {
-        console.warn('bulk failed, performing per-row fallback', bulkErr);
-        for (const p of payload) {
-          try {
-            await api.post('advisors/category-budgets', p);
-          } catch (rowErr) {
-            console.error('failed saving row', p, rowErr);
-            setMessage({ type: 'error', text: 'Algunas filas no se guardaron correctamente' });
-            setTimeout(()=>setMessage(null),2000);
-          }
-        }
-      }
-
-      await (async () => {
-        // reload authoritative rows
-        await (async () => { await api.get('advisors/category-budgets', { params: { budget_id: budgetId, user_id: userId || undefined } }); })();
-        await reloadCategoryBudgets();
-      })();
-
-      setMessage({ type: 'ok', text: 'Guardado exitoso' });
-      setTimeout(()=>setMessage(null),2000);
-    } catch (e) {
-      console.error('saveAll error', e);
-      setMessage({ type: 'error', text: 'Error guardando' });
-      setTimeout(()=>setMessage(null),2000);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // reload helper used above
-  const reloadCategoryBudgets = async () => {
-    if (!budgetId) return;
-    try {
-      const res = await api.get('advisors/category-budgets', {
-        params: { budget_id: budgetId, user_id: userId || undefined }
-      });
-
-      const payloadRows = Array.isArray(res.data?.rows) ? res.data.rows : [];
-
-      const data: Row[] = payloadRows.map((r: any) => ({
-        id: r.saved_id ?? r.id ?? null,
-        category_id: r.category_id ?? null,
-        category_classification: String(r.category_classification ?? ''),
-        name: r.name ?? r.category_classification ?? '',
-        budget_usd: Number(r.budget_usd ?? 0),
-      }));
-
-      setRows(prev => {
-        if (!data.length) {
-          return [
-            ...DEFAULT_MONT.map(d => ({ id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 })),
-            ...DEFAULT_PARBEL.map(d => ({ id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 })),
-          ];
-        }
-        console.log(prev)
-
-        const map = new Map<string, Row>();
-        data.forEach(r => map.set(r.category_classification, r));
-        [...DEFAULT_MONT, ...DEFAULT_PARBEL].forEach(d => {
-          if (!map.has(d.category_classification)) {
-            map.set(d.category_classification, { id: null, category_id: null, category_classification: d.category_classification, name: d.name, budget_usd: 0 });
-          }
-        });
-        const ordered: Row[] = [];
-        [...DEFAULT_MONT, ...DEFAULT_PARBEL].forEach(d => {
-          const key = d.category_classification;
-          if (map.has(key)) ordered.push(map.get(key)!);
-          map.delete(key);
-        });
-        map.forEach(v => ordered.push(v));
-        return ordered;
-      });
-
-      const advisorPool = res.data?.advisor_pool;
-      if (advisorPool) {
-        setAdvisorPct(Number(advisorPool.pct ?? 0));
-        setAdvisorPoolUsd(Number(advisorPool.pool_usd ?? 0));
-      }
-    } catch (e) {
-      console.error('reload error', e);
-    }
-  };
-
-  const saveOne = async (index: number) => {
-    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
-    const r = rows[index];
-    if (!r) return;
-    const payload = {
-      id: r.id ?? null,
-      budget_id: budgetId,
-      user_id: userId ?? null,
-      category_id: r.category_id,
-      category_classification: r.category_classification,
-      budget_usd: Number(r.budget_usd || 0),
-      business_line: isParbelClassification(r.category_classification) ? 'parbel' : 'montblanc',
-    };
-
-    try {
-      await api.post('advisors/category-budgets', payload);
-      await reloadCategoryBudgets();
-      setMessage({ type: 'ok', text: 'Guardado' });
-    } catch (e) {
-      console.error('saveOne error', e);
-      setMessage({ type: 'error', text: 'Error guardando' });
-    } finally {
-      setTimeout(() => setMessage(null), 1500);
-    }
-  };
-
-  const assignSpecialistForLine = async (userIdToAssign: number, line: 'montblanc' | 'parbel') => {
-    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
-    setAssigning(true);
-    try {
-      await api.post('advisors/specialists', { budget_id: budgetId, user_id: userIdToAssign, business_line: line });
-      const res = await api.get('advisors/specialists', { params: { budget_id: budgetId, business_line: line } });
-      const list: Specialist[] = Array.isArray(res.data) ? res.data : [];
-      if (line === 'montblanc') {
-        setSpecialistMont(list.find(s => !s.valid_to) ?? list[0] ?? null);
-        setHistoryMont(list);
-      } else {
-        setSpecialistParbel(list.find(s => !s.valid_to) ?? list[0] ?? null);
-        setHistoryParbel(list);
-      }
-      setMessage({ type: 'ok', text: 'Asesor asignado' });
-    } catch (e) {
-      console.error('assign error', e);
-      setMessage({ type: 'error', text: 'Error asignando asesor' });
-    } finally {
-      setAssigning(false);
-      setTimeout(() => setMessage(null), 1800);
-    }
-  };
-
-  const calculateSplit = async () => {
-    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
-    setCalculatingSplit(true);
-    try {
-      const res = await api.get('advisors/compute-split', {
-        params: {
-          budget_id: budgetId,
-          user_id: userId ?? undefined,
-          mont_pct: montPct,
-          parbel_pct: parbelPct
-        }
-      });
-      setSplitCalc(res.data);
-      console.log(calculateSplit)
-
-      if (res.data?.montblanc?.category_budgets) {
-        const categoryBudgets = res.data.montblanc.category_budgets;
-        setRows(prev => {
-          const map = new Map<string, Row>();
-          prev.forEach(r => map.set(r.category_classification, r));
-          Object.entries(categoryBudgets).forEach(([k, v]) => {
-            const key = String(k);
-            const existing = map.get(key);
-            if (existing) {
-              map.set(key, { ...existing, budget_usd: Number(v), updated: true });
-            } else {
-              map.set(key, { id: null, category_id: null, category_classification: key, name: `Category ${key}`, budget_usd: Number(v), updated: true });
-            }
-          });
-          return Array.from(map.values());
-        });
-      }
-    } catch (e) {
-      console.error('calc error', e);
-      setMessage({ type: 'error', text: 'Error calculando split' });
-      setTimeout(()=>setMessage(null),1700);
-    } finally {
-      setCalculatingSplit(false);
-    }
-  };
-
-  const applyParbelPrefill = () => {
-    if (!splitCalc) { setMessage({ type: 'error', text: 'No hay cálculo para aplicar' }); setTimeout(()=>setMessage(null),1500); return; }
-    setRows(prev => {
-      const next = [...prev];
-      const skinAssigned = splitCalc?.parbel?.skin?.assigned_usd ?? null;
-      const fragAssigned = splitCalc?.parbel?.fragancias?.assigned_usd ?? null;
-
-      const idxSkin = next.findIndex(r => String(r.category_classification) === '13' || String(r.name).toLowerCase().includes('skin'));
-      if (idxSkin >= 0 && skinAssigned !== null) next[idxSkin] = { ...next[idxSkin], budget_usd: Number(skinAssigned), updated: true };
-      else if (skinAssigned !== null) next.push({ id: null, category_id: null, category_classification: '13', name: 'Skin care', budget_usd: Number(skinAssigned), updated: true });
-
-      const idxFrag = next.findIndex(r => String(r.category_classification).toLowerCase() === 'fragancias' || String(r.name).toLowerCase().includes('frag'));
-      if (idxFrag >= 0 && fragAssigned !== null) next[idxFrag] = { ...next[idxFrag], budget_usd: Number(fragAssigned), updated: true };
-      else if (fragAssigned !== null) next.push({ id: null, category_id: null, category_classification: 'fragancias', name: 'Fragancias (PARBEL)', budget_usd: Number(fragAssigned), updated: true });
-
-      return next;
-    });
-    console.log(applyParbelPrefill)
-
-    setMessage({ type: 'ok', text: 'Pre-fill Parbel aplicado' });
-    setTimeout(()=>setMessage(null),1500);
-  };
-
-  const montRows = rows.filter(r => !isParbelClassification(r.category_classification));
-  const parbelRows = rows.filter(r => isParbelClassification(r.category_classification));
-  const findRowIndexByClassification = (classification: string) => rows.findIndex(r => String(r.category_classification) === String(classification));
-
-  // --- Advisor split helpers (frontend) ---
+  // Split helpers
   const calculateAdvisorSplit = async () => {
-    if (!budgetId) return;
+    if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
+    const aId = specialistMont?.user_id ?? null;
+    const bId = specialistParbel?.user_id ?? null;
+    if (!aId || !bId) { setMessage({ type: 'error', text: 'Falta especialista activo en Montblanc o Parbel' }); setTimeout(()=>setMessage(null),1500); return; }
+    setLoadingSplit(true);
     try {
       const res = await api.get('advisors/split-pool', {
         params: {
           budget_id: budgetId,
+          advisor_a_id: aId,
+          advisor_b_id: bId,
           advisor_a_pct: advisorAPct,
           advisor_b_pct: advisorBPct,
         }
       });
       setAdvisorSplit(res.data);
     } catch (e) {
-      console.error(e);
+      console.error('calc advisor split error', e);
       setMessage({ type: 'error', text: 'Error calculando split asesores' });
       setTimeout(()=>setMessage(null),1500);
+    } finally {
+      setLoadingSplit(false);
     }
   };
 
@@ -490,11 +528,7 @@ console.log(calculatingSplit)
     if (!budgetId) { setMessage({ type: 'error', text: 'Selecciona presupuesto' }); setTimeout(()=>setMessage(null),1500); return; }
     const aId = specialistMont?.user_id ?? null;
     const bId = specialistParbel?.user_id ?? null;
-    if (!aId || !bId) {
-      setMessage({ type: 'error', text: 'Falta especialista activo en Montblanc o Parbel' });
-      setTimeout(()=>setMessage(null),1800);
-      return;
-    }
+    if (!aId || !bId) { setMessage({ type: 'error', text: 'Falta especialista activo en Montblanc o Parbel' }); setTimeout(()=>setMessage(null),1500); return; }
     setSavingSplit(true);
     try {
       const payload = {
@@ -505,7 +539,6 @@ console.log(calculatingSplit)
         advisor_b_pct: Number(advisorBPct || 0),
       };
       await api.post('advisors/save-split', payload);
-      // reload saved split
       const res = await api.get('advisors/get-split', { params: { budget_id: budgetId } });
       setAdvisorSplit(res.data);
       setMessage({ type: 'ok', text: 'Distribución guardada' });
@@ -518,234 +551,200 @@ console.log(calculatingSplit)
     }
   };
 
-  const findUserName = (id?: number | null) => {
-    if (!id) return '';
-    const u = users.find(x => x.id === id);
-    return u?.name ?? `User ${id}`;
-  };
-
+  const advisorPoolTotal = Number(advisorSplit?.advisor_pool_usd ?? 0);
+  const assignedAUsd = Number(advisorSplit?.advisor_a?.assigned_usd ?? 0);
+  const assignedBUsd = Number(advisorSplit?.advisor_b?.assigned_usd ?? 0);
+  const assignedPctA = advisorPoolTotal ? (assignedAUsd / advisorPoolTotal) * 100 : Number(advisorAPct ?? 0);
+  const assignedPctB = advisorPoolTotal ? (assignedBUsd / advisorPoolTotal) * 100 : Number(advisorBPct ?? 0);
+console.log(assignedPctA)
+console.log(assignedPctB)
+  // ------------------ Render ------------------
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <header className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-extrabold">Presupuestos por categoría — Asesor</h1>
-          <p className="text-sm text-gray-500">Asigna presupuestos por categoría y especialistas por línea (Montblanc / Parbel)</p>
-        </div>
-
-        <div className="flex gap-3 items-center">
-          <select className="border rounded px-3 py-2 text-sm" value={budgetId ?? ''} onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">Selecciona presupuesto</option>
-            {budgets.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-
-          <select className="border rounded px-3 py-2 text-sm" value={userId ?? ''} onChange={e => setUserId(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">(opcional) Filtrar por asesor para ver datos</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </div>
-      </header>
-
-      {message && <div className={`mb-4 p-3 rounded ${message.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>}
-
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-2 space-y-4">
-          <div className="bg-white shadow rounded p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold">Resumen</h2>
-
-              <div className="text-sm text-gray-600">Total asignado: <strong>{totalAssigned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong></div>
-
-              <div className="bg-white shadow rounded p-4">
-                <h3 className="font-semibold">PCT Asesores</h3>
-                <div className="mt-3 text-sm text-gray-700 space-y-2">
-                  <div><strong>% Participation:</strong> {advisorPct.toFixed(2)}%</div>
-                  <div><strong>Presupuesto Asesores (USD):</strong>{" "}{advisorPoolUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Montblanc */}
-            <div className="mb-4">
-              <h3 className="font-medium mb-2">Montblanc</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {montRows.map(r => {
-                  const idx = findRowIndexByClassification(r.category_classification);
-                  return (
-                    <div key={`m-${r.category_classification}`} className="border rounded p-3 flex flex-col gap-2 bg-gray-50">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="text-sm font-medium">{r.name}</div>
-                          <div className="text-xxs text-gray-500">code: {r.category_classification}</div>
-                        </div>
-                        <div>
-                          <button onClick={() => idx >= 0 && saveOne(idx)} disabled={!(idx >= 0 && rows[idx].updated)} className={`text-sm px-2 py-1 rounded border ${rows[idx]?.updated ? 'bg-white' : 'bg-gray-50 text-gray-400 cursor-not-allowed'}`}>Guardar</button>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2 items-center">
-                        <input type="number" min={0} step={0.01} className="w-full border rounded px-2 py-2 text-right" value={r.budget_usd ?? 0} onChange={e => idx >= 0 && updateRow(idx, { budget_usd: Number(e.target.value || 0) })} />
-                        <div className="text-sm text-gray-600">USD</div>
-                      </div>
-
-                      <div className="flex gap-2 text-xs text-gray-500">
-                        <div>id: {r.id ?? '-'}</div>
-                        <div className="ml-auto">{r.updated ? <span className="text-indigo-600">Modificado</span> : 'Sin cambios'}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Parbel */}
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-4 mb-4">
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-2">
+            <button onClick={() => navigate('/budget')} className="text-sm text-primary hover:underline w-fit">← Volver a Presupuesto</button>
             <div>
-              <h3 className="font-medium mb-2">Parbel — Skin & Fragancias</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {parbelRows.map(r => {
-                  const idx = findRowIndexByClassification(r.category_classification);
-                  return (
-                    <div key={`p-${r.category_classification}`} className="border rounded p-3 flex flex-col gap-2 bg-gray-50">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="text-sm font-medium">{r.name}</div>
-                          <div className="text-xxs text-gray-500">code: {r.category_classification}</div>
-                        </div>
-                        <div>
-                          <button onClick={() => idx >= 0 && saveOne(idx)} disabled={!(idx >= 0 && rows[idx].updated)} className={`text-sm px-2 py-1 rounded border ${rows[idx]?.updated ? 'bg-white' : 'bg-gray-50 text-gray-400 cursor-not-allowed'}`}>Guardar</button>
-                        </div>
-                      </div>
+              <h1 className="text-2xl font-bold">Configuración de participación por categoría</h1>
+              <div className="text-sm text-gray-500">Asignación de participación por categoría</div>
+            </div>
+          </div>
 
-                      <div className="flex gap-2 items-center">
-                        <input type="number" min={0} step={0.01} className="w-full border rounded px-2 py-2 text-right" value={r.budget_usd ?? 0} onChange={e => idx >= 0 && updateRow(idx, { budget_usd: Number(e.target.value || 0) })} />
-                        <div className="text-sm text-gray-600">USD</div>
-                      </div>
-
-                      <div className="flex gap-2 text-xs text-gray-500">
-                        <div>id: {r.id ?? '-'}</div>
-                        <div className="ml-auto">{r.updated ? <span className="text-indigo-600">Modificado</span> : 'Sin cambios'}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+          {/* Upper-right: sellers + budget select + save */}
+          <div className="flex gap-3 items-center">
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-500 block mb-1">Vendedores</label>
+              <div className="flex gap-2 items-center">
+                {sellerRoles.length === 0 ? (
+                  <div className="text-xs text-gray-400">No hay vendedores</div>
+                ) : (
+                  sellerRoles.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => setRoleId(r.id)}
+                      className={`text-sm px-3 py-1 rounded border ${ roleId === r.id ? 'bg-indigo-600 text-white' : 'bg-white hover:bg-gray-50' }`}
+                      title={r.name}
+                    >
+                      {r.name}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setRows(prev => prev.map(r => ({ ...r, budget_usd: 0, updated: true })))} className="px-3 py-2 border rounded text-sm">Reset</button>
-              <button onClick={saveAll} disabled={saving || !rows.some(r => r.updated)} className={`px-4 py-2 rounded text-white ${saving || !rows.some(r => r.updated) ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600'}`}>{saving ? 'Guardando...' : 'Guardar todo'}</button>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Presupuesto</label>
+              <select value={budgetId ?? ''} onChange={e => setBudgetId(e.target.value ? Number(e.target.value) : null)} className="border rounded px-3 py-2 text-sm">
+                <option value="">(Sin presupuesto)</option>
+                {budgets.map(b => <option key={b.id} value={b.id}>{b.name} — {b.start_date} → {b.end_date}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-end gap-2">
+              <button onClick={saveAll} disabled={!roleId || loading || saving || !anyDirty} className={`px-4 py-2 rounded text-white ${(!roleId || loading || saving || !anyDirty) ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600'}`}>
+                {saving ? 'Guardando...' : 'Guardar todo'}
+              </button>
             </div>
           </div>
         </div>
 
-        <aside className="space-y-4">
-          {/* Especialistas por línea */}
-          <div className="bg-white shadow rounded p-4">
-            <h3 className="font-semibold">Especialistas por línea</h3>
-            <div className="mt-3">
-              <div className="flex gap-2 mb-3">
-                <button onClick={() => setActiveLine('montblanc')} className={`px-3 py-1 rounded ${activeLine === 'montblanc' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>Montblanc</button>
-                <button onClick={() => setActiveLine('parbel')} className={`px-3 py-1 rounded ${activeLine === 'parbel' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>Parbel</button>
-              </div>
+        {/* ---------------- Horizontal Split card (compact) ---------------- */}
+        <div className="bg-white rounded-2xl shadow p-3 flex items-center justify-between gap-4">
+          {/* Left: labels */}
+          <div className="flex items-center gap-4">
+            <div className="text-sm font-semibold">Split Montblanc ↔ Parbel</div>
+            <div className="text-xs text-gray-500">Presupuesto: {budgetId ?? '-'}</div>
+          </div>
 
-              {activeLine === 'montblanc' ? (
-                <div>
-                  <div className="text-sm text-gray-600 mb-2">Activo: {specialistMont ? findUserName(specialistMont.user_id) : 'Ninguno'}</div>
-                  <select value={specialistMont?.user_id ?? ''} onChange={e => setSpecialistMont(prev => ({ ...(prev ?? { budget_id: budgetId ?? 0, user_id: 0 }), user_id: Number(e.target.value), business_line: 'montblanc' }))} className="border rounded px-2 py-2 w-full mb-2">
-                    <option value="">Selecciona asesor Montblanc</option>
-                    {users.map(u => <option key={`m-${u.id}`} value={u.id}>{u.name}</option>)}
-                  </select>
-                  <button onClick={() => specialistMont?.user_id && assignSpecialistForLine(specialistMont.user_id, 'montblanc')} disabled={assigning || !specialistMont?.user_id} className={`w-full px-3 py-2 rounded text-white ${assigning ? 'bg-gray-400' : 'bg-emerald-600'}`}>Asignar Montblanc</button>
+          {/* Middle: active advisors info */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <div className="text-xxs text-gray-500">Asesor A</div>
+              <div className="text-sm font-medium">{specialistMont?.user_id ? findUserName(specialistMont.user_id) : <em className="text-red-500">No seleccionado</em>}</div>
+              <div className="text-xs text-gray-400">PPTO: <strong>{Number(aUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
+            </div>
 
-                  <div className="mt-3 text-sm text-gray-600">
-                    <div className="font-medium">Historial Montblanc</div>
-                    <div className="max-h-36 overflow-auto mt-2">
-                      {historyMont.length ? historyMont.map(h => (
-                        <div key={`${h.user_id}-${h.valid_from ?? ''}`} className="py-1 border-b last:border-b-0">
-                          <div>{findUserName(h.user_id)}</div>
-                          <div className="text-xxs text-gray-500">{h.valid_from ?? '-'} → {h.valid_to ?? 'activo'}</div>
-                        </div>
-                      )) : <div className="text-xs text-gray-400">Sin historial</div>}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="text-sm text-gray-600 mb-2">Activo: {specialistParbel ? findUserName(specialistParbel.user_id) : 'Ninguno'}</div>
-                  <select value={specialistParbel?.user_id ?? ''} onChange={e => setSpecialistParbel(prev => ({ ...(prev ?? { budget_id: budgetId ?? 0, user_id: 0 }), user_id: Number(e.target.value), business_line: 'parbel' }))} className="border rounded px-2 py-2 w-full mb-2">
-                    <option value="">Selecciona asesor Parbel</option>
-                    {users.map(u => <option key={`p-${u.id}`} value={u.id}>{u.name}</option>)}
-                  </select>
-                  <button onClick={() => specialistParbel?.user_id && assignSpecialistForLine(specialistParbel.user_id, 'parbel')} disabled={assigning || !specialistParbel?.user_id} className={`w-full px-3 py-2 rounded text-white ${assigning ? 'bg-gray-400' : 'bg-emerald-600'}`}>Asignar Parbel</button>
-
-                  <div className="mt-3 text-sm text-gray-600">
-                    <div className="font-medium">Historial Parbel</div>
-                    <div className="max-h-36 overflow-auto mt-2">
-                      {historyParbel.length ? historyParbel.map(h => (
-                        <div key={`${h.user_id}-${h.valid_from ?? ''}`} className="py-1 border-b last:border-b-0">
-                          <div>{findUserName(h.user_id)}</div>
-                          <div className="text-xxs text-gray-500">{h.valid_from ?? '-'} → {h.valid_to ?? 'activo'}</div>
-                        </div>
-                      )) : <div className="text-xs text-gray-400">Sin historial</div>}
-                    </div>
-                  </div>
-                </div>
-              )}
+            <div className="flex items-center gap-3">
+              <div className="text-xxs text-gray-500">Asesor B</div>
+              <div className="text-sm font-medium">{specialistParbel?.user_id ? findUserName(specialistParbel.user_id) : <em className="text-red-500">No seleccionado</em>}</div>
+              <div className="text-xs text-gray-400">PPTO: <strong>{Number(bUserBudgetUsd).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })} USD</strong></div>
             </div>
           </div>
 
-          {/* Split Montblanc <-> Parbel (sidebar) with advisor budgets and % inputs */}
-          <div className="bg-white shadow rounded p-4">
-            <h3 className="font-semibold">Split Montblanc ↔ Parbel</h3>
-
-            <div className="mt-3 text-sm text-gray-700 space-y-3">
-              <div>
-                <div className="text-xxs text-gray-500">Asesor A (Montblanc)</div>
-                <div className="font-medium">{specialistMont ? findUserName(specialistMont.user_id) : <em className="text-red-500">No hay asesor Montblanc activo</em>}</div>
-                <div className="text-xs text-gray-500">PPTO: <strong>{Number(montAdvisorBudgetUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong></div>
-              </div>
-
-              <div>
-                <div className="text-xxs text-gray-500">Asesor B (Parbel)</div>
-                <div className="font-medium">{specialistParbel ? findUserName(specialistParbel.user_id) : <em className="text-red-500">No hay asesor Parbel activo</em>}</div>
-                <div className="text-xs text-gray-500">PPTO: <strong>{Number(parbelAdvisorBudgetUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong></div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs">Asesor A %</label>
-                  <input type="number" min={0} max={100} value={advisorAPct} onChange={e => setAdvisorAPct(Number(e.target.value || 0))} className="w-full rounded px-2 py-1 text-sm border" />
-                </div>
-                <div>
-                  <label className="text-xs">Asesor B %</label>
-                  <input type="number" min={0} max={100} value={advisorBPct} onChange={e => setAdvisorBPct(Number(e.target.value || 0))} className="w-full rounded px-2 py-1 text-sm border" />
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button onClick={calculateAdvisorSplit} className="px-3 py-2 rounded text-white bg-indigo-600">Calcular distribución</button>
-                <button onClick={saveAdvisorSplit} disabled={savingSplit || !(specialistMont && specialistParbel)} className={`px-3 py-2 rounded text-white ${savingSplit ? 'bg-gray-400' : (specialistMont && specialistParbel ? 'bg-emerald-600' : 'bg-gray-300 cursor-not-allowed')}`}>
-                  {savingSplit ? 'Guardando...' : 'Guardar distribución'}
-                </button>
-              </div>
-
-              {advisorSplit && (
-                <div className="text-sm text-gray-700">
-                  <div><strong>Pool total:</strong> {Number(advisorSplit.advisor_pool_usd ?? advisorPoolUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                  <div>Asesor A (Montblanc): {Number(advisorSplit.advisor_a?.assigned_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                  <div>Asesor B (Parbel): {Number(advisorSplit.advisor_b?.assigned_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-                </div>
-              )}
-
+          {/* Right: compact controls */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <input type="number" min={0} max={100} value={advisorAPct} onChange={e => setAdvisorAPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
+              <span className="text-sm">/</span>
+              <input type="number" min={0} max={100} value={advisorBPct} onChange={e => setAdvisorBPct(Number(e.target.value || 0))} className="w-20 rounded px-2 py-1 text-sm border" />
             </div>
-          </div>
 
-          <div className="bg-white shadow rounded p-4">
-            <h3 className="font-semibold">Ayuda / Notas</h3>
-            <p className="text-sm text-gray-500">Montblanc: categories 19,14,15,16,21. Parbel: skin (13) + fragancias.</p>
-            <p className="text-xs text-gray-400 mt-2">Endpoints: advisors/category-budgets, advisors/specialists, advisors/save-split, advisors/get-split, commissions/by-seller/:userId (para PPTO asesor).</p>
+            <button onClick={calculateAdvisorSplit} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">{loadingSplit ? 'Calculando...' : 'Calcular'}</button>
+            <button onClick={saveAdvisorSplit} disabled={savingSplit || !(specialistMont && specialistParbel)} className={`px-3 py-1 rounded text-white text-sm ${savingSplit ? 'bg-gray-400' : (!(specialistMont && specialistParbel) ? 'bg-gray-300' : 'bg-emerald-600')}`}>{savingSplit ? 'Guardando...' : 'Guardar'}</button>
           </div>
-        </aside>
-      </section>
+        </div>
+      </div>
+
+      {message && (
+        <div className={`mb-4 p-3 rounded ${message.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* Main table */}
+      <div className="bg-white shadow rounded overflow-x-auto">
+        <table className="w-full min-w-[900px]">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="p-3 text-left">Categoría</th>
+              <th className="p-3 text-left">Código</th>
+              <th className="p-3 text-left">Comisión %</th>
+              <th className="p-3 text-left">Comisión 100%</th>
+              <th className="p-3 text-left">Comisión 120%</th>
+              {/* Nueva columna: valor absoluto de participación */}
+              <th className="p-3 text-left">Valor participación</th>
+              {/* Antes era este: <th>Participación %</th> */}
+              <th className="p-3 text-left">Participación %</th>
+              <th className="p-3 text-left">Acciones</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} className="p-6 text-center text-gray-500">Cargando categorías…</td></tr>
+            ) : items.length === 0 ? (
+              <tr><td colSpan={8} className="p-6 text-center text-gray-500">No hay categorías.</td></tr>
+            ) : normalizedItems.map((it) => {
+              const isSaving = savingIds.includes(it.category_id);
+              const isDirty = dirtyIds.has(it.category_id);
+              return (
+                <tr key={it.category_id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 align-top">
+                    <div className="font-medium">{it.name}</div>
+                    <div className="text-xs text-gray-500">{it.description ?? ''}</div>
+                  </td>
+
+                  <td className="p-3 text-sm text-gray-500 align-top">{it.code}</td>
+
+                  <td className="p-3 align-top">
+                    <input type="number" step="0.01" value={it.commission_percentage ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage', e.target.value)} className="border px-2 py-1 rounded w-28" />
+                    {isDirty && <div className="text-xxs text-indigo-600 mt-1">modificado</div>}
+                  </td>
+
+                  <td className="p-3 align-top">
+                    <input type="number" step="0.01" value={it.commission_percentage100 ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage100', e.target.value)} className="border px-2 py-1 rounded w-28" />
+                  </td>
+
+                  <td className="p-3 align-top">
+                    <input type="number" step="0.01" value={it.commission_percentage120 ?? ''} onChange={e => onChangeField(it.category_id, 'commission_percentage120', e.target.value)} className="border px-2 py-1 rounded w-28" />
+                  </td>
+
+                  {/* Nueva celda: Valor participación (editable) */}
+                  <td className="p-3 align-top">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={(it as any).participation_value ?? ''}
+                      onChange={e => onChangeField(it.category_id, 'participation_value', e.target.value)}
+                      className="border px-2 py-1 rounded w-36"
+                      placeholder={getBudgetTotal(budgetId) ? `Presupuesto: ${getBudgetTotal(budgetId).toLocaleString()}` : 'Sin presupuesto'}
+                    />
+                    <div className="text-xxs text-gray-400 mt-1">
+                      {/* Mostrar presupuesto actual y ayuda */}
+                      {budgetId ? `Total presupuesto: ${getBudgetTotal(budgetId).toLocaleString()}` : 'Seleccione presupuesto para calcular %'}
+                    </div>
+                  </td>
+
+                  {/* Participación % (DERIVADO del valor anterior) — readonly para evitar desincronía */}
+                  <td className="p-3 align-top">
+                    <input
+                      type="number"
+                      value={Number((it as any).participation_pct ?? 0).toFixed(2)}
+                      readOnly
+                      className="border px-2 py-1 rounded w-28 bg-gray-50"
+                    />
+                  </td>
+
+                  <td className="p-3 align-top">
+                    <div className="flex gap-2 items-center">
+                      <button onClick={() => saveOne(it)} disabled={isSaving} className={`px-3 py-1 rounded border ${isSaving ? 'bg-gray-100 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>{isSaving ? 'Guardando...' : 'Guardar'}</button>
+                      <button onClick={() => onDelete(it.category_id)} className="px-3 py-1 rounded border bg-white hover:bg-gray-50 text-red-600" title="Eliminar configuración">Eliminar</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        <div className="mt-4 flex justify-end p-4">
+          <div className={`px-4 py-2 rounded text-sm font-semibold ${ totalParticipation === 100 ? 'bg-green-50 text-green-700' : totalParticipation > 100 ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700' }`}>
+            Total participación: {totalParticipation.toFixed(2)}%
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
