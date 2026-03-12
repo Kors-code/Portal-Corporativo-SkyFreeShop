@@ -22,6 +22,7 @@ class ImportSalesController extends Controller
      * ========================= */
     protected function logSkip(int $row, string $reason, array $assoc = [])
     {
+        // Log minimal y estructurado para luego filtrar por reason
         Log::warning('IMPORT SKIP', [
             'row' => $row,
             'reason' => $reason,
@@ -29,8 +30,23 @@ class ImportSalesController extends Controller
             'pdv' => $assoc['pdv'] ?? null,
             'seller' => $assoc['vendedor'] ?? $assoc['seller'] ?? $assoc['vendor'] ?? null,
             'date' => $assoc['fecha'] ?? $assoc['date'] ?? null,
-            'raw' => $assoc,
         ]);
+    }
+
+    protected function normalizeHora(?string $horaRaw): ?string
+    {
+        if (!$horaRaw) return null;
+
+        // quitar variantes "a. m." "p. m." "am" "pm" (case-insensitive)
+        $clean = preg_replace('/\b(?:a\.m\.|p\.m\.|am|pm)\b/i', '', $horaRaw);
+        $clean = trim($clean);
+
+        try {
+            $dt = Carbon::parse($clean);
+            return $dt->format('H:i:s'); // 24h
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     protected function normalizeHeader(string $h): string
@@ -71,6 +87,7 @@ class ImportSalesController extends Controller
         $s = preg_replace('/[^\d\.\-]/', '', $s);
         return is_numeric($s) ? (float)$s : null;
     }
+
     protected function normalizePersonName(?string $name): ?string
     {
         if (!$name) return null;
@@ -86,8 +103,6 @@ class ImportSalesController extends Controller
 
         return $name ?: null;
     }
-
-
 
     /* =========================
      * Import
@@ -147,14 +162,14 @@ class ImportSalesController extends Controller
         }
 
         /* ===== Counters ===== */
-        $processed = 0;
+        $processed = 0; // filas leídas
         $skipped   = 0;
         $created   = ['products' => 0, 'users' => 0, 'sales' => 0];
         $errors    = [];
 
         /* ===== Caches ===== */
         $productsCache   = [];
-        $usersCache      = [];
+        $usersCache      = [];      // cache local (por email o por code_)
         $categoriesCache = [];
         $dailyRoles = [];
 
@@ -190,11 +205,12 @@ class ImportSalesController extends Controller
             return $trmCache[$date];
         };
 
-        // user_id => [ 'YYYY-MM-DD' => true|false ]
-        // true = en algún momento del día fue cajero
-// user_id => [ 'YYYY-MM-DD' => ['seller'=>bool,'cashier'=>bool] ]
+        // Preparar roles map (se usa al final)
+        $rolesMap = DB::connection('budget')->table('roles')->pluck('id', 'name');
 
-
+        // Contador total de filas del Excel (útil para comparar)
+        $totalRowsExcel = max(0, $highestRow - 1);
+        Log::info('IMPORT: total rows in excel', ['rows' => $totalRowsExcel]);
 
         for ($start = 2; $start <= $highestRow; $start += $chunkSize) {
 
@@ -228,51 +244,68 @@ class ImportSalesController extends Controller
                             }
                         }
 
-                        /* ===== Seller (determinista, fallback al ID por defecto) ===== */
+                        /* ===== Seller: PRIORIDAD código_vendedor si viene ===== */
                         $sellerName = $this->firstNotEmpty($assoc, [
                             'vendedor', 'seller', 'vendor', 'vendedor_nombre', 'vendor_name'
                         ]);
 
-                        if ($sellerName) {
-                            $email = Str::slug($sellerName) . '@local';
+                        $codigoVendedor = $this->firstNotEmpty($assoc, [
+                            'codigo_vendedor',
+                            'codigovendedor',
+                            'seller_code',
+                            'codigo'
+                        ]);
 
-                            $codigoVendedor = $this->firstNotEmpty($assoc, [
-                                'codigo_vendedor',
-                                'codigovendedor',
-                                'seller_code',
-                                'codigo'
-                            ]);
-
-                            $email = strtolower(Str::slug($sellerName) . '@local');
-
-                            
-
-                            if (!isset($usersCache[$email])) {
-                                $usersCache[$email] = User::updateOrCreate(
-                                    ['email' => $email],                 // 🔑 clave única
-                                    [
-                                        'name' => $sellerName,
-                                        'codigo_vendedor' => $codigoVendedor
-                                    ]
-                                );
-
-                                if ($usersCache[$email]->wasRecentlyCreated) {
-                                    $created['users']++;
+                        $sellerId = null;
+                        // 1) si viene codigo_vendedor intentar buscar usuario existente por código
+                        if ($codigoVendedor) {
+                            // cache por code_
+                            $cacheKey = 'code_' . $codigoVendedor;
+                            if (isset($usersCache[$cacheKey])) {
+                                $sellerId = $usersCache[$cacheKey]->id;
+                            } else {
+                                $foundByCode = User::where('codigo_vendedor', $codigoVendedor)->first();
+                                if ($foundByCode) {
+                                    $usersCache[$cacheKey] = $foundByCode;
+                                    $sellerId = $foundByCode->id;
                                 }
                             }
+                        }
 
+                        // 2) si no se resolvió, intentar por nombre/email (fallback)
+                        if (!$sellerId && $sellerName) {
+                            $email = strtolower(Str::slug($sellerName) . '@local');
+                            if (isset($usersCache[$email])) {
+                                $sellerId = $usersCache[$email]->id;
+                            } else {
+                                // intentar encontrar por nombre exacto (evita crear duplicados innecesarios)
+                                $foundByName = User::where('name', $sellerName)->first();
+                                if ($foundByName) {
+                                    $usersCache[$email] = $foundByName;
+                                    $sellerId = $foundByName->id;
+                                } else {
+                                    // crear o actualizar por email
+                                    $usersCache[$email] = User::updateOrCreate(
+                                        ['email' => $email],
+                                        [
+                                            'name' => $sellerName,
+                                            'codigo_vendedor' => $codigoVendedor
+                                        ]
+                                    );
+                                    if ($usersCache[$email]->wasRecentlyCreated) {
+                                        $created['users']++;
+                                    }
+                                    $sellerId = $usersCache[$email]->id;
+                                }
+                            }
+                        }
 
-                            $sellerId = $usersCache[$email]->id;
-                           
-
-                        } else {
-                            // Fallback: usar ID fijo
+                        // 3) fallback definitivo al default seller
+                        if (!$sellerId) {
                             $sellerId = $DEFAULT_SELLER_ID;
-
-                            // Log informativo (no crítico)
-                            Log::info('IMPORT: seller fallback to SIN VENDEDOR', [
+                            // Log minimal para las filas sin vendedor identificable
+                            Log::info('IMPORT: fallback seller used', [
                                 'row' => $row,
-                                'seller_id' => $DEFAULT_SELLER_ID,
                                 'folio' => $assoc['folio'] ?? null
                             ]);
                         }
@@ -301,61 +334,41 @@ class ImportSalesController extends Controller
                             $saleDate = now()->toDateString();
                         }
 
-                                // Marcar que este usuario fue VENDEDOR este día
-                            if (!isset($dailyRoles[$sellerId])) {
-                                $dailyRoles[$sellerId] = [];
-                            }
-                            if (!isset($dailyRoles[$sellerId][$saleDate])) {
-                                $dailyRoles[$sellerId][$saleDate] = ['seller' => false, 'cashier' => false];
-                            }
-                            $dailyRoles[$sellerId][$saleDate]['seller'] = true;
+                        // hora 
+                        $horaRaw = $this->firstNotEmpty($assoc, ['hora']);
+                        $hora = $this->normalizeHora($horaRaw);
 
+                        // Marcar roles diarios (se usa luego para user_roles)
+                        if (!isset($dailyRoles[$sellerId])) {
+                            $dailyRoles[$sellerId] = [];
+                        }
+                        if (!isset($dailyRoles[$sellerId][$saleDate])) {
+                            $dailyRoles[$sellerId][$saleDate] = ['seller' => false, 'cashier' => false];
+                        }
+                        $dailyRoles[$sellerId][$saleDate]['seller'] = true;
 
                         $cashierName = $this->firstNotEmpty($assoc, ['cajero', 'cashier']);
+                        $cashierId = null;
                         if ($cashierName) {
-
-    $cashierEmail = strtolower(Str::slug($cashierName) . '@local');
-
-    if (!isset($usersCache[$cashierEmail])) {
-        $usersCache[$cashierEmail] = User::firstOrCreate(
-            ['email' => $cashierEmail],
-            ['name' => $cashierName]
-        );
-
-        if ($usersCache[$cashierEmail]->wasRecentlyCreated) {
-            $created['users']++;
-        }
-    }
-
-    $cashierId = $usersCache[$cashierEmail]->id;
-
-    if (!isset($dailyRoles[$cashierId])) {
-        $dailyRoles[$cashierId] = [];
-    }
-    if (!isset($dailyRoles[$cashierId][$saleDate])) {
-        $dailyRoles[$cashierId][$saleDate] = ['seller' => false, 'cashier' => false];
-    }
-
-    $dailyRoles[$cashierId][$saleDate]['cashier'] = true;
-}
-
-
-                        $normSeller  = $this->normalizePersonName($sellerName);
-                        $normCashier = $this->normalizePersonName($cashierName);
-
-
-                        if ($normSeller && $normCashier) {
-                            Log::info('ROLE CHECK', [
-                                'seller_raw' => $sellerName,
-                                'cashier_raw' => $cashierName,
-                                'seller_norm' => $normSeller,
-                                'cashier_norm' => $normCashier,
-                                'match' => $normSeller === $normCashier,
-                            ]);
+                            $cashierEmail = strtolower(Str::slug($cashierName) . '@local');
+                            if (!isset($usersCache[$cashierEmail])) {
+                                $usersCache[$cashierEmail] = User::firstOrCreate(
+                                    ['email' => $cashierEmail],
+                                    ['name' => $cashierName]
+                                );
+                                if ($usersCache[$cashierEmail]->wasRecentlyCreated) {
+                                    $created['users']++;
+                                }
+                            }
+                            $cashierId = $usersCache[$cashierEmail]->id;
+                            if (!isset($dailyRoles[$cashierId])) {
+                                $dailyRoles[$cashierId] = [];
+                            }
+                            if (!isset($dailyRoles[$cashierId][$saleDate])) {
+                                $dailyRoles[$cashierId][$saleDate] = ['seller' => false, 'cashier' => false];
+                            }
+                            $dailyRoles[$cashierId][$saleDate]['cashier'] = true;
                         }
-
-                     
-
 
                         /* ===== Amounts ===== */
                         $qty = $this->parseNumber($this->firstNotEmpty($assoc, ['cantidad', 'qty', 'quantity'])) ?? 0;
@@ -378,19 +391,38 @@ class ImportSalesController extends Controller
                             }
                         }
 
-                        // Keep last TRM per date from the Excel: the last row seen for that date overwrites previous
                         if ($trmExcel !== null) {
                             $trmFromExcelByDate[$saleDate] = $trmExcel;
                         }
 
-                        // Determine TRM to use for calculation:
-                        // prefer the TRM from the Excel buffer if present; otherwise fallback to DB (last <= date)
                         $trmToUse = $trmFromExcelByDate[$saleDate] ?? $getTrmForDate($saleDate);
 
-                        // Compute amount: same behavior as original but using trmToUse
-                        $amountCop = $valorPesos ?? (($valorUsd && $trmToUse) ? round($valorUsd * $trmToUse, 2) : 0);
+                        // Si no hay monto ni USD, saltar y loggear
+                        if ($valorPesos === null && $valorUsd === null) {
+                            $skipped++;
+                            $this->logSkip($row, 'no_amount', $assoc);
+                            continue;
+                        }
 
-                        /* ===== Folio / PDV (guardamos pero no bloqueamos por duplicado) ===== */
+                        // Si hay USD pero no hay TRM, log y saltar (esto puede explicar diferencias en totales)
+                        if ($valorUsd !== null && (empty($trmToUse) || $trmToUse == 0)) {
+                            // registramos por qué no se pudo convertir USD a COP
+                            $skipped++;
+                            $this->logSkip($row, 'missing_trm_for_usd', $assoc);
+                            continue;
+                        }
+
+                        // Compute amount in COP
+                        $amountCop = $valorPesos ?? round($valorUsd * $trmToUse, 2);
+
+                        // Si amountCop es 0 => saltar (evita insertar 0s)
+                        if ($amountCop === 0) {
+                            $skipped++;
+                            $this->logSkip($row, 'amount_zero', $assoc);
+                            continue;
+                        }
+
+                        /* ===== Folio / PDV ===== */
                         $folio = $this->firstNotEmpty($assoc, ['folio']);
                         $pdv   = $this->firstNotEmpty($assoc, ['pdv']);
 
@@ -403,7 +435,7 @@ class ImportSalesController extends Controller
                         $classificationNorm = $classificationRaw !== null
                             ? trim((string)$classificationRaw)
                             : null;
-                            
+
                         if (!isset($productsCache[$productKey])) {
 
                             $providerCode = $this->firstNotEmpty($assoc, ['codigo_proveedor']);
@@ -423,8 +455,6 @@ class ImportSalesController extends Controller
                                     'classification_desc' => $this->firstNotEmpty($assoc, ['descripcion_clasificacion', 'classification_desc']),
                                     'brand'               => $this->firstNotEmpty($assoc, ['brand', 'marca']),
                                     'currency'            => $this->firstNotEmpty($assoc, ['moneda', 'currency']),
-
-                                    // 🔽 CAMPOS QUE TE SALÍAN NULL
                                     'provider_code' => $providerCode,
                                     'provider_name' => $providerName,
                                     'regular_price' => $regularPrice,
@@ -442,7 +472,6 @@ class ImportSalesController extends Controller
 
                         /* ===== Category (cache) ===== */
                         $classificationForCategory = $classificationNorm ?? $this->firstNotEmpty($assoc, ['clasificacion', 'classification']);
-
                         $categoryKey = null;
                         if ($classificationForCategory !== null) {
                             $categoryKey = (string) $classificationForCategory;
@@ -459,12 +488,17 @@ class ImportSalesController extends Controller
                             );
                         }
 
+                        // Construir datetime completo
+                        $saleDatetime = $saleDate . ' ' . ($hora ?? '00:00:00');
+
                         /* ===== Buffer sale ===== */
                         $salesBuffer[] = [
                             'import_batch_id' => $batch->id,
                             'seller_id' => $sellerId,
                             'product_id' => $product->id,
                             'sale_date'  => $saleDate,
+                            'sale_datetime' => $saleDatetime,
+                            'hora' => $hora,
                             'amount'     => $amountCop,
                             'amount_cop' => $amountCop,
                             'value_pesos'=> $valorPesos,
@@ -479,37 +513,43 @@ class ImportSalesController extends Controller
                             'updated_at' => now(),
                         ];
 
+                        $processed++;
+
                         if (count($salesBuffer) >= 500) {
                             Sale::insert($salesBuffer);
-                            $created['sales'] += count($salesBuffer);
+                            $insertedCount = count($salesBuffer);
+                            $created['sales'] += $insertedCount;
                             $salesBuffer = [];
+                            // Log mínimo por chunk insertado
+                            Log::info('IMPORT: chunk inserted', ['start' => $start, 'end' => $end, 'inserted' => $insertedCount]);
                         }
-
-                        $processed++;
 
                     } catch (\Throwable $rowEx) {
                         $skipped++;
                         $errors[] = ['row' => $row, 'error' => $rowEx->getMessage()];
-                        Log::error("Row {$row} error: " . $rowEx->getMessage(), [
+                        Log::error("IMPORT ROW ERROR", [
+                            'row' => $row,
+                            'error' => $rowEx->getMessage(),
                             'trace' => $rowEx->getTraceAsString(),
-                            'data' => $assoc ?? null
                         ]);
                     }
                 }
 
                 if ($salesBuffer) {
                     Sale::insert($salesBuffer);
-                    $created['sales'] += count($salesBuffer);
+                    $insertedCount = count($salesBuffer);
+                    $created['sales'] += $insertedCount;
                     $salesBuffer = [];
+                    Log::info('IMPORT: chunk inserted (end)', ['start' => $start, 'end' => $end, 'inserted' => $insertedCount]);
                 }
 
                 DB::connection('budget')->commit();
 
             } catch (\Throwable $e) {
                 DB::connection('budget')->rollBack();
-                Log::error("Chunk {$start}-{$end} failed: " . $e->getMessage());
+                Log::error("Chunk {$start}-{$end} failed", ['error' => $e->getMessage()]);
                 $errors[] = ['chunk' => "{$start}-{$end}", 'error' => $e->getMessage()];
-                // no hacemos continue; seguimos con el siguiente chunk
+                // seguimos con el siguiente chunk
             }
         }
 
@@ -530,50 +570,53 @@ class ImportSalesController extends Controller
             }
         }
 
-        $rolesMap = DB::connection('budget')->table('roles')->pluck('id', 'name');
-
-        $rolesMap = DB::connection('budget')->table('roles')->pluck('id', 'name');
-
         foreach ($dailyRoles as $userId => $dates) {
-    foreach ($dates as $date => $flags) {
+            foreach ($dates as $date => $flags) {
 
-        if ($flags['cashier']) {
-            $roleName = 'cajero';   // prioridad
-        } elseif ($flags['seller']) {
-            $roleName = 'vendedor';
-        } else {
-            continue;
+                if ($flags['cashier']) {
+                    $roleName = 'cajero';   // prioridad
+                } elseif ($flags['seller']) {
+                    $roleName = 'vendedor';
+                } else {
+                    continue;
+                }
+
+                $roleId = $rolesMap[$roleName] ?? null;
+
+                if (!$roleId) {
+                    Log::warning("Rol '{$roleName}' no existe", [
+                        'user_id' => $userId,
+                        'date' => $date
+                    ]);
+                    continue;
+                }
+
+                UserRole::updateOrCreate(
+                    [
+                        'user_id'    => $userId,
+                        'start_date' => $date,
+                    ],
+                    [
+                        'role_id'   => $roleId,
+                        'end_date'  => null,
+                    ]
+                );
+            }
         }
 
-        $roleId = $rolesMap[$roleName] ?? null;
-
-        if (!$roleId) {
-            Log::warning("Rol '{$roleName}' no existe", [
-                'user_id' => $userId,
-                'date' => $date
-            ]);
-            continue;
-        }
-
-        UserRole::updateOrCreate(
-            [
-                'user_id'    => $userId,
-                'start_date' => $date,
-            ],
-            [
-                'role_id'   => $roleId,
-                'end_date'  => null,
-            ]
-        );
-    }
-}
-
-
-
-
+        // actualizamos batch con las filas realmente insertadas
         $batch->update([
             'status' => 'done',
-            'rows' => $processed
+            'rows' => $created['sales']
+        ]);
+
+        // resumen final (log mínimo)
+        Log::info('IMPORT FINISHED', [
+            'total_rows_excel' => $totalRowsExcel,
+            'processed_rows_read' => $processed,
+            'inserted_sales' => $created['sales'],
+            'skipped_rows' => $skipped,
+            'errors_count' => count($errors)
         ]);
 
         return response()->json([
@@ -586,7 +629,7 @@ class ImportSalesController extends Controller
         ]);
     }
 
-     public function bulkDestroy(Request $request)
+    public function bulkDestroy(Request $request)
     {
         $request->validate([
             'ids' => 'required|array|min:1',

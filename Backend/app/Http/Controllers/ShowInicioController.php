@@ -90,6 +90,12 @@ class ShowInicioController extends Controller
                 'subtitle' => 'Gestiona, consulta y crea presupuestos corporativos.',
                 'buttons' => [
                     [
+                        'route' => '/panel/commissions/SpecialistCommissionsPanel',
+                        'class' => 'btn btn-primary',
+                        'icon'  => 'fa-solid fa-chart-line',
+                        'text'  => 'Asesores Especializados'
+                    ],
+                    [
                         'route' => '/panel/CashierAwardsUsers',
                         'class' => 'btn btn-primary',
                         'icon'  => 'fa-solid fa-chart-line',

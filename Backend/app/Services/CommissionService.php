@@ -194,18 +194,21 @@ class CommissionService
 
 
             // 2) categories + participation desde category_commissions según budget (en conexión 'budget')
-            $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
-                ->join('category_commissions as cc', function ($join) use ($budgetId) {
-                    $join->on('cc.category_id', '=', 'c.id')
-                        ->where('cc.budget_id', $budgetId);
-                })
-                ->select(
-                    'c.id',
-                    'c.classification_code',
-                    new Expression('MAX(cc.participation_pct) as participation_pct')
-                )
-                ->groupBy('c.id', 'c.classification_code')
-                ->get();
+           $roleId = 1;
+
+$categoriesWithParticipation = $this->budgetDB()->table('categories as c')
+    ->join('category_commissions as cc', function ($join) use ($budgetId, $roleId) {
+        $join->on('cc.category_id', '=', 'c.id')
+            ->where('cc.budget_id', $budgetId)
+            ->where('cc.role_id', $roleId);
+    })
+    ->select(
+        'c.id',
+        'c.classification_code',
+        DB::raw('MAX(cc.participation_pct) as participation_pct')
+    )
+    ->groupBy('c.id', 'c.classification_code')
+    ->get();
 
 
                 Log::info('DEBUG BUDGET CATEGORIES',

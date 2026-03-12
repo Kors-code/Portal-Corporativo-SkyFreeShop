@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Comisiones\Budget;
 use App\Models\Comisiones\Sale;
 use Carbon\Carbon;
-
+use Illuminate\Support\Facades\DB;
 
 class BudgetController extends Controller
 {
@@ -37,6 +37,8 @@ class BudgetController extends Controller
     ]);
 
     $budget = Budget::create($data);
+    $this->copyCategoryCommissionsFromPreviousBudget($budget);
+
 
     return response()->json($budget, 201);
 }
@@ -89,6 +91,18 @@ public function active()
 
 public function update(Request $request, $id)
 {
+    $budget = Budget::find($id);
+    if (!$budget) {
+        return response()->json(['message' => 'Budget not found'], 404);
+    }
+
+    // 🔒 Validar si está cerrado
+    if ($budget->is_closed) {
+        return response()->json([
+            'message' => 'No se puede modificar un presupuesto cerrado'
+        ], 403);
+    }
+
     $data = $request->validate([
         'name' => 'sometimes|string',
         'target_amount' => 'sometimes|numeric|min:0',
@@ -96,9 +110,6 @@ public function update(Request $request, $id)
         'end_date' => 'sometimes|date|after_or_equal:start_date',
         'total_turns' => 'nullable|integer|min:0',
     ]);
-
-    $budget = Budget::find($id);
-    if (!$budget) return response()->json(['message' => 'Budget not found'], 404);
 
     $budget->fill($data);
     $budget->save();
@@ -108,23 +119,82 @@ public function update(Request $request, $id)
 public function destroy($id)
 {
     $budget = Budget::find($id);
-    if (!$budget) return response()->json(['message' => 'Budget not found'], 404);
+
+    if (!$budget) {
+        return response()->json(['message' => 'Budget not found'], 404);
+    }
+
+    // 🔒 Validar si está cerrado
+    if ($budget->is_closed) {
+        return response()->json([
+            'message' => 'No se puede eliminar un presupuesto cerrado'
+        ], 403);
+    }
+
     $budget->delete();
     return response()->json(null, 204);
 }
 
+private function copyCategoryCommissionsFromPreviousBudget(Budget $newBudget)
+{
+    // Buscar presupuesto anterior por fecha
+    $previousBudget = Budget::where('start_date', '<', $newBudget->start_date)
+        ->orderByDesc('start_date')
+        ->first();
+
+    if (!$previousBudget) {
+        return; // No existe presupuesto anterior
+    }
+
+    // Obtener configuraciones anteriores
+    $previousConfigs = DB::connection('budget')
+        ->table('category_commissions')
+        ->where('budget_id', $previousBudget->id)
+        ->get();
+
+    if ($previousConfigs->isEmpty()) {
+        return;
+    }
+
+    $insertData = [];
+
+    foreach ($previousConfigs as $config) {
+        $insertData[] = [
+            'budget_id' => $newBudget->id,
+            'category_id' => $config->category_id,
+            'role_id' => $config->role_id,
+            'commission_percentage' => $config->commission_percentage,
+            'commission_percentage100' => $config->commission_percentage100,
+            'commission_percentage120' => $config->commission_percentage120,
+            'participation_pct' => $config->participation_pct,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+    }
+
+    DB::connection('budget')
+        ->table('category_commissions')
+        ->insert($insertData);
+}
+
 public function updateCashierPrize(Request $request, $id)
 {
-    $data = $request->validate([
-        'cashier_prize' => 'required|numeric|min:0'
-    ]);
-
     $budget = Budget::find($id);
     if (!$budget) {
         return response()->json(['error' => 'Budget not found'], 404);
     }
 
-    // Guardamos con 2 decimales por seguridad
+    // 🔒 Validar si está cerrado
+    if ($budget->is_closed) {
+        return response()->json([
+            'message' => 'No se puede modificar un presupuesto cerrado'
+        ], 403);
+    }
+
+    $data = $request->validate([
+        'cashier_prize' => 'required|numeric|min:0'
+    ]);
+
     $budget->cashier_prize = round($data['cashier_prize'], 2);
     $budget->save();
 
@@ -133,6 +203,35 @@ public function updateCashierPrize(Request $request, $id)
         'cashier_prize' => $budget->cashier_prize
     ]);
 }
+public function close($id)
+{
+    $budget = Budget::find($id);
 
+    if (!$budget) {
+        return response()->json(['message' => 'Budget not found'], 404);
+    }
+
+    if ($budget->is_closed) {
+        return response()->json(['message' => 'El presupuesto ya está cerrado'], 422);
+    }
+
+    // 🔒 No permitir cerrar antes de la fecha final
+    $today = Carbon::today();
+
+    if ($today->lt(Carbon::parse($budget->end_date))) {
+        return response()->json([
+            'message' => 'No se puede cerrar el presupuesto antes de que finalice el período'
+        ], 403);
+    }
+
+    $budget->is_closed = true;
+    $budget->closed_at = now();
+    $budget->save();
+
+    return response()->json([
+        'message' => 'Presupuesto cerrado correctamente',
+        'budget' => $budget
+    ]);
+}
 
 }

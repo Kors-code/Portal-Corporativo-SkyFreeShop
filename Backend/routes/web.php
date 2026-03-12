@@ -33,7 +33,8 @@ use App\Http\Controllers\Api\BudgetProgressController;
 use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\WishList\CatalogController;
 use App\Http\Controllers\Api\WishItemController;
-
+use App\Http\Controllers\Api\AdvisorController;
+use App\Http\Controllers\Api\CommissionLideres;
 
 /*
 |--------------------------------------------------------------------------
@@ -53,12 +54,12 @@ Route::get('/', function () { return view('home'); })->name('home');
 //    ->middleware(['auth', 'ensure.role:user_disciplina,super_admin,admin,user,user_portal,seller']);
 Route::get('/welcome', [ShowInicioController::class, 'showWelcome'])
     ->name('welcome')
-    ->middleware(['auth', 'ensure.role:user_disciplina,super_admin,admin,user,user_portal,seller,adminpresupuesto,cashier']);
+    ->middleware(['auth', 'ensure.role:user_disciplina,super_admin,admin,user,user_portal,seller,adminpresupuesto,cashier,lider']);
 
 Route::get('/presupuesto', [ShowInicioController::class, 'showPortal'])
     ->name('presupuesto')
     ->defaults('type', 'presupuesto')
-    ->middleware(['auth', 'ensure.role:user_disciplina,super_admin,admin,user,user_portal,seller,adminpresupuesto,cashier']);
+    ->middleware(['auth', 'ensure.role:user_disciplina,super_admin,admin,user,user_portal,seller,adminpresupuesto,cashier,lider']);
 
 Route::post('/usuarios', [UserController::class, 'store'])->name('usuarios.store');
 Route::get('/verify-email/{id}/{token}', [UserController::class, 'verifyEmail'])->name('verify.email');
@@ -192,37 +193,37 @@ Route::middleware('auth')->group(function () {
 
     /* ---------- Disciplinas / Empleados / PDFs ---------- */
     Route::get('/DisciplinaPositiva', [FormController::class, 'showForm'])
-        ->name('Disciplina.show')->middleware('ensure.role:user,user_disciplina,super_admin,admin');
+        ->name('Disciplina.show')->middleware('ensure.role:user,user_disciplina,lider,super_admin,admin,adminpresupuesto');
 
     Route::post('/form', [FormController::class, 'handleForm'])->name('form.submit');
     Route::post('/generar-pdf', [FormatoController::class, 'generarPDF'])->name('formulario.pdf');
 
     Route::get('/import-excel', [ExcelController::class, 'showForm'])
-        ->name('excel.form')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('excel.form')->middleware('ensure.role:user_disciplina,lider,super_admin,admin,adminpresupuesto');
 
     Route::post('/upload-excel', [EmpleadoController::class, 'importExcel'])
-        ->name('excel.import')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('excel.import')->middleware('ensure.role:user_disciplina,lider,super_admin,admin,adminpresupuesto');
 
     Route::get('/buscar-empleado/{cedula}', [EmpleadoController::class, 'buscarPorCedula'])
-        ->name('empleado.buscar')->middleware('ensure.role:user_disciplina,super_admin,admin,user');
+        ->name('empleado.buscar')->middleware('ensure.role:user_disciplina,lider,super_admin,admin,user,adminpresupuesto');
 
     Route::get('/descargar-pdf', [FormatoController::class, 'descargarPDF'])
-        ->name('descargar.pdf')->middleware('ensure.role:user_disciplina,super_admin,admin,user');
+        ->name('descargar.pdf')->middleware('ensure.role:user_disciplina,lider,super_admin,admin,user,adminpresupuesto');
 
     Route::get('/empleados', [ListController::class, 'mostrarEmpleados'])
-        ->name('empleados.list')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('empleados.list')->middleware('ensure.role:lider,super_admin,admin');
 
     Route::get('/Disciplinas', [ListController::class, 'mostrarDisciplinasPositivas'])
-        ->name('Disciplinas.list')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('Disciplinas.list')->middleware('ensure.role:super_admin,admin');
 
     Route::get('/DisciplinasUsers', [ListController::class, 'mostrarDisciplinasPositivasUsers'])
-        ->name('Disciplinas.listUsers')->middleware('ensure.role:user_disciplina,super_admin,admin,user');
+        ->name('Disciplinas.listUsers')->middleware('ensure.role:user_disciplina,lider,super_admin,admin,user,adminpresupuesto');
 
     Route::get('/empleados/export', [ListController::class, 'exportarEmpleadosExcel'])
-        ->name('exportar.empleados')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('exportar.empleados')->middleware('ensure.role:user_disciplina,super_admin,admin,adminpresupuesto');
 
     Route::get('/disciplinas/export', [ListController::class, 'exportarDisciplinasExcel'])
-        ->name('disciplinas.export')->middleware('ensure.role:user_disciplina,super_admin,admin');
+        ->name('disciplinas.export')->middleware('ensure.role:user_disciplina,super_admin,admin,adminpresupuesto');
 
     Route::get('/disciplinas/eliminadas', [ListController::class, 'MostrarEliminados'])
         ->name('disciplinas.eliminadas')->middleware('ensure.role:super_admin');
@@ -243,8 +244,33 @@ Route::middleware('auth')->group(function () {
     
     });
 Route::prefix('api/v1')
-    ->middleware('ensure.role:seller,cashier,admin,super_admin,adminpresupuesto')
+    ->middleware('ensure.role:seller,cashier,admin,super_admin,adminpresupuesto,lider')
     ->group(function () {
+
+    // cashiers / reports (frontend CommisionCashierUsers)
+    Route::get('advisors/cashier-awards', [AdvisorController::class, 'cashierAwards']);
+    Route::get('advisors/cashier/{userId}/categories', [AdvisorController::class, 'cashierCategories']);
+
+    // detect specialist for current user (optional - frontend can call to decide behavior)
+    Route::get('advisors/specialistCheck', [AdvisorController::class, 'specialistCheck']);
+
+            Route::get('commissions/my', [AdvisorController::class, 'myCommissions']);
+    Route::get('commissions/my/export', [AdvisorController::class, 'exportMyCommissions']);
+        // Lectura de overrides (GET)
+Route::get('commissions/category-commissions/overrides', [AdvisorController::class, 'getCommissionOverrides']);
+    Route::get('advisors/budget-sellers', [AdvisorController::class, 'budgetSellers']);
+// Guardar overrides (POST)
+Route::post('commissions/category-commissions/overrides', [AdvisorController::class, 'saveCommissionOverrides']);
+        // Lectura de ventas de asesores especializados activos
+Route::get('advisors/active-sales', [AdvisorController::class, 'activeSpecialistsSales'])
+    ->middleware('ensure.role:seller,admin,super_admin,adminpresupuesto,lider');
+    
+    Route::get('advisors/split-pool', [AdvisorController::class, 'splitAdvisorPool']);
+    Route::get('advisors/get-split', [AdvisorController::class, 'getAdvisorSplit']);
+Route::post('advisors/save-split', [AdvisorController::class, 'saveAdvisorSplit']);
+Route::get('sales', [SalesByUserController::class, 'getSalesByUser']);
+        
+    Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories']);
 
     // catálogo
     Route::get('catalog/categories', [WishItemController::class, 'categories']);
@@ -273,11 +299,8 @@ Route::prefix('api/v1')
 
 
 
-
-
-
 // 🔒 RUTAS DEL PANEL SOLO PARA ADMIN Y SUPER ADMIN
-Route::middleware('ensure.role:admin,super_admin,adminpresupuesto')->group(function () {
+Route::middleware('ensure.role:admin,super_admin,adminpresupuesto,lider')->group(function () {
 
     Route::get('/panel', fn() => view('panel')); // HomePage
 
@@ -291,10 +314,13 @@ Route::middleware('ensure.role:admin,super_admin,adminpresupuesto')->group(funct
 
 });
 
-Route::middleware('ensure.role:cashier')->group(function () {
-    Route::get('/panel/CashierAwardsUsers', fn() => view('panel'));
+Route::middleware('ensure.role:seller')->group(function () {
+    Route::get('/panel/CommisionsUser', fn() => view('panel'));
 });
 
+Route::middleware('ensure.role:cashier,lider')->group(function () {
+    Route::get('/panel/CashierAwardsUsers', fn() => view('panel'));
+});
 
 Route::get('/panel/AdminWishList', fn() => view('panel'))
     ->middleware('ensure.role:admin,super_admin,adminpresupuesto');
@@ -305,7 +331,7 @@ Route::get('/panel/AdminWishList', fn() => view('panel'))
     */
     Route::get('/panel/{any?}', fn() => view('panel'))
         ->where('any', '.*')
-        ->middleware('ensure.role:seller,admin,super_admin');
+        ->middleware('ensure.role:seller,admin,super_admin,adminpresupuesto,cashier,lider');
 
 
     /* ---------- Session-backed "API" endpoints (used by React) ----------
@@ -320,8 +346,20 @@ Route::get('/panel/AdminWishList', fn() => view('panel'))
             Route::get('manage/users', [ApiUserController::class, 'indexForManagedRoles']);
             // Crear usuario (solo roles permitidos)
             Route::post('manage/users', [ApiUserController::class, 'storeManagedUser']);
+            Route::delete('/manage/users/{id}', [ApiUserController::class, 'destroyManagedUser']);
             // Actualizar usuario
             Route::put('manage/users/{id}', [ApiUserController::class, 'updateManagedUser']);
+            Route::get('reports/advisors-split', [CommissionReportController::class, 'advisorsSplit']);
+            Route::post('/budgets/{id}/close', [BudgetController::class, 'close']);
+
+
+        });
+
+        // IMPORTS (permitir que lider importe sin tener todos los permisos admin)
+        Route::middleware('ensure.role:super_admin,admin,adminpresupuesto,lider')->group(function () {
+            // Permitir solo la acción de import (no listar/borrar/imports management)
+            Route::post('import-turns', [TurnsImportController::class, 'import']);
+            Route::post('import-sales', [ImportSalesController::class, 'import']);
         });
         
 
@@ -332,41 +370,52 @@ Route::get('/panel/AdminWishList', fn() => view('panel'))
         });
 
 
-        // Budgets: lectura para seller + admin roles
-        Route::middleware('ensure.role:seller,admin,super_admin,adminpresupuesto')->group(function () {
+        // Budgets: lectura para seller + admin roles (añadido 'lider' para ver comisiones)
+        Route::middleware('ensure.role:seller,admin,super_admin,adminpresupuesto,lider')->group(function () {
             Route::get('/commissions/by-seller/{userId}/export', [CommissionReportController::class, 'exportSellerDetail']);
             // Exports
             Route::get('/commissions/export', [CommissionReportController::class, 'exportExcel']);
         });
 
-        // Budgets: lectura para cashier + admin roles
-        Route::middleware('ensure.role:seller,cashier,admin,super_admin,adminpresupuesto')->group(function () {
+        // Budgets: lectura para cashier + admin roles (añadido 'lider' para ver budgets y cashier-awards)
+        Route::middleware('ensure.role:seller,cashier,admin,super_admin,adminpresupuesto,lider')->group(function () {
             Route::get('/budgets', [BudgetController::class, 'index']);
             Route::get('/budgets/active', [BudgetController::class, 'active']);
             Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards']);
             Route::get('/reports/cashier-awards/export', [ReportController::class, 'cashierAwardsExport']);
         });
-
-        // Admin-only endpoints (import, manage budgets, users, turnos, etc.)
-        Route::middleware('ensure.role:super_admin,admin,adminpresupuesto')->group(function () {
-            // TURNOS & IMPORTS
-            Route::post('import-turns', [TurnsImportController::class, 'import']);
+        Route::middleware('ensure.role:super_admin,admin,adminpresupuesto,lider')->group(function () {
+                        // REPORTS / EXports
+            Route::get('/commissions/by-seller', [CommissionReportController::class, 'bySeller']);
+            Route::get('/commissions/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail']);
+            Route::put('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
+            Route::post('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
+            
+            // IMPORT TURNS
             Route::get('imports/turns', [TurnsImportController::class, 'index']);
             Route::get('imports/turns/{id}', [TurnsImportController::class, 'show']);
             Route::delete('imports/turns/{id}', [TurnsImportController::class, 'deleteBatch']);
             Route::delete('imports/turns', [TurnsImportController::class, 'bulkDelete']);
+            
+                        // IMPORTS (Excel) - management endpoints (index/show/destroy) reserved to admin
+            Route::get('imports', [ImportBatchController::class, 'index']);
+            Route::get('imports/{id}', [ImportBatchController::class, 'show']);
+            Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
+            Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
+        });
+
+        // Admin-only endpoints (manage budgets, users, turnos listing, imports management, etc.)
+        Route::middleware('ensure.role:super_admin,admin,adminpresupuesto')->group(function () {
+
+            // TURNOS & IMPORTS (mantuve listado/management sólo para admins)
+
 
             // USERS & ROLES (admin UI)
             Route::get('users', [ApiUserController::class, 'index']);
             Route::post('users/{id}/assign-role', [ApiUserController::class, 'assignRole']);
             Route::get('roles', [RoleController::class, 'index']);
 
-            // IMPORTS (Excel)
-            Route::post('import-sales', [ImportSalesController::class, 'import']);
-            Route::get('imports', [ImportBatchController::class, 'index']);
-            Route::get('imports/{id}', [ImportBatchController::class, 'show']);
-            Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
-            Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
+
 
             // SALES
             Route::get('sales/users', [SalesByUserController::class, 'getUsersWithSales']);
@@ -378,15 +427,11 @@ Route::get('/panel/AdminWishList', fn() => view('panel'))
             Route::get('commissions/summary', [CommissionController::class,'userSummary']);
             Route::post('commissions/finalize', [CommissionController::class,'finalize']);
 
-            // REPORTS / EXports
-            Route::get('/commissions/by-seller', [CommissionReportController::class, 'bySeller']);
-            Route::get('/commissions/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail']);
-            Route::put('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
-            Route::post('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
-            
+
+
             //cashier-awards
 
-            Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories']);
+            
             Route::post('/cashier-adjustments', [ReportController::class,'storeCashierAdjustment']);
 
             // Commission config (admin)
@@ -402,6 +447,36 @@ Route::get('/panel/AdminWishList', fn() => view('panel'))
             Route::delete('/budgets/{id}', [BudgetController::class, 'destroy']);
             Route::patch('/budgets/{id}/cashier-prize', [BudgetController::class, 'updateCashierPrize']);
 
+
+
+
+// dentro del grupo Route::prefix('api/v1')->middleware(...)->group(...)
+Route::get('/commission-leaders', [CommissionLideres::class, 'index']);
+Route::post('/commission-leaders', [CommissionLideres::class, 'storeLeader']);
+Route::put('/commission-leaders/{id}', [CommissionLideres::class, 'updateLeader']);
+Route::delete('/commission-leaders/{id}', [CommissionLideres::class, 'destroyLeader']);
+
+Route::get('/commission-leaders/{id}/absences', [CommissionLideres::class, 'listAbsences']);
+Route::post('/commission-leaders/{id}/absences', [CommissionLideres::class, 'addAbsence']);
+Route::delete('/commission-leaders/{id}/absences/{aid}', [CommissionLideres::class, 'deleteAbsence']);
+
+Route::get('/commission-leaders/config', [CommissionLideres::class, 'getConfig']);
+Route::post('/commission-leaders/config', [CommissionLideres::class, 'saveConfig']);
+
+Route::post('/commission-leaders/calculate', [CommissionLideres::class, 'calculateCommissions']);
+Route::post('/commissions/save-store-split', [CommissionLideres::class, 'saveStoreSplit']);
+Route::get('/commissions/store-split/{budgetId}', [CommissionLideres::class, 'getStoreSplit']);
+Route::prefix('advisors')->group(function () {
+
+    Route::get('category-budgets', [AdvisorController::class, 'indexCategoryBudgets']);
+    Route::post('category-budgets', [AdvisorController::class, 'upsertCategoryBudget']);
+    Route::post('category-budgets/bulk', [AdvisorController::class, 'bulkUpsert']); // opcional si lo usas
+    Route::delete('category-budgets/{id}', [AdvisorController::class, 'deleteCategoryBudget']);
+
+    Route::post('specialists', [AdvisorController::class, 'assignSpecialist']);
+    Route::get('specialists', [AdvisorController::class, 'getSpecialistsForBudget']);
+
+});
 
             
         });

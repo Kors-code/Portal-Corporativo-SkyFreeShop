@@ -8,7 +8,7 @@ class Sale extends Model {
     protected $fillable = [
         'seller_id','cashier_id','product_id','amount','value_usd','sale_date',
         'folio','pdv','quantity','value_pesos','value_usd','currency','cost','status','cashier','import_batch_id','exchange_rate',
-        'amount_cop',
+        'amount_cop','hora',
     ];
     protected $dates = ['sale_date'];
     public function product() { return $this->belongsTo(Product::class); }

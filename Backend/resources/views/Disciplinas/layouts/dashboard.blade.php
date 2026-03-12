@@ -28,7 +28,7 @@
       <nav role="navigation" aria-label="Navegación principal">
         <a href="{{ route('welcome') }}"><i>🏠</i><span class="label">Inicio</span></a>
         <a href="{{ route('Disciplina.show') }}"><i>📝</i><span class="label">Aplicar Disciplina</span></a>
-          @if($userRole == 'user')
+          @if($userRole == 'user' || $userRole == 'lider' || $userRole == 'adminpresupuesto')
         <a href="{{ route('Disciplinas.listUsers') }}"><i>📋</i><span class="label">Consultar </span></a>
             @else
         <a href="{{ route('empleados.list') }}"><i>👥</i><span class="label">Empleados</span></a>

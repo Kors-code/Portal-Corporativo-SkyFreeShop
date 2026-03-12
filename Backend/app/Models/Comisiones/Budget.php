@@ -15,6 +15,13 @@ class Budget extends Model
     'total_turns',
     'start_date',
     'end_date',
+    'closed_at',
+    'is_closed',
+];
+
+protected $casts = [
+    'is_closed' => 'boolean',
+    'closed_at' => 'datetime',
 ];
 public function userRoles()
 {

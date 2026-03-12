@@ -8,9 +8,26 @@ use App\Models\Comisiones\CategoryCommission;
 use App\Models\Comisiones\Role;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-
+use App\Models\Comisiones\Budget;
 class CategoryCommissionController extends Controller
 {
+    
+    private function ensureBudgetOpen($budgetId)
+{
+    if (!$budgetId) {
+        return; // si no hay presupuesto específico no bloqueamos
+    }
+
+    $budget = Budget::find($budgetId);
+
+    if (!$budget) {
+        abort(404, 'Presupuesto no encontrado');
+    }
+
+    if ((int)$budget->is_closed === 1) {
+        abort(423, 'El presupuesto está cerrado. No se pueden modificar categorías.');
+    }
+}
     // List categories with commission (optionally filter by role_id)
     public function index(Request $request)
     {
@@ -76,11 +93,11 @@ class CategoryCommissionController extends Controller
         'commission_percentage' => ['nullable','numeric','min:0'],
         'commission_percentage100' => ['nullable','numeric','min:0'],
         'commission_percentage120' => ['nullable','numeric','min:0'],
-        'participation_pct' => ['nullable','numeric','min:0','max:100'],
+        'participation_pct' => ['nullable','numeric','min:0'],
         'budget_id' => ['nullable','integer','exists:budget.budgets,id'],
 
     ]);
-
+        $this->ensureBudgetOpen($data['budget_id'] ?? null);
 
         DB::beginTransaction();
         try {
@@ -113,6 +130,7 @@ class CategoryCommissionController extends Controller
     {
         $row = CategoryCommission::on('budget')->find($id);
         if (!$row) return response()->json(['message'=>'Not found'],404);
+         $this->ensureBudgetOpen($row->budget_id);
         $row->delete();
         return response()->json(['message'=>'Deleted']);
     }
@@ -121,16 +139,20 @@ class CategoryCommissionController extends Controller
 public function bulkUpdate(Request $request)
 {
     $payload = $request->validate([
-        'role_id' => ['required','integer','exists:budget.roles,id'],
-        'items' => ['required','array'],
-        'items.*.category_id' => ['required','integer','exists:budget.categories,id'],
-        'items.*.commission_percentage' => ['nullable','numeric','min:0'],
-        'items.*.commission_percentage100' => ['nullable','numeric','min:0'],
-        'items.*.commission_percentage120' => ['nullable','numeric','min:0'],
-        'items.*.participation_pct' => ['nullable','numeric','min:0','max:100'],
-        'items.*.budget_id' => ['nullable','integer','exists:budget.budgets,id'],
-    ]);
+    'role_id' => ['required','integer','exists:budget.roles,id'],
+    'items' => ['required','array'],
+    'items.*.category_id' => ['required','integer','exists:budget.categories,id'],
+    'items.*.commission_percentage' => ['nullable','numeric','min:0'],
+    'items.*.commission_percentage100' => ['nullable','numeric','min:0'],
+    'items.*.commission_percentage120' => ['nullable','numeric','min:0'],
+    'items.*.participation_pct' => ['nullable','numeric','min:0'],
+    'items.*.budget_id' => ['nullable','integer','exists:budget.budgets,id'],
+]);
 
+    foreach ($payload['items'] as $it) {
+    $this->ensureBudgetOpen($it['budget_id'] ?? null);
+}
+        
     DB::beginTransaction();
 
     foreach ($payload['items'] as $it) {

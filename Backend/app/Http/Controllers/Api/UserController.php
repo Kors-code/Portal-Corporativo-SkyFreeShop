@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Validator;
 class UserController extends Controller
 {
     // Roles permitidos para crear/editar
-    protected array $allowedRoles = ['seller', 'cashier', 'adminpresupuesto'];
+    protected array $allowedRoles = ['seller', 'cashier', 'adminpresupuesto' ,'lider'];
 
     /**
      * Devuelve usuarios que pertenecen exclusivamente a los roles permitidos.
@@ -20,7 +20,7 @@ class UserController extends Controller
      */
 public function indexForManagedRoles(Request $request)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto'];
+    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
 
     $query = User::whereIn('role', $allowedRoles);
 
@@ -44,14 +44,14 @@ public function indexForManagedRoles(Request $request)
      * POST /api/v1/manage/users
      */public function storeManagedUser(Request $request)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto'];
+    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
 
     $request->validate([
         'name' => 'required|string|max:255',
         'email' => 'required|email|unique:users,email',
         'password' => 'required|min:8',
         'role' => ['required', Rule::in($allowedRoles)],
-        'username' => 'nullable|string|max:255',
+        'username' => 'required|string|max:255|unique:users,username',
         'seller_code' => 'nullable|string|max:50',
     ]);
 
@@ -76,7 +76,7 @@ public function indexForManagedRoles(Request $request)
      */
 public function updateManagedUser(Request $request, $id)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto'];
+    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
 
     $user = User::findOrFail($id);
 
@@ -85,6 +85,7 @@ public function updateManagedUser(Request $request, $id)
         'email' => ['sometimes','required','email', Rule::unique('users')->ignore($user->id)],
         'password' => 'nullable|min:8',
         'role' => ['sometimes','required', Rule::in($allowedRoles)],
+        'username' => 'sometimes|string|max:50',
         'seller_code' => 'nullable|string|max:50',
     ]);
 
@@ -105,5 +106,16 @@ public function updateManagedUser(Request $request, $id)
         'user' => $user
     ]);
 }
+public function destroyManagedUser($id)
+{
+    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
 
+    $user = User::whereIn('role', $allowedRoles)->findOrFail($id);
+
+    $user->delete();
+
+    return response()->json([
+        'message' => 'Usuario eliminado correctamente'
+    ]);
+}
 }
