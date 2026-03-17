@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// const API = "http://localhost:8000/api"; 
- const API = "https://skyfreeshopdutyfree.com/api/v1";
+ const API = "http://localhost:8000/api"; 
+//  const API = "https://skyfreeshopdutyfree.com/api/v1";
 
 export const getCategories = () => axios.get(`${API}/commission-categories`);
 export const createCategory = (data: any) => axios.post(`${API}/commission-categories`, data);

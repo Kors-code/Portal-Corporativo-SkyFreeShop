@@ -2,57 +2,65 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
         'name',
         'email',
         'password',
         'username',
         'role',
+        'role_id',
         'auth_correo',
         'seller_code',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
     protected $casts = [
-    'email2fa_expires_at' => 'datetime',
-];
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
+
+    // 🔥 RELACIÓN CON ROLE
+    public function roleModel()
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
+        return $this->belongsTo(\App\Models\Role::class, 'role_id');
     }
-    public function isAdmin()
+
+    // 🔥 PERMISOS DIRECTOS
+    public function permissions()
     {
-        return $this->role === 'admin';
+        return $this->belongsToMany(
+            \App\Models\Permission::class,
+            'user_permissions'
+        );
+    }
+
+    // 🔥 MÉTODO CLAVE
+    public function hasPermission($permission)
+    {
+        // 1. Permisos directos
+        if ($this->permissions()->where('name', $permission)->exists()) {
+            return true;
+        }
+
+        // 2. Permisos por rol
+        if ($this->roleModel) {
+            return $this->roleModel->permissions()
+                ->where('name', $permission)
+                ->exists();
+        }
+
+        return false;
     }
 }
