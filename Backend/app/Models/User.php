@@ -36,8 +36,12 @@ class User extends Authenticatable
     {
         return $this->belongsTo(\App\Models\Role::class, 'role_id');
     }
+    public function role()
+{
+    return $this->belongsTo(\App\Models\Role::class, 'role_id');
+}
 
-    // 🔥 PERMISOS DIRECTOS
+
     public function permissions()
     {
         return $this->belongsToMany(
@@ -45,6 +49,8 @@ class User extends Authenticatable
             'user_permissions'
         );
     }
+
+
 
     // 🔥 MÉTODO CLAVE
     public function hasPermission($permission)
@@ -63,4 +69,21 @@ class User extends Authenticatable
 
         return false;
     }
+public function getAllPermissions()
+{
+    $rolePermissions = collect();
+
+    if ($this->roleModel) {
+        $rolePermissions = $this->roleModel
+            ->permissions()
+            ->get();
+    }
+
+    $userPermissions = $this->permissions()->get();
+
+    return $rolePermissions
+        ->merge($userPermissions)
+        ->unique('id')
+        ->values();
+}
 }

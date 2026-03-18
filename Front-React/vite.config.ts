@@ -5,6 +5,8 @@ export default defineConfig({
   base: '/panel/',
   plugins: [react()],
   build: {
-    manifest: true,   // 👈 ESTO ES LO QUE FALTABA
+    outDir: '../Backend/public/react', // 👈 aquí cambias la ruta
+    emptyOutDir: true, // limpia antes de compilar
+    manifest: true,
   }
 })

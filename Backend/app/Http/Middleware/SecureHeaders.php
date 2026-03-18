@@ -51,7 +51,7 @@ class SecureHeaders
                 "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
                 "font-src 'self' https://fonts.gstatic.com",
                 "img-src 'self' data: https: blob:",
-                "connect-src 'self' ws: wss:", // Para hot reload
+                "connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws: wss:",
                 "media-src 'self'"
             ]);
         }

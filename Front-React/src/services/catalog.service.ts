@@ -1,8 +1,5 @@
 import axios from 'axios';
-
- const API = 'http://localhost:8000/api/v1';
-// const API = 'https://skyfreeshopdutyfree.com/api/v1';
-
+import { API } from '../api/api';
 // en producción cambias al dominio real
 
 export const importCatalogFile = (file: File) => {

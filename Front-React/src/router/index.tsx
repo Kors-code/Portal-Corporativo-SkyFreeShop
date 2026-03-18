@@ -12,6 +12,7 @@ import CommisionCashier from "../modules/commissions/pages/CommisionCashier";
 import CommisionCashierUsers from "../modules/commissions/pages/CommisionCashierUsers";
 import CommisionsUser from "../modules/commissions/pages/CommisionsUser";
 import UsersManager from "../modules/users/pages/UsersManager";
+import AdminPermissionsPanel from "../modules/users/pages/AdminPermissionsPanel";
 import ImportCatalog from "../modules/imports/pages/importCatalog";
 import CatalogMatchPage from "../modules/WishList/pages/WishList";
 import AdminWishList from "../modules/WishList/pages/AdminWishList";
@@ -47,6 +48,7 @@ export default function AppRouter() {
           <Route path="/" element={<HomePage />} />
 
           <Route path="/users" element={<UsersManager />} />
+          <Route path="/AdminPermissionsPanel" element={<AdminPermissionsPanel />} />
           <Route path="/ImportsManagerPage" element={<ImportsManagerPage />} />
           <Route path="/importCatalog" element={<ImportCatalog />} />
 

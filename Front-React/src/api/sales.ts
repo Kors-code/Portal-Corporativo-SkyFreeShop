@@ -1,6 +1,5 @@
 import axios from 'axios';
-  const API = 'http://127.0.0.1:8000/api/v1';
-//  const API = 'https://skyfreeshopdutyfree.com/api/v1';
+import { API } from './api';
 
 export const uploadSalesFile = (formData: FormData) => axios.post(`${API}/sales/import`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
