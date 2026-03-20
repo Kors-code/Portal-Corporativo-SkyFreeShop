@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
-import { Save, Search, Users, CheckSquare, X,  Layers3,  Shield } from 'lucide-react';
+import { Save, Search, Users, CheckSquare, X, Layers3, Shield } from 'lucide-react';
 
 type Permission = { id: number; name: string };
 
@@ -25,9 +25,18 @@ type ModuleDef = {
 
 const MODULES: ModuleDef[] = [
   {
+    key: 'portal',
+    label: 'Portal',
+    description: 'Acceso a welcome y presupuesto',
+    match: (name) => {
+      const n = name.toLowerCase();
+      return n === 'panel.view' || n.startsWith('portal.');
+    },
+  },
+  {
     key: 'budget',
     label: 'Presupuesto',
-    description: 'Configuración, comisiones, reportes y caja',
+    description: 'Configuración, comisiones, reportes, asesores y caja',
     match: (name) => {
       const n = name.toLowerCase();
       return (
@@ -35,7 +44,9 @@ const MODULES: ModuleDef[] = [
         n.startsWith('budgets.') ||
         n.startsWith('commissions.') ||
         n.startsWith('reports.') ||
-        n.includes('cashier')
+        n.startsWith('advisors.') ||
+        n.includes('cashier') ||
+        n.includes('sales')
       );
     },
   },
@@ -70,12 +81,6 @@ const MODULES: ModuleDef[] = [
     match: (name) => name.toLowerCase().startsWith('imports.'),
   },
   {
-    key: 'advisors',
-    label: 'Advisors',
-    description: 'Asesores, especialistas y distribución',
-    match: (name) => name.toLowerCase().startsWith('advisors.'),
-  },
-  {
     key: 'wishlist',
     label: 'Wish list',
     description: 'Catálogo, selección y administración',
@@ -87,52 +92,53 @@ const MODULES: ModuleDef[] = [
     description: 'Publicación y administración de vacantes',
     match: (name) => name.toLowerCase().startsWith('vacancies.'),
   },
-  {
-    key: 'panel',
-    label: 'Panel',
-    description: 'Acceso general al panel',
-    match: (name) => name.toLowerCase().startsWith('panel.'),
-  },
-  {
-    key: 'reports',
-    label: 'Reportes',
-    description: 'Consultas y exportaciones',
-    match: (name) => name.toLowerCase().startsWith('reports.'),
-  },
 ];
 
 const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
-  super_admin: { label: 'Super Admin (todo)', match: ['*'] },
+  super_admin: {
+    label: 'Super Admin (todo)',
+    match: ['*'],
+  },
   administrativo: {
-    label: 'Administrativo (panel + presupuesto)',
-    match: ['panel.view', 'budget.', 'budgets.', 'commissions.', 'reports.', 'users.view', 'permissions.view'],
+    label: 'Administrativo (solo portal)',
+    match: [
+      'portal.view',
+    ],
   },
   lider: {
-    label: 'Líder (presupuesto + advisors + imports)',
-    match: ['budget.', 'budgets.', 'commissions.', 'advisors.', 'imports.', 'reports.view'],
+    label: 'Líder (panel + disciplinas + imports + wishlist)',
+    match: [
+      'panel.view',
+      'portal.view',
+      'disciplines.view',
+      'imports.create',
+      'wishlist.view',
+    ],
   },
   seller: {
-    label: 'Seller (mis comisiones + presupuesto lectura)',
-    match: ['commissions.view', 'budget.view', 'budgets.view', 'reports.view', 'panel.view'],
+    label: 'Seller (portal + comisiones + wishlist)',
+    match: [
+      'portal.view',
+      'budget.view',
+      'commissions.user.view',
+      'wishlist.view',
+    ],
   },
   cashier: {
-    label: 'Cashier (reportes + premios)',
-    match: ['reports.view', 'budget.cashier.', 'budget.view', 'panel.view'],
+    label: 'Cashier (caja + portal + wishlist)',
+    match: [
+      'portal.view',
+      'panel.view',
+      'budget.view',
+      'budget.cashier.view',
+      'candidates.view',
+      'wishlist.view',
+    ],
   },
 };
 
 function normalizeText(value: string) {
   return (value || '').toLowerCase().trim();
-}
-
-function moduleLabel(moduleKey: string) {
-  const found = MODULES.find((m) => m.key === moduleKey);
-  return found ? found.label : moduleKey;
-}
-
-function getModuleDescription(moduleKey: string) {
-  const found = MODULES.find((m) => m.key === moduleKey);
-  return found ? found.description : '';
 }
 
 function matchesPattern(name: string, pattern: string) {
@@ -150,23 +156,33 @@ function getModuleKey(permissionName: string) {
   return found?.key ?? 'other';
 }
 
+function moduleLabel(moduleKey: string) {
+  const found = MODULES.find((m) => m.key === moduleKey);
+  return found ? found.label : moduleKey;
+}
+
+function getModuleDescription(moduleKey: string) {
+  const found = MODULES.find((m) => m.key === moduleKey);
+  return found ? found.description : '';
+}
+
 function getSubgroupLabel(moduleKey: string, permissionName: string) {
   const n = normalizeText(permissionName);
-  const parts = n.split('.');
-  const second = parts[1] ?? '';
+  const second = n.split('.')[1] ?? '';
 
-  if (moduleKey === 'budget') {
-    if (n.includes('cashier')) return 'Cajeros';
-    if (n.includes('commission')) return 'Comisiones';
-    if (n.includes('report')) return 'Reportes';
-    if (n === 'budget.view' || n === 'budget.manage' || n === 'budgets.view' || n === 'budgets.manage') return 'General';
-    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  if (moduleKey === 'portal') {
+    return 'Acceso';
   }
 
-  if (moduleKey === 'advisors') {
-    if (n.includes('category')) return 'Categorías presupuesto';
-    if (n.includes('specialist')) return 'Especialistas';
-    if (n.includes('split')) return 'Distribución';
+  if (moduleKey === 'budget') {
+    if (n.includes('advisors')) return 'Asesores';
+    if (n.includes('cashier')) return 'Cajeros';
+    if (n.includes('leader')) return 'Líderes';
+    if (n.includes('report')) return 'Reportes';
+    if (n.includes('commission')) return 'Comisiones';
+    if (n.includes('sales')) return 'Ventas';
+    if (n.endsWith('.view') || n.endsWith('.read')) return 'Lectura';
+    if (n.endsWith('.manage') || n.endsWith('.edit') || n.endsWith('.create') || n.endsWith('.delete')) return 'Gestión';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
   }
 
@@ -177,6 +193,16 @@ function getSubgroupLabel(moduleKey: string, permissionName: string) {
   }
 
   if (moduleKey === 'users') {
+    if (n.includes('manage')) return 'Gestión';
+    if (n.includes('view')) return 'Consulta';
+    if (n.includes('create')) return 'Creación';
+    if (n.includes('delete')) return 'Eliminación';
+    if (n.includes('edit')) return 'Edición';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'imports') {
+    if (n.includes('create')) return 'Carga';
     if (n.includes('manage')) return 'Gestión';
     if (n.includes('view')) return 'Consulta';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
@@ -197,7 +223,6 @@ export default function AdminPermissionsPanel(): JSX.Element {
   const [toast, setToast] = useState<string | null>(null);
   const [activeModule, setActiveModule] = useState<string>('budget');
   const [activeSubgroup, setActiveSubgroup] = useState<string>('all');
-  console.log(activeSubgroup)
 
   const csrfToken =
     typeof document !== 'undefined'
@@ -223,14 +248,19 @@ export default function AdminPermissionsPanel(): JSX.Element {
       const permsJson = await permRes.json();
       const usersJson = await usersRes.json();
 
-      const normalizedPerms: Permission[] = Array.isArray(permsJson) ? permsJson : (permsJson.data ?? permsJson.permissions ?? []);
-      const normalizedUsers: User[] = Array.isArray(usersJson) ? usersJson : (usersJson.data ?? usersJson.users ?? []);
+      const normalizedPerms: Permission[] = Array.isArray(permsJson)
+        ? permsJson
+        : (permsJson.data ?? permsJson.permissions ?? []);
+
+      const normalizedUsers: User[] = Array.isArray(usersJson)
+        ? usersJson
+        : (usersJson.data ?? usersJson.users ?? []);
 
       setPermissions(normalizedPerms);
       setUsers(normalizedUsers);
 
-      const firstModule = getAvailableModules(normalizedPerms)[0] ?? 'budget';
-      setActiveModule(firstModule);
+      const available = getAvailableModules(normalizedPerms);
+      setActiveModule(available.includes('budget') ? 'budget' : available[0] ?? 'portal');
 
       if (normalizedUsers.length) {
         await selectUser(normalizedUsers[0], normalizedUsers);
@@ -293,7 +323,7 @@ export default function AdminPermissionsPanel(): JSX.Element {
 
   const subgroupKeys = useMemo(() => {
     const keys = Object.keys(subgroups);
-    const order = ['General', 'Comisiones', 'Cajeros', 'Reportes', 'Categorías presupuesto', 'Especialistas', 'Distribución'];
+    const order = ['Acceso', 'General', 'Lectura', 'Gestión', 'Comisiones', 'Cajeros', 'Reportes', 'Asesores', 'Ventas', 'Roles', 'Usuarios', 'Carga', 'Eliminación', 'Edición', 'Creación'];
     return keys.sort((a, b) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -317,13 +347,18 @@ export default function AdminPermissionsPanel(): JSX.Element {
 
       const json = await res.json();
 
-      if (json && Array.isArray(json.effective_permissions)) {
-        setUserPermissions(new Set(json.effective_permissions.map((p: any) => Number(p.id)).filter(Boolean)));
+      if (json && Array.isArray(json.user_permissions)) {
+        setUserPermissions(new Set(json.user_permissions.map((p: any) => Number(p.id)).filter(Boolean)));
         return;
       }
 
       if (json && Array.isArray(json.permissions)) {
         setUserPermissions(new Set(json.permissions.map((p: any) => Number(p.id)).filter(Boolean)));
+        return;
+      }
+
+      if (json && Array.isArray(json.effective_permissions)) {
+        setUserPermissions(new Set(json.effective_permissions.map((p: any) => Number(p.id)).filter(Boolean)));
         return;
       }
 
@@ -341,6 +376,8 @@ export default function AdminPermissionsPanel(): JSX.Element {
       setUserPermissions(new Set(fromList.permissions.map((p: any) => Number(p.id)).filter(Boolean)));
     } else if (fromList && Array.isArray(fromList.permission_ids)) {
       setUserPermissions(new Set((fromList.permission_ids as any[]).map((n) => Number(n)).filter(Boolean)));
+    } else if (fromList && Array.isArray(fromList.effective_permissions)) {
+      setUserPermissions(new Set(fromList.effective_permissions.map((p: any) => Number(p.id)).filter(Boolean)));
     } else {
       setUserPermissions(new Set());
     }
@@ -427,7 +464,10 @@ export default function AdminPermissionsPanel(): JSX.Element {
 
     setSaving(true);
     try {
-      const body = { permissions: Array.from(userPermissions) };
+      const body = {
+        permissions: Array.from(userPermissions),
+        replace: true, // importante: así se eliminan también los permisos que quitaste
+      };
 
       const res = await fetch(`/api/v1/users/${selectedUser.id}/permissions`, {
         method: 'POST',
@@ -468,6 +508,16 @@ export default function AdminPermissionsPanel(): JSX.Element {
       return;
     }
 
+    if (activeSubgroup !== 'all') {
+      const ids = subgroups[activeSubgroup]?.map((p) => p.id) ?? [];
+      setUserPermissions((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.add(id));
+        return next;
+      });
+      return;
+    }
+
     const ids = groupedByModule[activeModule]?.map((p) => p.id) ?? [];
     setUserPermissions((prev) => {
       const next = new Set(prev);
@@ -482,6 +532,16 @@ export default function AdminPermissionsPanel(): JSX.Element {
       return;
     }
 
+    if (activeSubgroup !== 'all') {
+      const ids = subgroups[activeSubgroup]?.map((p) => p.id) ?? [];
+      setUserPermissions((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+      return;
+    }
+
     const ids = groupedByModule[activeModule]?.map((p) => p.id) ?? [];
     setUserPermissions((prev) => {
       const next = new Set(prev);
@@ -490,17 +550,27 @@ export default function AdminPermissionsPanel(): JSX.Element {
     });
   }
 
+  const visibleModulePermissions = useMemo(() => {
+    if (activeModule === 'all') return permissions;
+
+    if (activeSubgroup !== 'all') {
+      return subgroups[activeSubgroup] ?? [];
+    }
+
+    return groupedByModule[activeModule] ?? [];
+  }, [activeModule, activeSubgroup, permissions, groupedByModule, subgroups]);
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3">
+            <h1 className="flex items-center gap-3 text-2xl font-bold">
               <Shield className="h-6 w-6" />
               Administración de permisos
             </h1>
             <p className="text-sm text-gray-500">
-              Vista modular por áreas: presupuesto, hojas de vida, disciplinas y más.
+              Vista modular por áreas: portal, presupuesto, hojas de vida, disciplinas y más.
             </p>
           </div>
 
@@ -531,7 +601,6 @@ export default function AdminPermissionsPanel(): JSX.Element {
         </div>
 
         <div className="grid grid-cols-12 gap-6">
-          {/* Usuarios */}
           <aside className="col-span-3 rounded bg-white p-4 shadow">
             <h2 className="mb-3 flex items-center gap-2 font-semibold">
               <Users className="h-4 w-4" /> Usuarios ({filteredUsers.length})
@@ -562,7 +631,6 @@ export default function AdminPermissionsPanel(): JSX.Element {
             )}
           </aside>
 
-          {/* Módulos */}
           <aside className="col-span-3 rounded bg-white p-4 shadow">
             <h2 className="mb-3 flex items-center gap-2 font-semibold">
               <Layers3 className="h-4 w-4" /> Módulos
@@ -597,13 +665,10 @@ export default function AdminPermissionsPanel(): JSX.Element {
             </div>
           </aside>
 
-          {/* Editor */}
           <section className="col-span-6 rounded bg-white p-6 shadow">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold">
-                  Permisos — {moduleLabel(activeModule)}
-                </h3>
+                <h3 className="text-lg font-semibold">Permisos — {moduleLabel(activeModule)}</h3>
                 <div className="text-sm text-gray-500">
                   {getModuleDescription(activeModule) || 'Selecciona un módulo para ver sus permisos.'}
                 </div>
@@ -626,7 +691,6 @@ export default function AdminPermissionsPanel(): JSX.Element {
               </div>
             </div>
 
-            {/* Presets encima del botón guardar, dentro del mismo cuadro */}
             <div className="mb-5 rounded border bg-gray-50 p-4">
               <div className="mb-3 text-sm font-semibold">Presets por rol</div>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -656,61 +720,204 @@ export default function AdminPermissionsPanel(): JSX.Element {
                 Limpiar visibles
               </button>
               <button
-                onClick={() => toggleModule(activeModule)}
+                onClick={() => {
+                  if (activeModule === 'all') {
+                    setUserPermissions(new Set(permissions.map((p) => p.id)));
+                  } else if (activeSubgroup !== 'all') {
+                    toggleSubgroup(activeSubgroup);
+                  } else {
+                    toggleModule(activeModule);
+                  }
+                }}
                 className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
               >
-                Toggle módulo
+                Toggle visible
               </button>
             </div>
 
+            {activeModule !== 'all' && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => setActiveSubgroup('all')}
+                  className={`rounded border px-3 py-2 text-sm ${
+                    activeSubgroup === 'all' ? 'bg-emerald-50' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  Todos
+                </button>
+                {subgroupKeys.map((subgroup) => (
+                  <button
+                    key={subgroup}
+                    onClick={() => setActiveSubgroup(subgroup)}
+                    className={`rounded border px-3 py-2 text-sm ${
+                      activeSubgroup === subgroup ? 'bg-emerald-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {subgroup}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="max-h-[58vh] space-y-4 overflow-auto pr-1">
-              {subgroupKeys.length === 0 ? (
+              {visibleModulePermissions.length === 0 ? (
                 <div className="text-sm text-gray-500">No hay permisos definidos para este módulo.</div>
-              ) : (
-                subgroupKeys.map((subgroup) => {
-                  const perms = subgroups[subgroup] ?? [];
-                  const allSelected = perms.length > 0 && perms.every((p) => userPermissions.has(p.id));
+              ) : activeModule === 'all' ? (
+                moduleKeys.map((module) => {
+                  const perms = groupedByModule[module] ?? [];
+                  const sub = Object.entries(
+                    perms.reduce<SubGroupedPermissions>((acc, p) => {
+                      const subgroup = getSubgroupLabel(module, p.name);
+                      if (!acc[subgroup]) acc[subgroup] = [];
+                      acc[subgroup].push(p);
+                      return acc;
+                    }, {})
+                  ).sort((a, b) => a[0].localeCompare(b[0]));
 
                   return (
-                    <section key={subgroup} className="rounded border p-4">
+                    <section key={module} className="rounded border p-4">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
-                          <div className="font-medium">{subgroup}</div>
-                          <div className="text-xs text-gray-500">{perms.length} permisos</div>
+                          <div className="font-medium">{moduleLabel(module)}</div>
+                          <div className="text-xs text-gray-500">{getModuleDescription(module)}</div>
                         </div>
-
                         <button
-                          onClick={() => toggleSubgroup(subgroup)}
-                          className={`flex items-center gap-2 rounded border px-3 py-1.5 text-xs ${
-                            allSelected ? 'bg-emerald-50' : 'bg-white'
-                          }`}
+                          onClick={() => toggleModule(module)}
+                          className="flex items-center gap-2 rounded border px-3 py-1.5 text-xs"
                         >
                           <CheckSquare className="h-4 w-4" />
-                          {allSelected ? 'Quitar grupo' : 'Seleccionar grupo'}
+                          Toggle módulo
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        {perms.map((p) => (
-                          <label
-                            key={p.id}
-                            className="flex cursor-pointer items-center gap-3 rounded border bg-white px-3 py-2 text-sm hover:bg-gray-50"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked(p.id)}
-                              onChange={() => togglePermission(p.id)}
-                              className="h-4 w-4"
-                            />
-                            <span className="truncate">
-                              {p.name}
-                            </span>
-                          </label>
+                      <div className="space-y-4">
+                        {sub.map(([subgroup, items]) => (
+                          <div key={`${module}-${subgroup}`} className="rounded border bg-gray-50 p-3">
+                            <div className="mb-2 flex items-center justify-between">
+                              <div className="text-sm font-medium">{subgroup}</div>
+                              <button
+                                onClick={() => toggleSubgroup(subgroup)}
+                                className="rounded border bg-white px-3 py-1 text-xs hover:bg-gray-50"
+                              >
+                                Toggle grupo
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                              {items.map((p) => (
+                                <label
+                                  key={p.id}
+                                  className="flex cursor-pointer items-center gap-3 rounded border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked(p.id)}
+                                    onChange={() => togglePermission(p.id)}
+                                    className="h-4 w-4"
+                                  />
+                                  <span className="truncate">{p.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </section>
                   );
                 })
+              ) : activeSubgroup !== 'all' ? (
+                <section className="rounded border p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{activeSubgroup}</div>
+                      <div className="text-xs text-gray-500">{visibleModulePermissions.length} permisos</div>
+                    </div>
+                    <button
+                      onClick={() => toggleSubgroup(activeSubgroup)}
+                      className="flex items-center gap-2 rounded border px-3 py-1.5 text-xs"
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                      Toggle grupo
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {visibleModulePermissions.map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex cursor-pointer items-center gap-3 rounded border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked(p.id)}
+                          onChange={() => togglePermission(p.id)}
+                          className="h-4 w-4"
+                        />
+                        <span className="truncate">{p.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <section className="rounded border p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{moduleLabel(activeModule)}</div>
+                      <div className="text-xs text-gray-500">{visibleModulePermissions.length} permisos</div>
+                    </div>
+                    <button
+                      onClick={() => toggleModule(activeModule)}
+                      className="flex items-center gap-2 rounded border px-3 py-1.5 text-xs"
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                      Toggle módulo
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {subgroupKeys.map((subgroup) => {
+                      const perms = subgroups[subgroup] ?? [];
+                      const allSelected = perms.length > 0 && perms.every((p) => userPermissions.has(p.id));
+
+                      return (
+                        <div key={subgroup} className="rounded border bg-gray-50 p-3">
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{subgroup}</div>
+                              <div className="text-xs text-gray-500">{perms.length} permisos</div>
+                            </div>
+
+                            <button
+                              onClick={() => toggleSubgroup(subgroup)}
+                              className={`rounded border px-3 py-1 text-xs ${
+                                allSelected ? 'bg-emerald-50' : 'bg-white'
+                              }`}
+                            >
+                              {allSelected ? 'Quitar grupo' : 'Seleccionar grupo'}
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {perms.map((p) => (
+                              <label
+                                key={p.id}
+                                className="flex cursor-pointer items-center gap-3 rounded border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked(p.id)}
+                                  onChange={() => togglePermission(p.id)}
+                                  className="h-4 w-4"
+                                />
+                                <span className="truncate">{p.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               )}
             </div>
           </section>
