@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Validator;
+use App\Models\Role;
 
 class UserController extends Controller
 {
@@ -54,6 +55,8 @@ public function indexForManagedRoles(Request $request)
         'username' => 'required|string|max:255|unique:users,username',
         'seller_code' => 'nullable|string|max:50',
     ]);
+    
+    $role = Role::where('name', $request->role)->first();
 
     $user = User::create([
         'name' => $request->name,
@@ -61,6 +64,7 @@ public function indexForManagedRoles(Request $request)
         'username' => $request->username,
         'password' => Hash::make($request->password),
         'role' => $request->role,
+        'role_id' => $role?->id,
         'seller_code' => $request->seller_code,
     ]);
 

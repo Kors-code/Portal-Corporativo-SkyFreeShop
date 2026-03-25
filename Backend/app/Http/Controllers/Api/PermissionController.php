@@ -106,32 +106,28 @@ class PermissionController extends Controller
      * Si replace=true -> se sincronizan exactamente los permisos dados.
      * Si replace=false (por defecto) -> se asignan solo los que vienen (merge).
      */
-    public function updateUserPermissions(Request $request, $id)
-    {
-        $data = $request->validate([
-            'permissions' => ['nullable','array'],
-            'permissions.*' => ['integer','exists:permissions,id'],
-            'replace' => ['boolean']
-        ]);
+public function updateUserPermissions(Request $request, $id)
+{
+    $data = $request->validate([
+        'permissions' => ['nullable','array'],
+        'permissions.*' => ['integer','exists:permissions,id'],
+    ]);
 
-        $user = User::findOrFail($id);
+    $user = User::findOrFail($id);
 
-        $permissionIds = $data['permissions'] ?? [];
-        $replace = $data['replace'] ?? false;
+    $permissionIds = $data['permissions'] ?? [];
 
-        DB::transaction(function () use ($user, $permissionIds, $replace) {
-            if ($replace) {
-                $user->permissions()->sync($permissionIds);
-            } else {
-                // merge: conserva permisos directos existentes y añade los nuevos
-                $current = $user->permissions()->pluck('permissions.id')->toArray();
-                $merged = array_values(array_unique(array_merge($current, $permissionIds)));
-                $user->permissions()->sync($merged);
-            }
-        });
+    DB::transaction(function () use ($user, $permissionIds) {
+        // 🔥 SIEMPRE REEMPLAZAR
+        $user->permissions()->sync($permissionIds);
+    });
 
-        return response()->json(['ok' => true, 'user_id' => $user->id, 'permission_ids' => $user->permissions()->pluck('permissions.id')]);
-    }
+    return response()->json([
+        'ok' => true,
+        'user_id' => $user->id,
+        'permission_ids' => $permissionIds
+    ]);
+}
 
     /**
      * GET /api/v1/users/{id}/permissions  <-- ruta recomendada para frontend
