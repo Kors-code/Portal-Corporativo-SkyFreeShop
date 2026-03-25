@@ -41,45 +41,51 @@ use App\Http\Controllers\Api\PermissionController;
 | Web Routes
 |--------------------------------------------------------------------------
 |
-| Convención de permisos sugerida:
-| - panel.view
-| - users.view / users.manage
-| - permissions.view / permissions.manage
-| - candidates.view / candidates.manage / candidates.export
-| - vacancies.view / vacancies.manage
-| - disciplines.view / disciplines.manage / disciplines.export
-| - imports.create / imports.manage
-| - budget.view / budget.manage
-| - budget.reports.view
-| - budget.commissions.view / budget.commissions.manage
-| - advisors.view / advisors.manage
-| - wishlist.view / wishlist.manage
-| - reports.view
-| - commissions.view / commissions.manage
+| Permisos recomendados para mantener el panel modular:
 |
-| Importante:
-| - "budget" = módulo Presupuesto
-| - "advisors" = módulo Asesores
-| - "commissions" dentro de presupuesto = configuración / cálculo / administración
-|   relacionada al presupuesto
+| portal.view
+| panel.view
+|
+| users.view / users.manage
+| permissions.view / permissions.manage
+|
+| candidates.view / candidates.manage / candidates.export
+| vacancies.view / vacancies.manage
+| disciplines.view / disciplines.manage / disciplines.export
+| imports.create / imports.manage
+|
+| budget.view / budget.manage
+| budget.cashier.view / budget.cashier.manage
+| budget.commissions.view / budget.commissions.manage
+| budget.advisors.view / budget.advisors.manage
+| budget.specialists.view / budget.specialists.manage
+|
+| commissions.user.view
+| reports.view
+| wishlist.view / wishlist.manage
+|
+| Roles sugeridos:
+| - super_admin: todo
+| - administrativo: portal.view + budget.view
+| - lider: portal.view + panel.view + presupuesto lectura + advisors/specialists + imports
+| - seller: portal.view + panel.view + commissions.user.view + budget.commissions.view + budget.specialists.view
+| - cashier: portal.view + panel.view + budget.cashier.view
 */
 
-Route::get('/', function () {
-    return view('home');
-})->name('home');
+/* -------------------------------------------------------------------------- */
+/* Public / Auth                                                               */
+/* -------------------------------------------------------------------------- */
 
-/* --------------------------------------------------------------------------
-| Rutas públicas / acceso general
-| -------------------------------------------------------------------------- */
+Route::get('/', fn () => view('home'))->name('home');
 
 Route::get('/welcome', [ShowInicioController::class, 'showWelcome'])
     ->name('welcome')
-    ->middleware(['auth', 'permission:panel.view']);
+    ->middleware(['auth', 'permission:portal.view']);
 
 Route::get('/presupuesto', [ShowInicioController::class, 'showPortal'])
     ->name('presupuesto')
     ->defaults('type', 'presupuesto')
-    ->middleware(['auth', 'permission:panel.view']);
+    ->middleware(['auth', 'permission:portal.view']);
 
 Route::post('/usuarios', [UserController::class, 'store'])->name('usuarios.store');
 Route::get('/verify-email/{id}/{token}', [UserController::class, 'verifyEmail'])->name('verify.email');
@@ -109,23 +115,23 @@ Route::post('/email2fa/verify', [TwoFactorEmailController::class, 'verify'])->na
 /* Política */
 Route::get('/politica-tratamiento', [VacanteController::class, 'politica-tratamiento'])->name('politica-tratamiento');
 
-/* --------------------------------------------------------------------------
-| Rutas protegidas por sesión
-| -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* Protected web routes                                                        */
+/* -------------------------------------------------------------------------- */
 
 Route::middleware('auth')->group(function () {
 
-    /* ----------------------------- Importaciones ----------------------------- */
+    /* ----------------------------- Importaciones --------------------------- */
 
     Route::post('/masivo/subircv', [CandidatoController::class, 'storeMasivo'])
         ->name('storeMasivo.subir')
-        ->middleware(['permission:imports.create,imports.manage']);
+        ->middleware(['permission:imports.create|imports.manage']);
 
     Route::get('/carga-masiva', [CandidatoController::class, 'subirAllCv'])
         ->name('subirAllCv')
         ->middleware(['permission:imports.manage']);
 
-    /* -------------------------------- Usuarios ------------------------------ */
+    /* -------------------------------- Usuarios ---------------------------- */
 
     Route::get('/usuarios/crear', [UserController::class, 'create'])
         ->middleware(['permission:users.manage'])->name('usuarios.create');
@@ -163,7 +169,7 @@ Route::middleware('auth')->group(function () {
     Route::post('photos', [PhotoController::class, 'store'])
         ->middleware(['can:admin'])->name('photos.store');
 
-    /* ------------------------- Candidatos / Vacantes ------------------------ */
+    /* ------------------------- Candidatos / Vacantes ---------------------- */
 
     Route::get('/candidatos', [CandidatoController::class, 'index'])
         ->middleware(['permission:candidates.view'])->name('candidatos.index');
@@ -221,7 +227,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/enviar-email', [UserController::class, 'enviarVerificacion'])
         ->middleware(['permission:users.manage'])->name('enviarVerificacion');
 
-    /* ------------------------- Disciplinas / Empleados ---------------------- */
+    /* ------------------------- Disciplinas / Empleados -------------------- */
 
     Route::get('/DisciplinaPositiva', [FormController::class, 'showForm'])
         ->name('Disciplina.show')
@@ -245,7 +251,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/buscar-empleado/{cedula}', [EmpleadoController::class, 'buscarPorCedula'])
         ->name('empleado.buscar')
-        ->middleware(['permission:employees.view']);
+        ->middleware(['permission:disciplines.view']);
 
     Route::get('/descargar-pdf', [FormatoController::class, 'descargarPDF'])
         ->name('descargar.pdf')
@@ -253,7 +259,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/empleados', [ListController::class, 'mostrarEmpleados'])
         ->name('empleados.list')
-        ->middleware(['permission:employees.view']);
+        ->middleware(['permission:disciplines.view']);
 
     Route::get('/Disciplinas', [ListController::class, 'mostrarDisciplinasPositivas'])
         ->name('Disciplinas.list')
@@ -265,7 +271,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/empleados/export', [ListController::class, 'exportarEmpleadosExcel'])
         ->name('exportar.empleados')
-        ->middleware(['permission:employees.view']);
+        ->middleware(['permission:disciplines.view']);
 
     Route::get('/disciplinas/export', [ListController::class, 'exportarDisciplinasExcel'])
         ->name('disciplinas.export')
@@ -283,25 +289,25 @@ Route::middleware('auth')->group(function () {
         ->name('disciplinas.restore')
         ->middleware(['permission:disciplines.manage']);
 
-    /* ------------------------------- Dashboard ------------------------------ */
+    /* -------------------------------- Dashboard -------------------------- */
 
     Route::get('/dashboard', fn () => view('dashboard'))
         ->name('dashboard')
         ->middleware(['permission:panel.view']);
 
-    /* --------------------------------------------------------------------------
-    | API v1 (sesión + permisos por módulo)
-    | -------------------------------------------------------------------------- */
+    /* ---------------------------------------------------------------------- */
+    /* API v1                                                                  */
+    /* ---------------------------------------------------------------------- */
 
     Route::prefix('api/v1')->middleware(['auth'])->group(function () {
 
-        /* ------------------------ Permissions / Roles ------------------------ */
+        /* ---------------------- Permissions / Roles ------------------------ */
 
         Route::get('/permissions', [PermissionController::class, 'permissions'])
             ->middleware('permission:permissions.view');
 
         Route::get('admin/users-with-permissions', [PermissionController::class, 'usersWithPermissions'])
-            ->middleware(['permission:permissions.view']);
+            ->middleware('permission:permissions.view');
 
         Route::get('/roles', [PermissionController::class, 'roles'])
             ->middleware('permission:permissions.view');
@@ -315,22 +321,27 @@ Route::middleware('auth')->group(function () {
         Route::get('/users/{id}/permissions', [PermissionController::class, 'userPermissions'])
             ->middleware('permission:permissions.view');
 
-        /* ------------------------------- Users ------------------------------- */
-
-        Route::middleware(['permission:users.manage'])->group(function () {
-            Route::get('manage/users', [ApiUserController::class, 'indexForManagedRoles']);
-            Route::post('manage/users', [ApiUserController::class, 'storeManagedUser']);
-            Route::delete('manage/users/{id}', [ApiUserController::class, 'destroyManagedUser']);
-            Route::put('manage/users/{id}', [ApiUserController::class, 'updateManagedUser']);
-        });
+        /* ------------------------------- Users ----------------------------- */
 
         Route::get('users', [ApiUserController::class, 'index'])
-            ->middleware(['permission:users.view']);
+            ->middleware('permission:users.view');
+
+        Route::get('manage/users', [ApiUserController::class, 'indexForManagedRoles'])
+            ->middleware('permission:users.view');
+
+        Route::post('manage/users', [ApiUserController::class, 'storeManagedUser'])
+            ->middleware('permission:users.manage');
+
+        Route::put('manage/users/{id}', [ApiUserController::class, 'updateManagedUser'])
+            ->middleware('permission:users.manage');
+
+        Route::delete('manage/users/{id}', [ApiUserController::class, 'destroyManagedUser'])
+            ->middleware('permission:users.manage');
 
         Route::post('users/{id}/assign-role', [ApiUserController::class, 'assignRole'])
-            ->middleware(['permission:users.manage']);
+            ->middleware('permission:users.manage');
 
-        /* ------------------------------ Reports ------------------------------ */
+        /* ------------------------------ Reports ---------------------------- */
 
         Route::get('sales/users', [SalesByUserController::class, 'getUsersWithSales'])
             ->middleware('permission:reports.view');
@@ -348,28 +359,48 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:reports.view');
 
         Route::post('/cashier-adjustments', [ReportController::class, 'storeCashierAdjustment'])
-            ->middleware('permission:reports.view');
+            ->middleware('permission:budget.cashier.manage');
 
-        /* ------------------------------ Budgets ------------------------------ */
+        /* ------------------------------ Budgets ---------------------------- */
 
-        Route::middleware(['permission:budget.view'])->group(function () {
-            Route::get('/budgets', [BudgetController::class, 'index']);
-            Route::get('/budgets/active', [BudgetController::class, 'active']);
-            Route::get('/commissions/by-seller/{userId}/export', [CommissionReportController::class, 'exportSellerDetail']);
-            Route::get('/commissions/export', [CommissionReportController::class, 'exportExcel']);
-            Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards']);
-            Route::get('/reports/cashier-awards/export', [ReportController::class, 'cashierAwardsExport']);
-        });
+        Route::get('/budgets', [BudgetController::class, 'index'])
+            ->middleware('permission:budget.view');
 
-        Route::middleware(['permission:budget.manage'])->group(function () {
-            Route::post('/budgets', [BudgetController::class, 'store']);
-            Route::put('/budgets/{id}', [BudgetController::class, 'update']);
-            Route::delete('/budgets/{id}', [BudgetController::class, 'destroy']);
-            Route::patch('/budgets/{id}/cashier-prize', [BudgetController::class, 'updateCashierPrize']);
-            Route::post('/budgets/{id}/close', [BudgetController::class, 'close']);
-        });
+        Route::get('/budgets/active', [BudgetController::class, 'active'])
+            ->middleware('permission:budget.view');
 
-        /* ------------------------ Budget / Commissions ------------------------ */
+        Route::get('/commissions/by-seller/{userId}/export', [CommissionReportController::class, 'exportSellerDetail'])
+            ->middleware('permission:budget.commissions.view');
+
+        Route::get('/commissions/export', [CommissionReportController::class, 'exportExcel'])
+            ->middleware('permission:budget.commissions.view');
+
+        Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards'])
+            ->middleware('permission:budget.cashier.view');
+
+        Route::get('/reports/cashier-awards/export', [ReportController::class, 'cashierAwardsExport'])
+            ->middleware('permission:budget.cashier.view');
+
+        Route::post('/budgets', [BudgetController::class, 'store'])
+            ->middleware('permission:budget.manage');
+
+        Route::put('/budgets/{id}', [BudgetController::class, 'update'])
+            ->middleware('permission:budget.manage');
+
+        Route::delete('/budgets/{id}', [BudgetController::class, 'destroy'])
+            ->middleware('permission:budget.manage');
+
+        Route::patch('/budgets/{id}/cashier-prize', [BudgetController::class, 'updateCashierPrize'])
+            ->middleware('permission:budget.cashier.manage');
+
+        Route::post('/budgets/{id}/close', [BudgetController::class, 'close'])
+            ->middleware('permission:budget.manage');
+            
+        Route::get('roles', [RoleController::class, 'index'])
+            ->middleware('permission:budget.manage');
+            
+
+        /* ------------------------ Budget / Commissions --------------------- */
 
         Route::prefix('commissions')->group(function () {
 
@@ -386,10 +417,10 @@ Route::middleware('auth')->group(function () {
                 ->middleware('permission:budget.commissions.manage');
 
             Route::get('/my', [CommissionReportController::class, 'myCommissions'])
-                ->middleware('permission:commissions.view');
+                ->middleware('permission:commissions.user.view');
 
             Route::get('/my/export', [CommissionReportController::class, 'myExport'])
-                ->middleware('permission:commissions.view');
+                ->middleware('permission:commissions.user.view');
 
             Route::get('/by-seller', [CommissionReportController::class, 'bySeller'])
                 ->middleware('permission:budget.commissions.view');
@@ -432,188 +463,199 @@ Route::middleware('auth')->group(function () {
 
         Route::prefix('commission-leaders')->group(function () {
             Route::get('/', [CommissionLideres::class, 'index'])
-                ->middleware('permission:budget.commissions.view');
+                ->middleware('permission:budget.leader.view');
 
             Route::post('/', [CommissionLideres::class, 'storeLeader'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::put('/{id}', [CommissionLideres::class, 'updateLeader'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::delete('/{id}', [CommissionLideres::class, 'destroyLeader'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::get('/{id}/absences', [CommissionLideres::class, 'listAbsences'])
-                ->middleware('permission:budget.commissions.view');
+                ->middleware('permission:budget.leader.view');
 
             Route::post('/{id}/absences', [CommissionLideres::class, 'addAbsence'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::delete('/{id}/absences/{aid}', [CommissionLideres::class, 'deleteAbsence'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::get('/config', [CommissionLideres::class, 'getConfig'])
-                ->middleware('permission:budget.commissions.view');
+                ->middleware('permission:budget.leader.view');
 
             Route::post('/config', [CommissionLideres::class, 'saveConfig'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
 
             Route::post('/calculate', [CommissionLideres::class, 'calculateCommissions'])
-                ->middleware('permission:budget.commissions.manage');
+                ->middleware('permission:budget.leader.manage');
+
+            Route::post('/save-store-split', [CommissionLideres::class, 'saveStoreSplit'])
+                ->middleware('permission:budget.leader.manage');
         });
 
-        /* ------------------------------ Advisors ----------------------------- */
+        /* ------------------------------ Advisors --------------------------- */
 
         Route::prefix('advisors')->group(function () {
             Route::get('cashier-awards', [AdvisorController::class, 'cashierAwards'])
-                ->middleware('permission:reports.view');
+                ->middleware('permission:budget.cashier.view');
 
             Route::get('cashier/{userId}/categories', [AdvisorController::class, 'cashierCategories'])
-                ->middleware('permission:reports.view');
+                ->middleware('permission:budget.cashier.view');
 
             Route::get('specialistCheck', [AdvisorController::class, 'specialistCheck'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.advisors.view');
 
             Route::get('budget-sellers', [AdvisorController::class, 'budgetSellers'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.advisors.view');
 
             Route::get('active-sales', [AdvisorController::class, 'activeSpecialistsSales'])
-                ->middleware('permission:commissions.view');
+                ->middleware('permission:budget.specialists.view');
 
             Route::get('split-pool', [AdvisorController::class, 'splitAdvisorPool'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.advisors.view');
 
             Route::get('get-split', [AdvisorController::class, 'getAdvisorSplit'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.advisors.view');
 
             Route::post('save-split', [AdvisorController::class, 'saveAdvisorSplit'])
-                ->middleware('permission:advisors.manage');
+                ->middleware('permission:budget.advisors.manage');
 
             Route::get('category-budgets', [AdvisorController::class, 'indexCategoryBudgets'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.advisors.view');
 
             Route::post('category-budgets', [AdvisorController::class, 'upsertCategoryBudget'])
-                ->middleware('permission:advisors.manage');
+                ->middleware('permission:budget.advisors.manage');
 
             Route::post('category-budgets/bulk', [AdvisorController::class, 'bulkUpsert'])
-                ->middleware('permission:advisors.manage');
+                ->middleware('permission:budget.advisors.manage');
 
             Route::delete('category-budgets/{id}', [AdvisorController::class, 'deleteCategoryBudget'])
-                ->middleware('permission:advisors.manage');
+                ->middleware('permission:budget.advisors.manage');
 
             Route::post('specialists', [AdvisorController::class, 'assignSpecialist'])
-                ->middleware('permission:advisors.manage');
+                ->middleware('permission:budget.specialists.manage');
 
             Route::get('specialists', [AdvisorController::class, 'getSpecialistsForBudget'])
-                ->middleware('permission:advisors.view');
+                ->middleware('permission:budget.specialists.view');
         });
 
-        /* ------------------------------ Wishlist ----------------------------- */
+// ------------------------------ Wishlist ------------------------------
 
-        Route::prefix('wishlist')->group(function () {
-            Route::post('/catalog/import', [CatalogController::class, 'import'])
-                ->middleware(['permission:wishlist.manage']);
+// catálogo
+Route::get('catalog/categories', [WishItemController::class, 'categories'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('categories', [WishItemController::class, 'categories'])
-                ->middleware('permission:wishlist.view');
+Route::get('catalog-products', [WishItemController::class, 'searchCatalog'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('catalog-products', [WishItemController::class, 'searchCatalog'])
-                ->middleware('permission:wishlist.view');
+// items
+Route::get('wish-items', [WishItemController::class, 'listWishItems'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('items', [WishItemController::class, 'listWishItems'])
-                ->middleware('permission:wishlist.view');
+Route::get('wish-items/stats', [WishItemController::class, 'stats'])
+    ->middleware('permission:wishlist.view');
 
-            Route::post('items', [WishItemController::class, 'create'])
-                ->middleware('permission:wishlist.manage');
+Route::get('wish-items/selections', [WishItemController::class, 'selectionsList'])
+    ->middleware('permission:wishlist.view');
 
-            Route::post('items/select', [WishItemController::class, 'select'])
-                ->middleware('permission:wishlist.view');
+// vendedores
+Route::get('users/sellers', [WishItemController::class, 'sellers'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('users/sellers', [WishItemController::class, 'sellers'])
-                ->middleware('permission:wishlist.view');
+// acciones
+Route::post('wish-items', [WishItemController::class, 'create'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('me', [WishItemController::class, 'me'])
-                ->middleware('permission:panel.view');
+Route::post('wish-items/select', [WishItemController::class, 'select'])
+    ->middleware('permission:wishlist.view');
 
-            Route::patch('items/{id}', [WishItemController::class, 'update'])
-                ->middleware('permission:wishlist.manage');
+Route::patch('wish-items/{id}', [WishItemController::class, 'update'])
+    ->middleware('permission:wishlist.view');
 
-            Route::get('items/stats', [WishItemController::class, 'stats'])
-                ->middleware('permission:wishlist.view');
+// usuario actual
+Route::get('me', [WishItemController::class, 'me']);
 
-            Route::get('items/selections', [WishItemController::class, 'selectionsList'])
-                ->middleware('permission:wishlist.view');
-        });
 
-        /* -------------------------- Imports / batches ------------------------- */
+        /* -------------------------- Imports / batches ---------------------- */
 
         Route::middleware(['permission:imports.create'])->group(function () {
             Route::post('import-turns', [TurnsImportController::class, 'import']);
             Route::post('import-sales', [ImportSalesController::class, 'import']);
+            Route::get('imports/turns', [TurnsImportController::class, 'index']);
+            Route::get('imports', [ImportBatchController::class, 'index']);
         });
 
         Route::middleware(['permission:imports.manage'])->group(function () {
-            Route::get('imports/turns', [TurnsImportController::class, 'index']);
             Route::get('imports/turns/{id}', [TurnsImportController::class, 'show']);
-            Route::delete('imports/turns/{id}', [TurnsImportController::class, 'deleteBatch']);
             Route::delete('imports/turns', [TurnsImportController::class, 'bulkDelete']);
+            Route::delete('imports/turns/{id}', [TurnsImportController::class, 'deleteBatch']);
 
-            Route::get('imports', [ImportBatchController::class, 'index']);
-            Route::get('imports/{id}', [ImportBatchController::class, 'show']);
             Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
+            Route::get('imports/{id}', [ImportBatchController::class, 'show']);
             Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
         });
     });
 
-    /* --------------------------------------------------------------------------
-    | Panel SPA routes
-    | -------------------------------------------------------------------------- */
+    /* ---------------------------------------------------------------------- */
+    /* Panel SPA routes                                                        */
+    /* ---------------------------------------------------------------------- */
 
-    Route::middleware(['permission:panel.view'])->group(function () {
+    Route::get('/panel', fn () => view('panel'))
+        ->middleware(['permission:panel.view']);
 
-        Route::get('/panel', fn () => view('panel'))
-            ->middleware('permission:panel.view');
+    Route::get('/panel/users', fn () => view('panel'))
+        ->middleware(['permission:users.view']);
+        
+    Route::get('/panel/CatalogMatchPage', fn () => view('panel'))
+        ->middleware(['permission:wishlist.view']);
 
-        Route::get('/panel/users', fn () => view('panel'))
-            ->middleware('permission:users.view');
+    Route::get('/panel/ImportsManagerPage', fn () => view('panel'))
+        ->middleware(['permission:imports.create']);
 
-        Route::get('/panel/ImportsManagerPage', fn () => view('panel'))
-            ->middleware('permission:imports.manage');
+    Route::get('/panel/budget', fn () => view('panel'))
+        ->middleware(['permission:budget.view']);
 
-        Route::get('/panel/budget', fn () => view('panel'))
-            ->middleware('permission:budget.view');
+    Route::get('/panel/CommissionCardsPage', fn () => view('panel'))
+        ->middleware(['permission:budget.commissions.view']);
 
-        Route::get('/panel/CommissionCardsPage', fn () => view('panel'))
-            ->middleware('permission:commissions.view');
+    Route::get('/panel/CashierAwards', fn () => view('panel'))
+        ->middleware(['permission:budget.cashier.view']);
 
-        Route::get('/panel/CashierAwards', fn () => view('panel'))
-            ->middleware('permission:budget.cashier.view');
+    Route::get('/panel/CashierAwardsUsers', fn () => view('panel'))
+        ->middleware(['permission:budget.cashier.view']);
 
-        Route::get('/panel/CashierAwardsUsers', fn () => view('panel'))
-            ->middleware('permission:budget.cashier.view');
+    Route::get('/panel/commissions/categories', fn () => view('panel'))
+        ->middleware(['permission:budget.commissions.manage']);
+        
+    Route::get('/panel/commissions/SpecialistCommissionsPanel', fn () => view('panel'))
+        ->middleware(['permission:commissions.asesorSpecialist.view']);
 
-        Route::get('/panel/commissions', fn () => view('panel'))
-            ->middleware('permission:budget.commissions.view');
+    Route::get('/panel/commissions/DualCommissionAdmin', fn () => view('panel'))
+        ->middleware(['permission:budget.commissions.manage']);
 
-        Route::get('/panel/commissions/categories', fn () => view('panel'))
-            ->middleware('permission:budget.commissions.manage');
+    Route::get('/panel/CommisionsUser', fn () => view('panel'))
+        ->middleware(['permission:commissions.user.view']);
 
-        Route::get('/panel/commissions/DualCommissionAdmin', fn () => view('panel'))
-            ->middleware('permission:budget.commissions.manage');
+    Route::get('/panel/AdminWishList', fn () => view('panel'))
+        ->middleware(['permission:wishlist.manage']);
 
-        Route::get('/panel/CommisionsUser', fn () => view('panel'))
-            ->middleware('permission:commissions.view');
+    Route::get('/panel/advisors', fn () => view('panel'))
+        ->middleware(['permission:budget.advisors.view']);
 
-        Route::get('/panel/AdminWishList', fn () => view('panel'))
-            ->middleware('permission:wishlist.manage');
+    Route::get('/panel/specialists', fn () => view('panel'))
+        ->middleware(['permission:budget.specialists.view']);
 
-        Route::get('/panel/{any?}', fn () => view('panel'))
-            ->where('any', '.*');
-    });
+    Route::get('/panel/{any?}', fn () => view('panel'))
+        ->where('any', '.*');
+    /* ---------------------------------------------------------------------- */
+    /* Otros endpoints web                                                    */
+    /* ---------------------------------------------------------------------- */
 
-    /* --------------------------------------------------------------------------
-    | Otros endpoints web
-    | -------------------------------------------------------------------------- */
+
+
 
     Route::post('/llamados/importar', [FormatoController::class, 'importarExcel'])
         ->name('llamados.importar')
@@ -622,8 +664,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/firmas', function () {
         return response()->json([
             'empleado' => session('firma_empleado'),
-            'jefe' => session('firma_jefe'),
-            'proceso' => session('Proceso'),
+            'jefe'     => session('firma_jefe'),
+            'proceso'  => session('Proceso'),
         ]);
     })->middleware(['permission:panel.view']);
 });
