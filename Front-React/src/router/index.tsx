@@ -20,6 +20,10 @@ import AdvisorSplitByCategory from "../modules/commissions/pages/AdvisorSplitByC
 import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmin";
 import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
 import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
+import InventoryDashboard  from "../modules/inventory/InventoryDashboard";
+import InventoryRotationDashboard from "../modules/inventory/InventoryRotationDashboard";
+import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
+import CatalogImportCard from "../modules/inventory/CatalogImportCard";
 
 
 
@@ -42,6 +46,7 @@ export default function AppRouter() {
           <Route path="/CashierAwardsUsers" element={<CommisionCashierUsers />} />
           <Route path="/CatalogMatchPage" element={<CatalogMatchPage />} />
           <Route path="/AdminWishList" element={<AdminWishList />} />
+          <Route path="/inventarios/rotacion" element={<InventoryRotationDashboard />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
           <Route path="/commissions/SpecialistCommissionsPanel" element={<SpecialistCommissionsPanel  />} />
         <Route element={<MainLayout />}>
@@ -53,6 +58,11 @@ export default function AppRouter() {
           <Route path="/importCatalog" element={<ImportCatalog />} />
 
           <Route path="/budget" element={<BudgetPage />} />
+          <Route path="/InventoryDashboard" element={<InventoryDashboard />} />
+          <Route path="/InventoryDashboardPro" element={<InventoryDashboardPro />} />
+          <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
+
+          
 
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />

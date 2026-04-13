@@ -21,7 +21,7 @@ export default function Navbar() {
     { label: "Comisiones Cajeros", to: "CashierAwards" },
     { label: "Comisiones", to: "/CommissionCardsPage" },
     { label: "Presupuesto", to: "/budget" },
-    { label: "Importarciones", to: "/ImportsManagerPage" },
+    { label: "Importaciones", to: "/ImportsManagerPage" },
     { label: "Pct Categorias", to: "/commissions/categories" },
     { label: "Asesores Especializados", to: "/commissions/DualCommissionAdmin" },
   ];

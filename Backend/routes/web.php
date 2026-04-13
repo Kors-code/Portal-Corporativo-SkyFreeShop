@@ -35,6 +35,11 @@ use App\Http\Controllers\Api\WishItemController;
 use App\Http\Controllers\Api\AdvisorController;
 use App\Http\Controllers\Api\CommissionLideres;
 use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\ApiInventarios\InventoryImportController;
+use App\Http\Controllers\ApiInventarios\InventoryController;
+use App\Http\Controllers\ProductCatalogImportController;
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -94,6 +99,17 @@ Route::post('/usuarios/{id}/enviar-verificacion', [UserController::class, 'envia
 Route::post('/login', [AuthenticatedSessionController::class, 'store'])->middleware(['throttle:5,1']);
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
+
+
+Route::prefix('api/v1')->group(function () {
+    Route::get('/stores', [InventoryImportController::class, 'stores']);
+    Route::post('/inventory/import', [InventoryImportController::class, 'import']);
+    Route::get('/inventory', [InventoryController::class, 'index']);
+    Route::post('/catalog/import', [ProductCatalogImportController::class, 'import']);
+
+});
+
+
 
 /* Public candidate form */
 Route::get('postular/{vacante}', [CandidatoController::class, 'formularioPostulacion'])->name('postular');
@@ -654,6 +670,8 @@ Route::get('me', [WishItemController::class, 'me']);
     /* Otros endpoints web                                                    */
     /* ---------------------------------------------------------------------- */
 
+
+    /* Rutas para Nuevo modulo de inventarios */
 
 
 
