@@ -10,15 +10,22 @@ import {
   Package,
   RefreshCw,
   FileText,
+  BarChart3,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 import {
   getStores,
   importInventory,
   getInventory,
+  getInventoryMetrics,
+  runInventoryMetrics,
   type Store as StoreType,
   type InventoryItem,
+  type InventoryMetricItem,
 } from "./services/inventoryService";
+import InventoryCoverageTable from "./components/InventoryCoverageTable";
 
 const currency = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -30,17 +37,26 @@ const number = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 2,
 });
 
+type DashboardSortKey =
+  | keyof InventoryItem
+  | keyof InventoryMetricItem;
+
+type DashboardRow = InventoryItem & Partial<InventoryMetricItem>;
+
 const InventoryDashboardPro = () => {
   const [stores, setStores] = useState<StoreType[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<number | "">("");
   const [search, setSearch] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [data, setData] = useState<InventoryItem[]>([]);
+  const [metricsRows, setMetricsRows] = useState<InventoryMetricItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [metricsLoading, setMetricsLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | "info" | "">("");
-  const [sortKey, setSortKey] = useState<keyof InventoryItem>("product_code");
+  const [sortKey, setSortKey] = useState<DashboardSortKey>("product_code");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
@@ -49,6 +65,7 @@ const InventoryDashboardPro = () => {
 
   useEffect(() => {
     void loadInventory();
+    void loadMetrics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStoreId]);
 
@@ -83,6 +100,22 @@ const InventoryDashboardPro = () => {
     }
   };
 
+  const loadMetrics = async () => {
+    try {
+      setMetricsLoading(true);
+      const rows = await getInventoryMetrics(
+        selectedStoreId ? Number(selectedStoreId) : undefined
+      );
+      setMetricsRows(rows);
+    } catch (error) {
+      console.error(error);
+      setMessage("No se pudieron cargar las métricas.");
+      setMessageType("error");
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
   const handleUpload = async () => {
     if (!file) {
       setMessage("Selecciona un archivo primero.");
@@ -99,11 +132,14 @@ const InventoryDashboardPro = () => {
     try {
       setUploading(true);
       setMessage("");
+
       const response = await importInventory(file, Number(selectedStoreId));
       setMessage(response?.message ?? "Inventario importado correctamente.");
       setMessageType("success");
       setFile(null);
+
       await loadInventory();
+      await loadMetrics();
     } catch (error) {
       console.error(error);
       setMessage("No se pudo importar el archivo.");
@@ -113,10 +149,46 @@ const InventoryDashboardPro = () => {
     }
   };
 
+  const handleRecalculateMetrics = async () => {
+    try {
+      setRecalculating(true);
+      setMessage("");
+
+      const response = await runInventoryMetrics(
+        selectedStoreId ? Number(selectedStoreId) : undefined
+      );
+
+      setMessage(response?.message ?? "Métricas recalculadas correctamente.");
+      setMessageType("success");
+      await loadMetrics();
+    } catch (error) {
+      console.error(error);
+      setMessage("No se pudieron recalcular las métricas.");
+      setMessageType("error");
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  const metricsMap = useMemo(() => {
+    const map: Record<number, InventoryMetricItem> = {};
+    for (const row of metricsRows) {
+      map[row.product_id] = row;
+    }
+    return map;
+  }, [metricsRows]);
+
+  const mergedRows: DashboardRow[] = useMemo(() => {
+    return data.map((item) => ({
+      ...item,
+      ...metricsMap[item.product_id],
+    }));
+  }, [data, metricsMap]);
+
   const filteredAndSorted = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    const filtered = data.filter((item) => {
+    const filtered = mergedRows.filter((item) => {
       if (!q) return true;
       return (
         (item.product_code ?? "").toLowerCase().includes(q) ||
@@ -128,11 +200,18 @@ const InventoryDashboardPro = () => {
     });
 
     const sorted = [...filtered].sort((a, b) => {
-      const aValue = a[sortKey];
-      const bValue = b[sortKey];
+      const aValue = getSortableValue(a, sortKey);
+      const bValue = getSortableValue(b, sortKey);
 
-      const aNormalized = typeof aValue === "number" ? aValue : String(aValue ?? "").toLowerCase();
-      const bNormalized = typeof bValue === "number" ? bValue : String(bValue ?? "").toLowerCase();
+      const aNormalized =
+        typeof aValue === "number"
+          ? aValue
+          : String(aValue ?? "").toLowerCase();
+
+      const bNormalized =
+        typeof bValue === "number"
+          ? bValue
+          : String(bValue ?? "").toLowerCase();
 
       if (aNormalized < bNormalized) return sortDirection === "asc" ? -1 : 1;
       if (aNormalized > bNormalized) return sortDirection === "asc" ? 1 : -1;
@@ -140,7 +219,7 @@ const InventoryDashboardPro = () => {
     });
 
     return sorted;
-  }, [data, search, sortKey, sortDirection]);
+  }, [mergedRows, search, sortKey, sortDirection]);
 
   const metrics = useMemo(() => {
     const items = filteredAndSorted;
@@ -152,7 +231,7 @@ const InventoryDashboardPro = () => {
     return { totalProducts, totalStock, totalValue, totalSales };
   }, [filteredAndSorted]);
 
-  const toggleSort = (key: keyof InventoryItem) => {
+  const toggleSort = (key: DashboardSortKey) => {
     if (sortKey === key) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
       return;
@@ -180,20 +259,38 @@ const InventoryDashboardPro = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <MetricCard label="Productos" value={metrics.totalProducts} icon={<FileText className="h-4 w-4" />} />
-              <MetricCard label="Stock" value={number.format(metrics.totalStock)} icon={<Store className="h-4 w-4" />} />
-              <MetricCard label="Valor" value={currency.format(metrics.totalValue)} icon={<BadgeDollarSign className="h-4 w-4" />} />
-              <MetricCard label="Ventas" value={number.format(metrics.totalSales)} icon={<TrendingUp className="h-4 w-4" />} />
+              <MetricCard
+                label="Productos"
+                value={metrics.totalProducts}
+                icon={<FileText className="h-4 w-4" />}
+              />
+              <MetricCard
+                label="Stock"
+                value={number.format(metrics.totalStock)}
+                icon={<Store className="h-4 w-4" />}
+              />
+              <MetricCard
+                label="Valor"
+                value={currency.format(metrics.totalValue)}
+                icon={<BadgeDollarSign className="h-4 w-4" />}
+              />
+              <MetricCard
+                label="Ventas"
+                value={number.format(metrics.totalSales)}
+                icon={<TrendingUp className="h-4 w-4" />}
+              />
             </div>
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+        <div className="mb-6 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Carga de archivo</h2>
-                <p className="text-sm text-slate-500">Selecciona una tienda y sube el Excel correspondiente.</p>
+                <p className="text-sm text-slate-500">
+                  Selecciona una tienda y sube el Excel correspondiente.
+                </p>
               </div>
               <CloudUpload className="h-5 w-5 text-slate-400" />
             </div>
@@ -203,7 +300,9 @@ const InventoryDashboardPro = () => {
                 <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <select
                   value={selectedStoreId}
-                  onChange={(e) => setSelectedStoreId(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) =>
+                    setSelectedStoreId(e.target.value ? Number(e.target.value) : "")
+                  }
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
                 >
                   <option value="">Todas las tiendas</option>
@@ -250,7 +349,14 @@ const InventoryDashboardPro = () => {
                       : "bg-sky-50 text-sky-700"
                 }`}
               >
-                {message}
+                <div className="flex items-center gap-2">
+                  {messageType === "success" ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : messageType === "error" ? (
+                    <XCircle className="h-4 w-4" />
+                  ) : null}
+                  {message}
+                </div>
               </div>
             )}
           </div>
@@ -258,33 +364,135 @@ const InventoryDashboardPro = () => {
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Acciones rápidas</h2>
-                <p className="text-sm text-slate-500">Controla la vista del inventario.</p>
+                <h2 className="text-lg font-semibold">Métricas cacheadas</h2>
+                <p className="text-sm text-slate-500">
+                  Se leen desde product_metrics, sin recalcular en pantalla.
+                </p>
               </div>
-              <RefreshCw className="h-5 w-5 text-slate-400" />
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-slate-400" />
+                <button
+                  onClick={handleRecalculateMetrics}
+                  disabled={recalculating}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw className={`h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />
+                  {recalculating ? "Calculando..." : "Recalcular métricas"}
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por SKU, descripción, marca o proveedor"
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                />
-              </div>
-
-              <button
-                onClick={loadInventory}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Recargar inventario
-              </button>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MiniMetric label="Filas métricas" value={metricsRows.length} />
+              <MiniMetric
+                label="Máximo mes"
+                value={number.format(
+                  Math.max(0, ...metricsRows.map((m) => Number(m.maximo_mes ?? 0)))
+                )}
+              />
+              <MiniMetric
+                label="Stock sugerido"
+                value={number.format(
+                  metricsRows.reduce((acc, m) => acc + Number(m.sugerido_compra ?? 0), 0)
+                )}
+              />
+              <MiniMetric
+                label="Lead time prom."
+                value={number.format(
+                  metricsRows.length
+                    ? metricsRows.reduce((acc, m) => acc + Number(m.lead_time ?? 0), 0) /
+                        metricsRows.length
+                    : 0
+                )}
+              />
             </div>
+
+            {metricsLoading ? (
+              <div className="mt-4 text-sm text-slate-500">Cargando métricas...</div>
+            ) : (
+              <div className="mt-4 max-h-72 overflow-auto rounded-2xl border border-slate-200">
+                <table className="min-w-[900px] w-full border-collapse text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-slate-600">
+                    <tr>
+                      <Th>SKU</Th>
+                      <Th>Descripción</Th>
+                      <Th>Stock</Th>
+                      <Th>Max. mes</Th>
+                      <Th>Max. día</Th>
+                      <Th>Lead time</Th>
+                      <Th>Reorder point</Th>
+                      <Th>Sugerido compra</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metricsRows.length === 0 ? (
+                      <tr>
+                        <td className="px-5 py-8 text-slate-500" colSpan={8}>
+                          No hay métricas para mostrar.
+                        </td>
+                      </tr>
+                    ) : (
+                      metricsRows.map((item) => (
+                        <tr
+                          key={item.product_id}
+                          className="border-t border-slate-100 hover:bg-slate-50/70"
+                        >
+                          <Td strong>{item.product_code}</Td>
+                          <Td>{item.description}</Td>
+                          <Td>{formatNumber(item.stock_actual)}</Td>
+                          <Td>{formatNumber(item.maximo_mes)}</Td>
+                          <Td>{formatNumber(item.maximo_dia)}</Td>
+                          <Td>{formatNumber(item.lead_time)}</Td>
+                          <Td>{formatNumber(item.reorder_point)}</Td>
+                          <Td>{formatNumber(item.sugerido_compra)}</Td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
+        </div>
+
+        <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Acciones rápidas</h2>
+              <p className="text-sm text-slate-500">Controla la vista del inventario.</p>
+            </div>
+            <RefreshCw className="h-5 w-5 text-slate-400" />
+          </div>
+
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por SKU, descripción, marca o proveedor"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+            </div>
+
+            <button
+              onClick={loadInventory}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Recargar inventario
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <InventoryCoverageTable
+            rows={metricsRows}
+            loading={metricsLoading}
+            title="Tabla de cobertura"
+            subtitle="SKU, stock, consumo maximo y severidad de alerta."
+          />
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -369,19 +577,22 @@ const InventoryDashboardPro = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="px-5 py-8 text-slate-500" colSpan={22}>
+                    <td className="px-5 py-8 text-slate-500" colSpan={23}>
                       Cargando inventario...
                     </td>
                   </tr>
                 ) : filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td className="px-5 py-8 text-slate-500" colSpan={22}>
+                    <td className="px-5 py-8 text-slate-500" colSpan={23}>
                       No hay resultados para mostrar.
                     </td>
                   </tr>
                 ) : (
                   filteredAndSorted.map((item) => (
-                    <tr key={item.product_id} className="border-t border-slate-100 transition hover:bg-slate-50/70">
+                    <tr
+                      key={item.product_id}
+                      className="border-t border-slate-100 transition hover:bg-slate-50/70"
+                    >
                       <Td strong>{item.product_code}</Td>
                       <Td>{item.description}</Td>
                       <Td>{item.classification_desc ?? "-"}</Td>
@@ -396,9 +607,9 @@ const InventoryDashboardPro = () => {
                       <Td>{formatNumber(item.maximo_dia)}</Td>
                       <Td>{formatNumber(item.ind_rot_stock)}</Td>
                       <Td>{formatNumber(item.ind_rot_promedio)}</Td>
-                      <Td>{item.dias_en_existencia ?? "-"}</Td>
-                      <Td>{item.fecha_ultima_venta ?? "-"}</Td>
-                      <Td>{item.dias_sin_ventas ?? "-"}</Td>
+                      <Td>{formatNumber(item.dias_en_existencia)}</Td>
+                      <Td>{item.last_sale_date ?? "-"}</Td>
+                      <Td>{formatNumber(item.without_sales_days)}</Td>
                       <Td>{item.supplier ?? "-"}</Td>
                       <Td>{item.brand ?? "-"}</Td>
                       <Td>{formatMoney(item.retail)}</Td>
@@ -416,6 +627,10 @@ const InventoryDashboardPro = () => {
   );
 };
 
+function getSortableValue(row: DashboardRow, key: DashboardSortKey) {
+  return row[key as keyof DashboardRow];
+}
+
 function MetricCard({
   label,
   value,
@@ -432,6 +647,21 @@ function MetricCard({
       </div>
       <div className="text-xs uppercase tracking-wide text-slate-300">{label}</div>
       <div className="mt-1 text-lg font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-slate-900">{value}</div>
     </div>
   );
 }

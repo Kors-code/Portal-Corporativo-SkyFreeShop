@@ -41,6 +41,7 @@ export default function HomePage() {
           <ModuleCard title="Gestion De Usuarios" to="/users" description="Administra usuarios del sistema" />
           <ModuleCard title="Seguimiento de Asesores Especializados" to="/commissions/DualCommissionAdmin" description="Seguimiento de Asesores Especializados" />
           <ModuleCard title="Seguimiento de Comisiones de Lideres" to="/commissions/CommissionLeadersPage" description="Seguimiento de Comisiones de Lideres" />
+          <ModuleCard title="Cobertura de Inventario" to="/inventarios/cobertura" description="Alertas, dias disponibles y riesgo por SKU" />
         </div>
       </section>
 

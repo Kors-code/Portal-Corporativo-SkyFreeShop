@@ -13,6 +13,9 @@ class Inventory extends Model
     protected $fillable = [
         'product_id',
         'store_id',
+        'batch_id',
+        'stock_actual',
+        'stock_teorico',
         'existencia_anterior',
         'compras',
         'ventas',
@@ -35,6 +38,10 @@ class Inventory extends Model
         'retail',
         'pct_costo',
         'pct_margen',
+        'last_purchase_date',
+        'last_sale_date',
+        'without_sales_days',
+        'days_in_stock',
         'toDate',
     ];
 

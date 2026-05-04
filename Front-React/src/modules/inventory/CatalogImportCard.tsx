@@ -1,10 +1,6 @@
 import { useState } from "react";
-import { Upload, FileSpreadsheet, Loader2 } from "lucide-react";
-import api from "../../api/axios"; // 🔥 IMPORTANTE
-
-type ImportResponse = {
-  message?: string;
-};
+import { Upload, FileSpreadsheet, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { importCatalog } from "./services/inventoryService";
 
 export default function CatalogImportCard() {
   const [file, setFile] = useState<File | null>(null);
@@ -23,33 +19,15 @@ export default function CatalogImportCard() {
       setLoading(true);
       setMessage("");
 
-      const formData = new FormData();
-      formData.append("file", file);
+      const response = await importCatalog(file);
 
-      const response = await api.post<ImportResponse>(
-        "catalog/import", // 🔥 usa misma base que inventory
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      setMessage(response.data?.message || "Catálogo importado correctamente.");
+      setMessage(response?.message || "Catálogo importado correctamente.");
       setMessageType("success");
       setFile(null);
-
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-
-      const errorMessage =
-        error?.response?.data?.message ||
-        "No se pudo importar el catálogo.";
-
-      setMessage(errorMessage);
+      setMessage("No se pudo importar el catálogo.");
       setMessageType("error");
-
     } finally {
       setLoading(false);
     }
@@ -112,7 +90,14 @@ export default function CatalogImportCard() {
                 : "bg-sky-50 text-sky-700"
           }`}
         >
-          {message}
+          <div className="flex items-center gap-2">
+            {messageType === "success" ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : messageType === "error" ? (
+              <XCircle className="h-4 w-4" />
+            ) : null}
+            {message}
+          </div>
         </div>
       )}
     </div>

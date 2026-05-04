@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\CommissionLideres;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryController;
+use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
 use App\Http\Controllers\ProductCatalogImportController;
 
 
@@ -106,6 +107,8 @@ Route::prefix('api/v1')->group(function () {
     Route::post('/inventory/import', [InventoryImportController::class, 'import']);
     Route::get('/inventory', [InventoryController::class, 'index']);
     Route::post('/catalog/import', [ProductCatalogImportController::class, 'import']);
+    Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run']);
+    Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index']);
 
 });
 
@@ -417,52 +420,53 @@ Route::middleware('auth')->group(function () {
             
 
         /* ------------------------ Budget / Commissions --------------------- */
-
-        Route::prefix('commissions')->group(function () {
-
-            Route::get('/', [CommissionController::class, 'userSummary'])
-                ->middleware('permission:budget.commissions.view');
-
-            Route::get('/summary', [CommissionController::class, 'userSummary'])
-                ->middleware('permission:budget.commissions.view');
-
-            Route::post('/generate', [CommissionController::class, 'generate'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::post('/finalize', [CommissionController::class, 'finalize'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::get('/my', [CommissionReportController::class, 'myCommissions'])
-                ->middleware('permission:commissions.user.view');
-
-            Route::get('/my/export', [CommissionReportController::class, 'myExport'])
-                ->middleware('permission:commissions.user.view');
-
-            Route::get('/by-seller', [CommissionReportController::class, 'bySeller'])
-                ->middleware('permission:budget.commissions.view');
-
-            Route::get('/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail'])
-                ->middleware('permission:budget.commissions.view');
-
-            Route::put('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::post('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::get('/store-split/{budgetId}', [CommissionLideres::class, 'getStoreSplit'])
-                ->middleware('permission:budget.commissions.view');
-
-            Route::post('/save-store-split', [CommissionLideres::class, 'saveStoreSplit'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::post('/recalc-sale/{id}', [CommissionController::class, 'recalcSale'])
-                ->middleware('permission:budget.commissions.manage');
-
-            Route::post('/recalc-user/{userId}/{month}', [CommissionController::class, 'recalcUserMonth'])
-                ->middleware('permission:budget.commissions.manage');
+Route::prefix('api/v1')->group(function () {
+    Route::prefix('commissions')->group(function () {
+        
+        Route::get('/', [CommissionController::class, 'userSummary'])
+        ->middleware('permission:budget.commissions.view');
+        
+        Route::get('/summary', [CommissionController::class, 'userSummary'])
+        ->middleware('permission:budget.commissions.view');
+        
+        Route::post('/generate', [CommissionController::class, 'generate'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::post('/finalize', [CommissionController::class, 'finalize'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::get('/my', [CommissionReportController::class, 'myCommissions'])
+        ->middleware('permission:commissions.user.view');
+        
+        Route::get('/my/export', [CommissionReportController::class, 'myExport'])
+        ->middleware('permission:commissions.user.view');
+        
+        Route::get('/by-seller', [CommissionReportController::class, 'bySeller'])
+        ->middleware('permission:budget.commissions.view');
+        
+        Route::get('/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail'])
+        ->middleware('permission:budget.commissions.view');
+        
+        Route::put('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::post('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::get('/store-split/{budgetId}', [CommissionLideres::class, 'getStoreSplit'])
+        ->middleware('permission:budget.commissions.view');
+        
+        Route::post('/save-store-split', [CommissionLideres::class, 'saveStoreSplit'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::post('/recalc-sale/{id}', [CommissionController::class, 'recalcSale'])
+        ->middleware('permission:budget.commissions.manage');
+        
+        Route::post('/recalc-user/{userId}/{month}', [CommissionController::class, 'recalcUserMonth'])
+        ->middleware('permission:budget.commissions.manage');
         });
-
+        
+        });
         Route::prefix('commissions/categories')->group(function () {
             Route::get('/', [CategoryCommissionController::class, 'index'])
                 ->middleware('permission:budget.commissions.view');
@@ -651,6 +655,9 @@ Route::get('me', [WishItemController::class, 'me']);
 
     Route::get('/panel/commissions/DualCommissionAdmin', fn () => view('panel'))
         ->middleware(['permission:budget.commissions.manage']);
+
+    Route::get('/panel/inventarios/cobertura', fn () => view('panel'))
+        ->middleware(['permission:panel.view']);
 
     Route::get('/panel/CommisionsUser', fn () => view('panel'))
         ->middleware(['permission:commissions.user.view']);

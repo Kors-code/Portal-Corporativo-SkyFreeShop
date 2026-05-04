@@ -10,11 +10,10 @@ class Kernel extends ConsoleKernel
     /**
      * Define el horario de los comandos de la aplicación.
      */
-    protected function schedule(Schedule $schedule)
-    {
-        // Ejecutar el comando cada día a medianoche
-        $schedule->command('disciplinas:inactivar')->dailyAt('00:00');
-    }
+    protected function schedule(\Illuminate\Console\Scheduling\Schedule $schedule)
+{
+    $schedule->command('inventory:metrics')->dailyAt('01:00');
+}
 
     /**
      * Registra los comandos personalizados.

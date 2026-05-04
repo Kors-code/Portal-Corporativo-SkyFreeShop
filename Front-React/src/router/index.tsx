@@ -24,6 +24,8 @@ import InventoryDashboard  from "../modules/inventory/InventoryDashboard";
 import InventoryRotationDashboard from "../modules/inventory/InventoryRotationDashboard";
 import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
+import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
+import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
 
 
 
@@ -60,6 +62,8 @@ export default function AppRouter() {
           <Route path="/budget" element={<BudgetPage />} />
           <Route path="/InventoryDashboard" element={<InventoryDashboard />} />
           <Route path="/InventoryDashboardPro" element={<InventoryDashboardPro />} />
+          <Route path="/InventoryMetricsRunner" element={<InventoryMetricsRunner />} />
+          <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
           
