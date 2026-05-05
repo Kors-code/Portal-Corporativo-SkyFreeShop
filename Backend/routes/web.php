@@ -11,7 +11,6 @@ use App\Http\Controllers\UserExportController;
 use App\Http\Controllers\TwoFactorEmailController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\ShowInicioController;
-use Illuminate\Http\Request;
 use App\Http\Controllers\PersonalController\FormController;
 use App\Http\Controllers\PersonalController\FormatoController;
 use App\Http\Controllers\PersonalController\ListController;
@@ -28,8 +27,6 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController as ApiUserController;
 use App\Http\Controllers\SalesByUserController;
 use App\Http\Controllers\Api\TurnsImportController;
-use App\Http\Controllers\Api\BudgetProgressController;
-use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\WishList\CatalogController;
 use App\Http\Controllers\Api\WishItemController;
 use App\Http\Controllers\Api\AdvisorController;
@@ -40,42 +37,10 @@ use App\Http\Controllers\ApiInventarios\InventoryController;
 use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
 use App\Http\Controllers\ProductCatalogImportController;
 
-
-
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
-|
-| Permisos recomendados para mantener el panel modular:
-|
-| portal.view
-| panel.view
-|
-| users.view / users.manage
-| permissions.view / permissions.manage
-|
-| candidates.view / candidates.manage / candidates.export
-| vacancies.view / vacancies.manage
-| disciplines.view / disciplines.manage / disciplines.export
-| imports.create / imports.manage
-|
-| budget.view / budget.manage
-| budget.cashier.view / budget.cashier.manage
-| budget.commissions.view / budget.commissions.manage
-| budget.advisors.view / budget.advisors.manage
-| budget.specialists.view / budget.specialists.manage
-|
-| commissions.user.view
-| reports.view
-| wishlist.view / wishlist.manage
-|
-| Roles sugeridos:
-| - super_admin: todo
-| - administrativo: portal.view + budget.view
-| - lider: portal.view + panel.view + presupuesto lectura + advisors/specialists + imports
-| - seller: portal.view + panel.view + commissions.user.view + budget.commissions.view + budget.specialists.view
-| - cashier: portal.view + panel.view + budget.cashier.view
 */
 
 /* -------------------------------------------------------------------------- */
@@ -101,7 +66,7 @@ Route::post('/login', [AuthenticatedSessionController::class, 'store'])->middlew
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
 
-
+/* Rutas públicas de inventarios */
 Route::prefix('api/v1')->group(function () {
     Route::get('/stores', [InventoryImportController::class, 'stores']);
     Route::post('/inventory/import', [InventoryImportController::class, 'import']);
@@ -109,10 +74,7 @@ Route::prefix('api/v1')->group(function () {
     Route::post('/catalog/import', [ProductCatalogImportController::class, 'import']);
     Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run']);
     Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index']);
-
 });
-
-
 
 /* Public candidate form */
 Route::get('postular/{vacante}', [CandidatoController::class, 'formularioPostulacion'])->name('postular');
@@ -140,8 +102,9 @@ Route::get('/politica-tratamiento', [VacanteController::class, 'politica-tratami
 
 Route::middleware('auth')->group(function () {
 
-    /* ----------------------------- Importaciones --------------------------- */
+    Route::post('/toggle', [ToggleController::class, 'store'])->name('toggle.store');
 
+    /* ----------------------------- Importaciones --------------------------- */
     Route::post('/masivo/subircv', [CandidatoController::class, 'storeMasivo'])
         ->name('storeMasivo.subir')
         ->middleware(['permission:imports.create|imports.manage']);
@@ -151,7 +114,6 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:imports.manage']);
 
     /* -------------------------------- Usuarios ---------------------------- */
-
     Route::get('/usuarios/crear', [UserController::class, 'create'])
         ->middleware(['permission:users.manage'])->name('usuarios.create');
 
@@ -189,7 +151,6 @@ Route::middleware('auth')->group(function () {
         ->middleware(['can:admin'])->name('photos.store');
 
     /* ------------------------- Candidatos / Vacantes ---------------------- */
-
     Route::get('/candidatos', [CandidatoController::class, 'index'])
         ->middleware(['permission:candidates.view'])->name('candidatos.index');
 
@@ -247,7 +208,6 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:users.manage'])->name('enviarVerificacion');
 
     /* ------------------------- Disciplinas / Empleados -------------------- */
-
     Route::get('/DisciplinaPositiva', [FormController::class, 'showForm'])
         ->name('Disciplina.show')
         ->middleware(['permission:disciplines.view']);
@@ -309,7 +269,6 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:disciplines.manage']);
 
     /* -------------------------------- Dashboard -------------------------- */
-
     Route::get('/dashboard', fn () => view('dashboard'))
         ->name('dashboard')
         ->middleware(['permission:panel.view']);
@@ -321,14 +280,18 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->middleware(['auth'])->group(function () {
 
         /* ---------------------- Permissions / Roles ------------------------ */
-
         Route::get('/permissions', [PermissionController::class, 'permissions'])
             ->middleware('permission:permissions.view');
 
         Route::get('admin/users-with-permissions', [PermissionController::class, 'usersWithPermissions'])
             ->middleware('permission:permissions.view');
 
-        Route::get('/roles', [PermissionController::class, 'roles'])
+        // Lista de roles usada por el frontend
+        Route::get('/roles', [RoleController::class, 'index'])
+            ->middleware('permission:budget.manage');
+
+        // Si necesitas exponer el catálogo de permisos, no lo mezcles con /roles
+        Route::get('/permissions/roles', [PermissionController::class, 'roles'])
             ->middleware('permission:permissions.view');
 
         Route::post('/roles/{id}/permissions', [PermissionController::class, 'updateRolePermissions'])
@@ -341,7 +304,6 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:permissions.view');
 
         /* ------------------------------- Users ----------------------------- */
-
         Route::get('users', [ApiUserController::class, 'index'])
             ->middleware('permission:users.view');
 
@@ -361,7 +323,6 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:users.manage');
 
         /* ------------------------------ Reports ---------------------------- */
-
         Route::get('sales/users', [SalesByUserController::class, 'getUsersWithSales'])
             ->middleware('permission:reports.view');
 
@@ -381,7 +342,6 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:budget.cashier.manage');
 
         /* ------------------------------ Budgets ---------------------------- */
-
         Route::get('/budgets', [BudgetController::class, 'index'])
             ->middleware('permission:budget.view');
 
@@ -414,59 +374,52 @@ Route::middleware('auth')->group(function () {
 
         Route::post('/budgets/{id}/close', [BudgetController::class, 'close'])
             ->middleware('permission:budget.manage');
-            
-        Route::get('roles', [RoleController::class, 'index'])
-            ->middleware('permission:budget.manage');
-            
 
         /* ------------------------ Budget / Commissions --------------------- */
-Route::prefix('api/v1')->group(function () {
-    Route::prefix('commissions')->group(function () {
-        
-        Route::get('/', [CommissionController::class, 'userSummary'])
-        ->middleware('permission:budget.commissions.view');
-        
-        Route::get('/summary', [CommissionController::class, 'userSummary'])
-        ->middleware('permission:budget.commissions.view');
-        
-        Route::post('/generate', [CommissionController::class, 'generate'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::post('/finalize', [CommissionController::class, 'finalize'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::get('/my', [CommissionReportController::class, 'myCommissions'])
-        ->middleware('permission:commissions.user.view');
-        
-        Route::get('/my/export', [CommissionReportController::class, 'myExport'])
-        ->middleware('permission:commissions.user.view');
-        
-        Route::get('/by-seller', [CommissionReportController::class, 'bySeller'])
-        ->middleware('permission:budget.commissions.view');
-        
-        Route::get('/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail'])
-        ->middleware('permission:budget.commissions.view');
-        
-        Route::put('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::post('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::get('/store-split/{budgetId}', [CommissionLideres::class, 'getStoreSplit'])
-        ->middleware('permission:budget.commissions.view');
-        
-        Route::post('/save-store-split', [CommissionLideres::class, 'saveStoreSplit'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::post('/recalc-sale/{id}', [CommissionController::class, 'recalcSale'])
-        ->middleware('permission:budget.commissions.manage');
-        
-        Route::post('/recalc-user/{userId}/{month}', [CommissionController::class, 'recalcUserMonth'])
-        ->middleware('permission:budget.commissions.manage');
+        Route::prefix('commissions')->group(function () {
+            Route::get('/', [CommissionController::class, 'userSummary'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::get('/summary', [CommissionController::class, 'userSummary'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::post('/generate', [CommissionController::class, 'generate'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::post('/finalize', [CommissionController::class, 'finalize'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::get('/my', [CommissionReportController::class, 'myCommissions'])
+                ->middleware('permission:commissions.user.view');
+
+            Route::get('/my/export', [CommissionReportController::class, 'myExport'])
+                ->middleware('permission:commissions.user.view');
+
+            Route::get('/by-seller', [CommissionReportController::class, 'bySeller'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::get('/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::put('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::post('/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::get('/store-split/{budgetId}', [CommissionLideres::class, 'getStoreSplit'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::post('/save-store-split', [CommissionLideres::class, 'saveStoreSplit'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::post('/recalc-sale/{id}', [CommissionController::class, 'recalcSale'])
+                ->middleware('permission:budget.commissions.manage');
+
+            Route::post('/recalc-user/{userId}/{month}', [CommissionController::class, 'recalcUserMonth'])
+                ->middleware('permission:budget.commissions.manage');
         });
-        
-        });
+
         Route::prefix('commissions/categories')->group(function () {
             Route::get('/', [CategoryCommissionController::class, 'index'])
                 ->middleware('permission:budget.commissions.view');
@@ -517,7 +470,6 @@ Route::prefix('api/v1')->group(function () {
         });
 
         /* ------------------------------ Advisors --------------------------- */
-
         Route::prefix('advisors')->group(function () {
             Route::get('cashier-awards', [AdvisorController::class, 'cashierAwards'])
                 ->middleware('permission:budget.cashier.view');
@@ -562,45 +514,37 @@ Route::prefix('api/v1')->group(function () {
                 ->middleware('permission:budget.specialists.view');
         });
 
-// ------------------------------ Wishlist ------------------------------
+        /* ------------------------------ Wishlist ------------------------------ */
+        Route::get('catalog/categories', [WishItemController::class, 'categories'])
+            ->middleware('permission:wishlist.view');
 
-// catálogo
-Route::get('catalog/categories', [WishItemController::class, 'categories'])
-    ->middleware('permission:wishlist.view');
+        Route::get('catalog-products', [WishItemController::class, 'searchCatalog'])
+            ->middleware('permission:wishlist.view');
 
-Route::get('catalog-products', [WishItemController::class, 'searchCatalog'])
-    ->middleware('permission:wishlist.view');
+        Route::get('wish-items', [WishItemController::class, 'listWishItems'])
+            ->middleware('permission:wishlist.view');
 
-// items
-Route::get('wish-items', [WishItemController::class, 'listWishItems'])
-    ->middleware('permission:wishlist.view');
+        Route::get('wish-items/stats', [WishItemController::class, 'stats'])
+            ->middleware('permission:wishlist.view');
 
-Route::get('wish-items/stats', [WishItemController::class, 'stats'])
-    ->middleware('permission:wishlist.view');
+        Route::get('wish-items/selections', [WishItemController::class, 'selectionsList'])
+            ->middleware('permission:wishlist.view');
 
-Route::get('wish-items/selections', [WishItemController::class, 'selectionsList'])
-    ->middleware('permission:wishlist.view');
+        Route::get('users/sellers', [WishItemController::class, 'sellers'])
+            ->middleware('permission:wishlist.view');
 
-// vendedores
-Route::get('users/sellers', [WishItemController::class, 'sellers'])
-    ->middleware('permission:wishlist.view');
+        Route::post('wish-items', [WishItemController::class, 'create'])
+            ->middleware('permission:wishlist.view');
 
-// acciones
-Route::post('wish-items', [WishItemController::class, 'create'])
-    ->middleware('permission:wishlist.view');
+        Route::post('wish-items/select', [WishItemController::class, 'select'])
+            ->middleware('permission:wishlist.view');
 
-Route::post('wish-items/select', [WishItemController::class, 'select'])
-    ->middleware('permission:wishlist.view');
+        Route::patch('wish-items/{id}', [WishItemController::class, 'update'])
+            ->middleware('permission:wishlist.view');
 
-Route::patch('wish-items/{id}', [WishItemController::class, 'update'])
-    ->middleware('permission:wishlist.view');
-
-// usuario actual
-Route::get('me', [WishItemController::class, 'me']);
-
+        Route::get('me', [WishItemController::class, 'me']);
 
         /* -------------------------- Imports / batches ---------------------- */
-
         Route::middleware(['permission:imports.create'])->group(function () {
             Route::post('import-turns', [TurnsImportController::class, 'import']);
             Route::post('import-sales', [ImportSalesController::class, 'import']);
@@ -622,13 +566,12 @@ Route::get('me', [WishItemController::class, 'me']);
     /* ---------------------------------------------------------------------- */
     /* Panel SPA routes                                                        */
     /* ---------------------------------------------------------------------- */
-
     Route::get('/panel', fn () => view('panel'))
         ->middleware(['permission:panel.view']);
 
     Route::get('/panel/users', fn () => view('panel'))
         ->middleware(['permission:users.view']);
-        
+
     Route::get('/panel/CatalogMatchPage', fn () => view('panel'))
         ->middleware(['permission:wishlist.view']);
 
@@ -649,7 +592,7 @@ Route::get('me', [WishItemController::class, 'me']);
 
     Route::get('/panel/commissions/categories', fn () => view('panel'))
         ->middleware(['permission:budget.commissions.manage']);
-        
+
     Route::get('/panel/commissions/SpecialistCommissionsPanel', fn () => view('panel'))
         ->middleware(['permission:commissions.asesorSpecialist.view']);
 
@@ -673,14 +616,10 @@ Route::get('me', [WishItemController::class, 'me']);
 
     Route::get('/panel/{any?}', fn () => view('panel'))
         ->where('any', '.*');
+
     /* ---------------------------------------------------------------------- */
     /* Otros endpoints web                                                    */
     /* ---------------------------------------------------------------------- */
-
-
-    /* Rutas para Nuevo modulo de inventarios */
-
-
 
     Route::post('/llamados/importar', [FormatoController::class, 'importarExcel'])
         ->name('llamados.importar')

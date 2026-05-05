@@ -103,6 +103,8 @@ class ReportController extends Controller
                      ->where('ur.role_id', '=', $cajeroRoleId);
             })
             ->whereBetween('s.sale_date', [$start, $end])
+            ->whereRaw('TRIM(COALESCE(s.cashier, "")) <> ""')
+            ->whereRaw('UPPER(TRIM(s.cashier)) = UPPER(TRIM(u.name))')
             ->selectRaw("
                 u.id as user_id,
                 u.name,
