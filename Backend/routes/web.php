@@ -36,6 +36,8 @@ use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryController;
 use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
 use App\Http\Controllers\ProductCatalogImportController;
+use App\Http\Controllers\importAutomation;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -95,6 +97,10 @@ Route::post('/email2fa/verify', [TwoFactorEmailController::class, 'verify'])->na
 
 /* Política */
 Route::get('/politica-tratamiento', [VacanteController::class, 'politica-tratamiento'])->name('politica-tratamiento');
+
+/* Conexion Segura para Node.js Importacion de ventas */
+
+
 
 /* -------------------------------------------------------------------------- */
 /* Protected web routes                                                        */
@@ -616,6 +622,10 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/panel/{any?}', fn () => view('panel'))
         ->where('any', '.*');
+
+
+
+
 
     /* ---------------------------------------------------------------------- */
     /* Otros endpoints web                                                    */

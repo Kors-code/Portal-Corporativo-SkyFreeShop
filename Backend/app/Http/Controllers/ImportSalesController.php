@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Throwable;
@@ -600,6 +601,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                         $sellerId = $this->resolveSellerId($assoc, $usersCache, $defaultSellerId, $created);
 
                         $cashierName = $this->firstNotEmpty($assoc, ['cashier', 'cajero']) ?: '';
+                        $cashierId = null;
 
                         if ($cashierName !== '') {
                             $cashierEmail = strtolower(Str::slug($cashierName) . '@local');
@@ -614,6 +616,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                                     $created['users']++;
                                 }
                             }
+
+                            $cashierId = $usersCache[$cashierEmail]->id;
                         }
 
                         $product = $this->resolveProduct($assoc, $productsCache, $created);
@@ -808,6 +812,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
                             'updated_at' => now(),
                         ];
 
+                        if (Schema::connection('budget')->hasColumn('sales', 'cashier_id')) {
+                            $payload['cashier_id'] = $cashierId;
+                        }
+
                         $salesBuffer[] = $payload;
                         $processed++;
 
@@ -919,4 +927,21 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ], 500);
         }
     }
+    public function importAutomation(Request $request)
+{
+    $token = $request->header('X-Automation-Token');
+
+    if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+        return response()->json([
+            'message' => 'No autorizado',
+        ], 403);
+    }
+
+    $request->validate([
+        'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+        'store_id' => ['required', 'integer', 'exists:budget.stores,id'],
+    ]);
+
+    return $this->import($request);
+}
 }

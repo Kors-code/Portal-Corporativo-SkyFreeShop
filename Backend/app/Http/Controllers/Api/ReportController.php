@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\CashierAwardsExport;
 
@@ -65,7 +66,7 @@ class ReportController extends Controller
 
         // rol cajero (usando conexión 'budget')
         $cajeroRoleId = $this->budgetDB()->table('roles')
-            ->whereRaw("LOWER(name) = 'cajero'")
+            ->whereRaw("LOWER(name) IN ('cajero', 'cashier')")
             ->value('id');
 
         // periodo y meta/prize
@@ -95,16 +96,30 @@ class ReportController extends Controller
         }
 
         /* Ventas reales por usuario (cajeros) — usando conexión 'budget' */
+        $hasCashierId = Schema::connection('budget')->hasColumn('sales', 'cashier_id');
+
         $rows = $this->budgetDB()->table('sales as s')
-            ->join('users as u', 'u.id', '=', 's.seller_id')
-            ->join('user_roles as ur', function ($join) use ($cajeroRoleId) {
-                $join->on('ur.user_id', '=', 'u.id')
-                     ->on('ur.start_date', '=', 's.sale_date')
-                     ->where('ur.role_id', '=', $cajeroRoleId);
+            ->join('users as u', function ($join) use ($hasCashierId) {
+                if ($hasCashierId) {
+                    $join->on('u.id', '=', 's.cashier_id')
+                         ->orWhereRaw('UPPER(TRIM(s.cashier)) = UPPER(TRIM(u.name))');
+                    return;
+                }
+
+                $join->whereRaw('UPPER(TRIM(s.cashier)) = UPPER(TRIM(u.name))');
+            })
+            ->whereExists(function ($q) use ($cajeroRoleId) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->whereColumn('ur.user_id', 'u.id')
+                    ->where('ur.role_id', '=', $cajeroRoleId)
+                    ->whereColumn('ur.start_date', '<=', 's.sale_date')
+                    ->where(function ($q2) {
+                        $q2->whereNull('ur.end_date')
+                           ->orWhereColumn('ur.end_date', '>=', 's.sale_date');
+                    });
             })
             ->whereBetween('s.sale_date', [$start, $end])
-            ->whereRaw('TRIM(COALESCE(s.cashier, "")) <> ""')
-            ->whereRaw('UPPER(TRIM(s.cashier)) = UPPER(TRIM(u.name))')
             ->selectRaw("
                 u.id as user_id,
                 u.name,
@@ -207,18 +222,32 @@ class ReportController extends Controller
         }
 
         // rol cajero id (connection 'budget')
-        $cajeroRoleId = $this->budgetDB()->table('roles')->whereRaw("LOWER(name) = 'cajero'")->value('id');
+        $cajeroRoleId = $this->budgetDB()->table('roles')->whereRaw("LOWER(name) IN ('cajero', 'cashier')")->value('id');
+        $hasCashierId = Schema::connection('budget')->hasColumn('sales', 'cashier_id');
 
         // Query: sumar ventas por categoría solo en días donde user fue cajero (connection 'budget')
         $categoryRows = $this->budgetDB()->table('sales as s')
-            // join user_roles (day match)
-            ->join('user_roles as ur', function ($join) use ($cajeroRoleId, $userId) {
-                $join->on('ur.user_id', '=', DB::raw((int)$userId)) // ensure join against constant user id
-                     ->on('ur.start_date', '=', 's.sale_date')
-                     ->where('ur.role_id', '=', $cajeroRoleId);
+            ->whereExists(function ($q) use ($cajeroRoleId, $userId) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->where('ur.user_id', '=', (int) $userId)
+                    ->where('ur.role_id', '=', $cajeroRoleId)
+                    ->whereColumn('ur.start_date', '<=', 's.sale_date')
+                    ->where(function ($q2) {
+                        $q2->whereNull('ur.end_date')
+                           ->orWhereColumn('ur.end_date', '>=', 's.sale_date');
+                    });
             })
             ->leftJoin('products as p', 'p.id', '=', 's.product_id')
-            ->where('s.seller_id', $userId)
+            ->where(function ($q) use ($userId, $user, $hasCashierId) {
+                if ($hasCashierId) {
+                    $q->where('s.cashier_id', $userId)
+                      ->orWhereRaw('UPPER(TRIM(s.cashier)) = ?', [mb_strtoupper(trim((string) $user->name))]);
+                    return;
+                }
+
+                $q->whereRaw('UPPER(TRIM(s.cashier)) = ?', [mb_strtoupper(trim((string) $user->name))]);
+            })
             ->whereBetween('s.sale_date', [$start, $end])
             ->selectRaw("
                 COALESCE(NULLIF(TRIM(p.classification),''), 'Sin categoría') as classification,
@@ -237,12 +266,26 @@ class ReportController extends Controller
 
         // totals (connection 'budget')
         $totals = $this->budgetDB()->table('sales as s')
-            ->join('user_roles as ur', function ($join) use ($cajeroRoleId, $userId) {
-                $join->on('ur.user_id', '=', DB::raw((int)$userId))
-                     ->on('ur.start_date', '=', 's.sale_date')
-                     ->where('ur.role_id', '=', $cajeroRoleId);
+            ->whereExists(function ($q) use ($cajeroRoleId, $userId) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->where('ur.user_id', '=', (int) $userId)
+                    ->where('ur.role_id', '=', $cajeroRoleId)
+                    ->whereColumn('ur.start_date', '<=', 's.sale_date')
+                    ->where(function ($q2) {
+                        $q2->whereNull('ur.end_date')
+                           ->orWhereColumn('ur.end_date', '>=', 's.sale_date');
+                    });
             })
-            ->where('s.seller_id', $userId)
+            ->where(function ($q) use ($userId, $user, $hasCashierId) {
+                if ($hasCashierId) {
+                    $q->where('s.cashier_id', $userId)
+                      ->orWhereRaw('UPPER(TRIM(s.cashier)) = ?', [mb_strtoupper(trim((string) $user->name))]);
+                    return;
+                }
+
+                $q->whereRaw('UPPER(TRIM(s.cashier)) = ?', [mb_strtoupper(trim((string) $user->name))]);
+            })
             ->whereBetween('s.sale_date', [$start, $end])
             ->selectRaw("
                 SUM(

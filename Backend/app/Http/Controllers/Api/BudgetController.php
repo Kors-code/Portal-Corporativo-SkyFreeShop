@@ -56,19 +56,6 @@ public function active()
         ->where('end_date', '>=', $today)
         ->first();
 
-    if (!$budget) {
-        // Lazy-create a monthly budget for the current month with default values
-        $start = $today->copy()->firstOfMonth()->toDateString();
-        $end = $today->copy()->lastOfMonth()->toDateString();
-
-        $budget = Budget::create([
-            'name' => 'Automatic budget ' . $today->format('Y-m'),
-            'target_amount' => 0,                       // manual: set via UI later
-            'start_date' => $start,
-            'end_date' => $end,
-            'total_turns' => null,                      // usa default si es null
-        ]);
-    }
 
     $salesTotal = Sale::whereBetween('sale_date', [
         $budget->start_date,

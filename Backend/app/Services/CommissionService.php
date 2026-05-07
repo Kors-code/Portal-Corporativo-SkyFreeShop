@@ -107,10 +107,12 @@ class CommissionService
 
         // total USD and COP to determine provisional (respect budget_id if column exists)
         $totalUsdQuery = $this->budgetDB()->table('sales')
-            ->whereBetween('sale_date', [$budget->start_date, $budget->end_date]);
+            ->whereBetween('sale_date', [$budget->start_date, $budget->end_date])
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
         $totalCopQuery = $this->budgetDB()->table('sales')
-            ->whereBetween('sale_date', [$budget->start_date, $budget->end_date]);
+            ->whereBetween('sale_date', [$budget->start_date, $budget->end_date])
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
         if ($hasBudgetIdCol) {
             $totalUsdQuery->where('sales.budget_id', $budgetId);
@@ -148,7 +150,8 @@ class CommissionService
                     SUM(COALESCE(sales.amount_cop,0)) AS sales_cop
                 "))
                 ->leftJoin('products', 'sales.product_id', '=', 'products.id')
-                ->whereBetween('sales.sale_date', [$budget->start_date, $budget->end_date]);
+                ->whereBetween('sales.sale_date', [$budget->start_date, $budget->end_date])
+                ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
             if ($hasBudgetIdCol) {
                 $salesByUserGroupQuery->where('sales.budget_id', $budgetId);

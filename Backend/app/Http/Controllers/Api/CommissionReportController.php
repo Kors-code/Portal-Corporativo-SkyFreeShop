@@ -308,6 +308,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         $folioRaw = "COALESCE(sales.folio, CONCAT('folio_null_', DATE(sales.sale_date), '_', COALESCE(sales.pdv, '')))";
         $ticketRowsQuery = Sale::selectRaw("sales.seller_id, {$folioRaw} as folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
             ->whereBetween('sales.sale_date', [$startDate, $endDate])
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                   ->from('user_roles as ur')
@@ -328,13 +329,15 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
         // global ticket grouping for summary
         $globalTicketRowsQuery = Sale::selectRaw("{$folioRaw} AS folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
-            ->whereBetween('sales.sale_date', [$startDate, $endDate]);
+        ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+        ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
         $globalTicketRowsQuery->whereExists(function ($q) {
             $q->select(DB::raw(1))
               ->from('user_roles as ur')
               ->join('roles as r', 'r.id', '=', 'ur.role_id')
               ->whereColumn('ur.user_id', 'sales.seller_id')
+              ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
               ->where('r.name', 'Vendedor')
               ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
               ->where(function ($q2) {
@@ -457,6 +460,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
             $saleDatesPerUserQuery = Sale::query()
                 ->whereIn('seller_id', $userIds)
+                ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
                 ->whereBetween('sale_date', [$startDate, $endDate]);
 
             if (Schema::hasColumn('sales','budget_id') && !empty($budgetIds)) {
@@ -528,7 +532,8 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
         // global progress based on Sale totals (USD)
         $totalUsdQuery = Sale::query()
-            ->whereBetween('sale_date', [$startDate, $endDate]);
+            ->whereBetween('sale_date', [$startDate, $endDate])
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
         if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
             $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
@@ -717,6 +722,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             )
             ->leftJoin('products', 'sales.product_id', '=', 'products.id')
             ->where('sales.seller_id', $userId)
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
         if (Schema::hasColumn('sales','budget_id')) {
@@ -736,7 +742,8 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
              MIN(sales.sale_date) AS sale_date"
         )
         ->where('sales.seller_id', $userId)
-        ->whereBetween('sales.sale_date', [$startDate, $endDate]);
+        ->whereBetween('sales.sale_date', [$startDate, $endDate])
+        ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
         if (Schema::hasColumn('sales','budget_id')) {
             $userTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
@@ -1370,6 +1377,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
                 ->table('sales')
                 ->join('products', 'sales.product_id', '=', 'products.id')
                 ->where('sales.seller_id', $userId)
+                ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
                 ->where('products.provider_name', 'PARBEL')
                 ->whereIn(DB::raw('CAST(products.classification AS CHAR)'), $skinClassAll)
                 ->when(Schema::connection('budget')->hasColumn('sales','budget_id'), fn($q) => $q->where('sales.budget_id', $budgetId))

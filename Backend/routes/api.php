@@ -14,12 +14,17 @@ use App\Http\Controllers\SalesByUserController;
 use App\Http\Controllers\Api\BudgetProgressController;
 use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\Api\TurnsImportController;
+use App\Http\Controllers\importAutomation;
 
 
 
 
-
-
+Route::get('/test-api', function () {
+    return response()->json([
+        'ok' => true
+    ]);
+});
+Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
 Route::get('/v1/ping', function () {
     return response()->json([
         'status' => 'ok',
@@ -28,6 +33,7 @@ Route::get('/v1/ping', function () {
         });
         
         Route::prefix('v1')->group(function () {
+            
     // TURNOS (poner primero para evitar conflicto con imports/{id})
     Route::post('import-turns', [TurnsImportController::class, 'import']);
     Route::get('imports/turns', [TurnsImportController::class, 'index']);
