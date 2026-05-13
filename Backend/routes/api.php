@@ -15,7 +15,7 @@ use App\Http\Controllers\Api\BudgetProgressController;
 use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\importAutomation;
-
+use App\Http\Controllers\ApiInventarios\InventoryImportController;
 
 
 
@@ -86,8 +86,11 @@ Route::get('/v1/ping', function () {
     
     Route::post('/commissions/generate', [CommissionController::class, 'generate']);
 
-    
- 
+    // INVENTORY IMPORT 
+ Route::post('/inventory/import', [InventoryImportController::class, 'import']);
+Route::post('/inventory/import-automation', [InventoryImportController::class, 'importAutomation']);
+Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
+Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
     
 
 

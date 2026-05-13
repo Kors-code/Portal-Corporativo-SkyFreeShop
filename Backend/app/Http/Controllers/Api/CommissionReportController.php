@@ -211,460 +211,487 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
      * Fast report using aggregated tables
      */
     public function bySeller(Request $request)
-    {
-        // Accept either budget_ids[] (array) or budget_id (single)
-        $budgetIds = $request->query('budget_ids');
-        if (!$budgetIds) {
-            $single = $request->query('budget_id');
-            $budgetIds = $single ? [$single] : [];
-        }
-        $budgetIds = array_values(array_filter(array_map('intval', (array)$budgetIds)));
-        if (empty($budgetIds)) abort(422, 'Debe seleccionar al menos un presupuesto');
+{
+    // Accept either budget_ids[] (array) or budget_id (single)
+    $budgetIds = $request->query('budget_ids');
+    if (!$budgetIds) {
+        $single = $request->query('budget_id');
+        $budgetIds = $single ? [$single] : [];
+    }
 
-        $budgets = Budget::whereIn('id', $budgetIds)->orderBy('start_date')->get();
-        abort_if($budgets->isEmpty(), 404, 'Presupuestos no encontrados');
+    $budgetIds = array_values(array_filter(array_map('intval', (array) $budgetIds)));
+    if (empty($budgetIds)) abort(422, 'Debe seleccionar al menos un presupuesto');
 
-        $isSingleBudget = count($budgetIds) === 1;
-        $singleBudget = $isSingleBudget ? $budgets->first() : null;
+    $budgets = Budget::whereIn('id', $budgetIds)->orderBy('start_date')->get();
+    abort_if($budgets->isEmpty(), 404, 'Presupuestos no encontrados');
 
-        $totalTurns = $isSingleBudget
-            ? ($singleBudget->total_turns ?? $this->TOTAL_TURNS)
-            : ($budgets->sum('total_turns') ?: $this->TOTAL_TURNS);
+    $isSingleBudget = count($budgetIds) === 1;
+    $singleBudget = $isSingleBudget ? $budgets->first() : null;
 
-        $startDate = $budgets->min('start_date');
-        $endDate   = $budgets->max('end_date');
+    $totalTurns = $isSingleBudget
+        ? ($singleBudget->total_turns ?? $this->TOTAL_TURNS)
+        : ($budgets->sum('total_turns') ?: $this->TOTAL_TURNS);
 
-        $roleName = $request->query('role_name');
-        $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
+    $startDate = $budgets->min('start_date');
+    $endDate   = $budgets->max('end_date');
 
-        // canonical target amount (uses fallback)
-        $targetAmount = $this->aggregateTargetAmount($budgets);
+    $roleName = $request->query('role_name');
+    $roleId = $request->query('role_id') ? (int) $request->query('role_id') : null;
 
-        // participation map and category totals (normalized)
-        $participationByCode = $this->buildParticipationMap($budgetIds, $roleId);
-        $categoryTotalsRaw = $this->buildCategoryTotals($budgetIds);
+    // canonical target amount (uses fallback)
+    $targetAmount = $this->aggregateTargetAmount($budgets);
 
-        // aggregated subqueries for sellers
-        $butTotalsSub = DB::connection('budget')->table('budget_user_totals')
-            ->selectRaw('user_id, COALESCE(SUM(total_sales_cop),0) as total_sales_cop, COALESCE(SUM(total_sales_usd),0) as total_sales_usd, COALESCE(SUM(total_commission_cop),0) as total_commission_cop')
-            ->whereIn('budget_id', $budgetIds)
-            ->groupBy('user_id');
+    // participation map and category totals (normalized)
+    $participationByCode = $this->buildParticipationMap($budgetIds, $roleId);
+    $categoryTotalsRaw = $this->buildCategoryTotals($budgetIds);
 
-        $butTurnsSub  = DB::connection('budget')->table('budget_user_turns')
-            ->selectRaw('user_id, COALESCE(SUM(assigned_turns),0) as assignedTurns')
-            ->whereIn('budget_id', $budgetIds)
-            ->groupBy('user_id');
+    // aggregated subqueries for sellers
+    $salesTotalsSub = DB::connection('budget')->table('sales as s')
+        ->selectRaw('
+            s.seller_id as user_id,
+            COALESCE(SUM(COALESCE(s.amount_cop,0)),0) as total_sales_cop,
+            COALESCE(SUM(COALESCE(s.value_usd,0)),0) as total_sales_usd
+        ')
+        ->whereBetween('s.sale_date', [$startDate, $endDate])
+        ->whereIn('s.pdv', ['COLS1', 'COLS2']);
 
-        $query = User::query()
-            ->selectRaw("users.id AS user_id,
-                         users.name AS seller,
-                         users.codigo_vendedor AS seller_code,
-                         COALESCE(but.assignedTurns,0) AS assignedTurns,
-                         COALESCE(butot.total_sales_cop,0) AS total_sales_cop,
-                         COALESCE(butot.total_sales_usd,0) AS total_sales_usd,
-                         COALESCE(butot.total_commission_cop,0) AS total_commission_cop")
-            ->leftJoinSub($butTurnsSub, 'but', function ($join) {
-                $join->on('but.user_id', '=', 'users.id');
-            })
-            ->leftJoinSub($butTotalsSub, 'butot', function ($join) {
-                $join->on('butot.user_id', '=', 'users.id');
-            })
-            ->orderByDesc('butot.total_sales_cop');
+    if (Schema::hasColumn('sales', 'budget_id')) {
+        $salesTotalsSub->whereIn('s.budget_id', $budgetIds);
+    }
 
-        // Only users who had role "Vendedor" during period
-        $query->whereExists(function ($q) use ($startDate, $endDate) {
-            $q->select(DB::raw(1))
-              ->from('user_roles as ur')
-              ->join('roles as r', 'r.id', '=', 'ur.role_id')
-              ->whereColumn('ur.user_id', 'users.id')
-              ->where('r.name', 'Vendedor')
-              ->where('ur.start_date', '<=', $endDate)
-              ->where(function ($q2) use ($startDate) {
-                  $q2->whereNull('ur.end_date')->orWhere('ur.end_date', '>=', $startDate);
-              });
-        });
+    $salesTotalsSub->groupBy('s.seller_id');
 
-        // sellers with sales
-        $query->where(function ($q) {
-            $q->where('butot.total_sales_cop', '>', 0)
-              ->orWhere('butot.total_sales_usd', '>', 0);
-        });
+    $commissionTotalsSub = DB::connection('budget')->table('budget_user_totals')
+        ->selectRaw('
+            user_id,
+            COALESCE(SUM(total_commission_cop),0) as total_commission_cop
+        ')
+        ->whereIn('budget_id', $budgetIds)
+        ->groupBy('user_id');
 
-        if ($roleName) {
-            $userIdsWithRole = DB::connection('budget')->table('user_roles')
-                ->join('roles', 'roles.id', '=', 'user_roles.role_id')
-                ->where('roles.name', $roleName)
-                ->where('user_roles.start_date', '<=', $endDate)
-                ->where(function ($q) use ($startDate) {
-                    $q->whereNull('user_roles.end_date')->orWhere('user_roles.end_date', '>=', $startDate);
-                })
-                ->pluck('user_roles.user_id')
-                ->toArray();
+    $butTurnsSub  = DB::connection('budget')->table('budget_user_turns')
+        ->selectRaw('user_id, COALESCE(SUM(assigned_turns),0) as assignedTurns')
+        ->whereIn('budget_id', $budgetIds)
+        ->groupBy('user_id');
 
-            $query->whereIn('users.id', $userIdsWithRole);
-        }
+    $query = User::query()
+        ->selectRaw("users.id AS user_id,
+                     users.name AS seller,
+                     users.codigo_vendedor AS seller_code,
+                     COALESCE(but.assignedTurns,0) AS assignedTurns,
+                     COALESCE(butSales.total_sales_cop,0) AS total_sales_cop,
+                     COALESCE(butSales.total_sales_usd,0) AS total_sales_usd,
+                     COALESCE(butComm.total_commission_cop,0) AS total_commission_cop")
+        ->leftJoinSub($salesTotalsSub, 'butSales', function ($join) {
+            $join->on('butSales.user_id', '=', 'users.id');
+        })
+        ->leftJoinSub($butTurnsSub, 'but', function ($join) {
+            $join->on('but.user_id', '=', 'users.id');
+        })
+        ->leftJoinSub($commissionTotalsSub, 'butComm', function ($join) {
+            $join->on('butComm.user_id', '=', 'users.id');
+        })
+        ->orderByDesc('butSales.total_sales_cop');
 
-        // tickets (only for ticket-level metrics)
-        $folioRaw = "COALESCE(sales.folio, CONCAT('folio_null_', DATE(sales.sale_date), '_', COALESCE(sales.pdv, '')))";
-        $ticketRowsQuery = Sale::selectRaw("sales.seller_id, {$folioRaw} as folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
-            ->whereBetween('sales.sale_date', [$startDate, $endDate])
-            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
-            ->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                  ->from('user_roles as ur')
-                  ->join('roles as r', 'r.id', '=', 'ur.role_id')
-                  ->whereColumn('ur.user_id', 'sales.seller_id')
-                  ->where('r.name', 'Vendedor')
-                  ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
-                  ->where(function ($q2) {
-                      $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
-                  });
+    // Only users who had role "Vendedor" during period
+    $query->whereExists(function ($q) use ($startDate, $endDate) {
+        $q->select(DB::raw(1))
+            ->from('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->whereColumn('ur.user_id', 'users.id')
+            ->where('r.name', 'Vendedor')
+            ->where('ur.start_date', '<=', $endDate)
+            ->where(function ($q2) use ($startDate) {
+                $q2->whereNull('ur.end_date')->orWhere('ur.end_date', '>=', $startDate);
             });
+    });
 
-        if (Schema::hasColumn('sales','budget_id')) {
-            $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
-        }
+    // sellers with sales
+    $query->where(function ($q) {
+        $q->where('butSales.total_sales_cop', '>', 0)
+          ->orWhere('butSales.total_sales_usd', '>', 0);
+    });
 
-        $ticketRows = $ticketRowsQuery->groupBy('sales.seller_id', 'folio_key')->get();
+    if ($roleName) {
+        $userIdsWithRole = DB::connection('budget')->table('user_roles')
+            ->join('roles', 'roles.id', '=', 'user_roles.role_id')
+            ->where('roles.name', $roleName)
+            ->where('user_roles.start_date', '<=', $endDate)
+            ->where(function ($q) use ($startDate) {
+                $q->whereNull('user_roles.end_date')->orWhere('user_roles.end_date', '>=', $startDate);
+            })
+            ->pluck('user_roles.user_id')
+            ->toArray();
 
-        // global ticket grouping for summary
-        $globalTicketRowsQuery = Sale::selectRaw("{$folioRaw} AS folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
+        $query->whereIn('users.id', $userIdsWithRole);
+    }
+
+    // tickets (only for ticket-level metrics)
+    $folioRaw = "COALESCE(sales.folio, CONCAT('folio_null_', DATE(sales.sale_date), '_', COALESCE(sales.pdv, '')))";
+    $ticketRowsQuery = Sale::selectRaw("sales.seller_id, {$folioRaw} as folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
+        ->whereBetween('sales.sale_date', [$startDate, $endDate])
+        ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+        ->whereExists(function ($q) {
+            $q->select(DB::raw(1))
+                ->from('user_roles as ur')
+                ->join('roles as r', 'r.id', '=', 'ur.role_id')
+                ->whereColumn('ur.user_id', 'sales.seller_id')
+                ->where('r.name', 'Vendedor')
+                ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
+                ->where(function ($q2) {
+                    $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
+                });
+        });
+
+    if (Schema::hasColumn('sales', 'budget_id')) {
+        $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
+    }
+
+    $ticketRows = $ticketRowsQuery->groupBy('sales.seller_id', 'folio_key')->get();
+
+    // global ticket grouping for summary
+    $globalTicketRowsQuery = Sale::selectRaw("{$folioRaw} AS folio_key, SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop, SUM(COALESCE(sales.value_usd,0)) AS ticket_usd, SUM(COALESCE(sales.quantity,1)) AS units_count")
         ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
         ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
-        $globalTicketRowsQuery->whereExists(function ($q) {
-            $q->select(DB::raw(1))
-              ->from('user_roles as ur')
-              ->join('roles as r', 'r.id', '=', 'ur.role_id')
-              ->whereColumn('ur.user_id', 'sales.seller_id')
-              ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
-              ->where('r.name', 'Vendedor')
-              ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
-              ->where(function ($q2) {
-                  $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
-              });
-        });
+    $globalTicketRowsQuery->whereExists(function ($q) {
+        $q->select(DB::raw(1))
+            ->from('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->whereColumn('ur.user_id', 'sales.seller_id')
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+            ->where('r.name', 'Vendedor')
+            ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
+            ->where(function ($q2) {
+                $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
+            });
+    });
 
-        if (Schema::hasColumn('sales','budget_id')) {
-            $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
+    if (Schema::hasColumn('sales', 'budget_id')) {
+        $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
+    }
+
+    $globalTicketRows = $globalTicketRowsQuery->groupBy('folio_key')->get();
+
+    // aggregate tickets by seller
+    $ticketsBySeller = [];
+    foreach ($ticketRows as $t) {
+        $sid = (int) $t->seller_id;
+        if (!isset($ticketsBySeller[$sid])) {
+            $ticketsBySeller[$sid] = [
+                'tickets_count' => 0,
+                'units_total' => 0,
+                'sum_ticket_usd' => 0.0,
+                'sum_ticket_cop' => 0.0,
+                'max_ticket_usd' => null,
+                'max_ticket_cop' => null,
+                'min_ticket_usd' => null,
+                'min_ticket_cop' => null,
+            ];
         }
 
-        $globalTicketRows = $globalTicketRowsQuery->groupBy('folio_key')->get();
+        $entry = &$ticketsBySeller[$sid];
+        $entry['tickets_count'] += 1;
+        $entry['sum_ticket_usd'] += (float) $t->ticket_usd;
+        $entry['sum_ticket_cop'] += (float) $t->ticket_cop;
+        $entry['units_total'] += (int) $t->units_count;
 
-        // aggregate tickets by seller
-        $ticketsBySeller = [];
-        foreach ($ticketRows as $t) {
-            $sid = (int)$t->seller_id;
-            if (!isset($ticketsBySeller[$sid])) {
-                $ticketsBySeller[$sid] = [
-                    'tickets_count' => 0,
-                    'units_total' => 0,
-                    'sum_ticket_usd' => 0.0,
-                    'sum_ticket_cop' => 0.0,
-                    'max_ticket_usd' => null,
-                    'max_ticket_cop' => null,
-                    'min_ticket_usd' => null,
-                    'min_ticket_cop' => null,
-                ];
+        $usd = (float) $t->ticket_usd;
+        $cop = (float) $t->ticket_cop;
+
+        if (is_null($entry['max_ticket_usd']) || $usd > $entry['max_ticket_usd']) $entry['max_ticket_usd'] = $usd;
+        if (is_null($entry['min_ticket_usd']) || $usd < $entry['min_ticket_usd']) $entry['min_ticket_usd'] = $usd;
+        if (is_null($entry['max_ticket_cop']) || $cop > $entry['max_ticket_cop']) $entry['max_ticket_cop'] = $cop;
+        if (is_null($entry['min_ticket_cop']) || $cop < $entry['min_ticket_cop']) $entry['min_ticket_cop'] = $cop;
+        unset($entry);
+    }
+
+    foreach ($ticketsBySeller as $sid => $t) {
+        $tickets = $t['tickets_count'] ?: 1;
+        $ticketsBySeller[$sid]['avg_ticket_usd'] = round($t['sum_ticket_usd'] / $tickets, 2);
+        $ticketsBySeller[$sid]['avg_ticket_cop'] = round($t['sum_ticket_cop'] / $tickets, 2);
+        $ticketsBySeller[$sid]['avg_units_per_ticket'] = $t['tickets_count'] > 0 ? round($t['units_total'] / $t['tickets_count'], 2) : null;
+        unset($ticketsBySeller[$sid]['sum_ticket_usd'], $ticketsBySeller[$sid]['sum_ticket_cop'], $ticketsBySeller[$sid]['units_total']);
+    }
+
+    // global tickets summary
+    $globalTicketsSummary = [
+        'tickets_count' => 0,
+        'avg_ticket_usd' => null,
+        'avg_ticket_cop' => null,
+        'max_ticket_usd' => null,
+        'max_ticket_cop' => null,
+        'min_ticket_usd' => null,
+        'min_ticket_cop' => null,
+        'avg_units_per_ticket' => null,
+        'best_seller_by_avg_ticket' => null,
+    ];
+
+    $totalTicketsGlobal = $globalTicketRows->count();
+    $totalUnitsGlobal = $globalTicketRows->sum(fn($r) => (int) $r->units_count);
+    $totalUsdGlobal = $globalTicketRows->sum(fn($r) => (float) $r->ticket_usd);
+    $totalCopGlobal = $globalTicketRows->sum(fn($r) => (float) $r->ticket_cop);
+
+    if ($totalTicketsGlobal > 0) {
+        $globalTicketsSummary['tickets_count'] = $totalTicketsGlobal;
+        $globalTicketsSummary['avg_ticket_usd'] = round($totalUsdGlobal / $totalTicketsGlobal, 2);
+        $globalTicketsSummary['avg_ticket_cop'] = round($totalCopGlobal / $totalTicketsGlobal, 2);
+        $globalTicketsSummary['max_ticket_usd'] = $globalTicketRows->max('ticket_usd');
+        $globalTicketsSummary['max_ticket_cop'] = $globalTicketRows->max('ticket_cop');
+        $globalTicketsSummary['min_ticket_usd'] = $globalTicketRows->min('ticket_usd');
+        $globalTicketsSummary['min_ticket_cop'] = $globalTicketRows->min('ticket_cop');
+        $globalTicketsSummary['avg_units_per_ticket'] = $totalTicketsGlobal > 0 ? round($totalUnitsGlobal / $totalTicketsGlobal, 2) : null;
+
+        $bestSid = null;
+        $bestAvg = null;
+        foreach ($ticketsBySeller as $sid => $m) {
+            if (isset($m['avg_ticket_usd'])) {
+                if (is_null($bestAvg) || $m['avg_ticket_usd'] > $bestAvg) {
+                    $bestAvg = $m['avg_ticket_usd'];
+                    $bestSid = $sid;
+                }
             }
-            $entry = &$ticketsBySeller[$sid];
-            $entry['tickets_count'] += 1;
-            $entry['sum_ticket_usd'] += (float)$t->ticket_usd;
-            $entry['sum_ticket_cop'] += (float)$t->ticket_cop;
-            $entry['units_total'] += (int)$t->units_count;
-
-            $usd = (float)$t->ticket_usd;
-            $cop = (float)$t->ticket_cop;
-
-            if (is_null($entry['max_ticket_usd']) || $usd > $entry['max_ticket_usd']) $entry['max_ticket_usd'] = $usd;
-            if (is_null($entry['min_ticket_usd']) || $usd < $entry['min_ticket_usd']) $entry['min_ticket_usd'] = $usd;
-            if (is_null($entry['max_ticket_cop']) || $cop > $entry['max_ticket_cop']) $entry['max_ticket_cop'] = $cop;
-            if (is_null($entry['min_ticket_cop']) || $cop < $entry['min_ticket_cop']) $entry['min_ticket_cop'] = $cop;
-            unset($entry);
         }
 
-        foreach ($ticketsBySeller as $sid => $t) {
-            $tickets = $t['tickets_count'] ?: 1;
-            $ticketsBySeller[$sid]['avg_ticket_usd'] = round($t['sum_ticket_usd'] / $tickets, 2);
-            $ticketsBySeller[$sid]['avg_ticket_cop'] = round($t['sum_ticket_cop'] / $tickets, 2);
-            $ticketsBySeller[$sid]['avg_units_per_ticket'] = $t['tickets_count'] > 0 ? round($t['units_total'] / $t['tickets_count'], 2) : null;
-            unset($ticketsBySeller[$sid]['sum_ticket_usd'], $ticketsBySeller[$sid]['sum_ticket_cop'], $ticketsBySeller[$sid]['units_total']);
+        if ($bestSid !== null) {
+            $bestUser = User::select('id', 'name')->find($bestSid);
+            $globalTicketsSummary['best_seller_by_avg_ticket'] = $bestUser ? ['user_id' => $bestUser->id, 'seller' => $bestUser->name, 'avg_ticket_usd' => $bestAvg] : null;
         }
+    }
 
-        // global tickets summary
-        $globalTicketsSummary = [
+    // --- SELLERS: use sales totals + users table (fast) ---
+    $rows = $query->get();
+
+    // Attach ticket metrics
+    $rows = $rows->map(function ($r) use ($ticketsBySeller) {
+        $sid = (int) $r->user_id;
+        $ticketMetrics = $ticketsBySeller[$sid] ?? [
             'tickets_count' => 0,
             'avg_ticket_usd' => null,
             'avg_ticket_cop' => null,
-            'max_ticket_usd' => null,
-            'max_ticket_cop' => null,
-            'min_ticket_usd' => null,
-            'min_ticket_cop' => null,
             'avg_units_per_ticket' => null,
-            'best_seller_by_avg_ticket' => null,
+            'max_ticket_usd' => null,
+            'min_ticket_usd' => null,
         ];
+        $r->tickets = $ticketMetrics;
+        return $r;
+    });
 
-        $totalTicketsGlobal = $globalTicketRows->count();
-        $totalUnitsGlobal = $globalTicketRows->sum(fn($r) => (int)$r->units_count);
-        $totalUsdGlobal = $globalTicketRows->sum(fn($r) => (float)$r->ticket_usd);
-        $totalCopGlobal = $globalTicketRows->sum(fn($r) => (float)$r->ticket_cop);
+    // avg_trm per user using trms table (calculate only for users returned)
+    if ($rows->isNotEmpty()) {
+        $userIds = $rows->pluck('user_id')->unique()->values()->all();
 
-        if ($totalTicketsGlobal > 0) {
-            $globalTicketsSummary['tickets_count'] = $totalTicketsGlobal;
-            $globalTicketsSummary['avg_ticket_usd'] = round($totalUsdGlobal / $totalTicketsGlobal, 2);
-            $globalTicketsSummary['avg_ticket_cop'] = round($totalCopGlobal / $totalTicketsGlobal, 2);
-            $globalTicketsSummary['max_ticket_usd'] = $globalTicketRows->max('ticket_usd');
-            $globalTicketsSummary['max_ticket_cop'] = $globalTicketRows->max('ticket_cop');
-            $globalTicketsSummary['min_ticket_usd'] = $globalTicketRows->min('ticket_usd');
-            $globalTicketsSummary['min_ticket_cop'] = $globalTicketRows->min('ticket_cop');
-            $globalTicketsSummary['avg_units_per_ticket'] = $totalTicketsGlobal > 0 ? round($totalUnitsGlobal / $totalTicketsGlobal, 2) : null;
+        $saleDatesPerUserQuery = Sale::query()
+            ->whereIn('seller_id', $userIds)
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+            ->whereBetween('sale_date', [$startDate, $endDate]);
 
-            $bestSid = null;
-            $bestAvg = null;
-            foreach ($ticketsBySeller as $sid => $m) {
-                if (isset($m['avg_ticket_usd'])) {
-                    if (is_null($bestAvg) || $m['avg_ticket_usd'] > $bestAvg) {
-                        $bestAvg = $m['avg_ticket_usd'];
-                        $bestSid = $sid;
-                    }
-                }
+        if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+            $saleDatesPerUserQuery->whereIn('sales.budget_id', $budgetIds);
+        }
+
+        $saleDatesPerUser = $saleDatesPerUserQuery
+            ->select('seller_id', 'sale_date')
+            ->distinct()
+            ->get()
+            ->groupBy('seller_id')
+            ->map(function ($g) {
+                return $g->pluck('sale_date')->unique()->values()->all();
+            });
+
+        $allDates = [];
+        foreach ($saleDatesPerUser as $dates) {
+            foreach ($dates as $d) {
+                $allDates[$d] = true;
             }
+        }
+        $allDates = array_keys($allDates);
 
-            if ($bestSid !== null) {
-                $bestUser = User::select('id','name')->find($bestSid);
-                $globalTicketsSummary['best_seller_by_avg_ticket'] = $bestUser ? ['user_id' => $bestUser->id, 'seller' => $bestUser->name, 'avg_ticket_usd' => $bestAvg] : null;
+        $trmByDate = [];
+        if (!empty($allDates)) {
+            $trmRows = DB::connection('budget')->table('trms')
+                ->select('date', DB::raw('AVG(value) as avg_value'))
+                ->whereIn('date', $allDates)
+                ->groupBy('date')
+                ->get();
+
+            foreach ($trmRows as $t) {
+                $trmByDate[$t->date] = (float) $t->avg_value;
             }
         }
 
-        // --- SELLERS: use budget_user_totals + users table (fast) ---
-        $rows = $query->get();
-
-        // Attach ticket metrics
-        $rows = $rows->map(function ($r) use ($ticketsBySeller) {
-            $sid = (int)$r->user_id;
-            $ticketMetrics = $ticketsBySeller[$sid] ?? [
-                'tickets_count' => 0,
-                'avg_ticket_usd' => null,
-                'avg_ticket_cop' => null,
-                'avg_units_per_ticket' => null,
-                'max_ticket_usd' => null,
-                'min_ticket_usd' => null,
-            ];
-            $r->tickets = $ticketMetrics;
+        $rows = $rows->map(function ($r) use ($saleDatesPerUser, $trmByDate) {
+            $userId = $r->user_id;
+            $dates = $saleDatesPerUser[$userId] ?? [];
+            $vals = [];
+            foreach ($dates as $d) {
+                if (isset($trmByDate[$d])) $vals[] = $trmByDate[$d];
+            }
+            if (!empty($vals)) {
+                $avg = array_sum($vals) / count($vals);
+                $r->avg_trm = round($avg, 2);
+            } else {
+                $r->avg_trm = null;
+            }
             return $r;
         });
 
-        // avg_trm per user using trms table (calculate only for users returned)
-        if ($rows->isNotEmpty()) {
-            $userIds = $rows->pluck('user_id')->unique()->values()->all();
-
-            $saleDatesPerUserQuery = Sale::query()
-                ->whereIn('seller_id', $userIds)
-                ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
-                ->whereBetween('sale_date', [$startDate, $endDate]);
-
-            if (Schema::hasColumn('sales','budget_id') && !empty($budgetIds)) {
-                $saleDatesPerUserQuery->whereIn('sales.budget_id', $budgetIds);
-            }
-
-            $saleDatesPerUser = $saleDatesPerUserQuery
-                ->select('seller_id', 'sale_date')
-                ->distinct()
-                ->get()
-                ->groupBy('seller_id')
-                ->map(function ($g) {
-                    return $g->pluck('sale_date')->unique()->values()->all();
-                });
-
-            $allDates = [];
-            foreach ($saleDatesPerUser as $dates) {
-                foreach ($dates as $d) {
-                    $allDates[$d] = true;
-                }
-            }
-            $allDates = array_keys($allDates);
-
-            $trmByDate = [];
-            if (!empty($allDates)) {
-                $trmRows = DB::connection('budget')->table('trms')
-                    ->select('date', DB::raw('AVG(value) as avg_value'))
-                    ->whereIn('date', $allDates)
-                    ->groupBy('date')
-                    ->get();
-
-                foreach ($trmRows as $t) {
-                    $trmByDate[$t->date] = (float)$t->avg_value;
-                }
-            }
-
-            $rows = $rows->map(function ($r) use ($saleDatesPerUser, $trmByDate) {
-                $userId = $r->user_id;
-                $dates = $saleDatesPerUser[$userId] ?? [];
-                $vals = [];
-                foreach ($dates as $d) {
-                    if (isset($trmByDate[$d])) $vals[] = $trmByDate[$d];
-                }
-                if (!empty($vals)) {
-                    $avg = array_sum($vals) / count($vals);
-                    $r->avg_trm = round($avg, 2);
-                } else {
-                    $r->avg_trm = null;
-                }
-                return $r;
-            });
-
-            $rows = $rows->map(function ($r) {
-                $commissionUsd = null;
-
-                if (
-                    isset($r->total_commission_cop) &&
-                    $r->total_commission_cop > 0 &&
-                    isset($r->avg_trm) &&
-                    $r->avg_trm > 0
-                ) {
-                    $commissionUsd = round($r->total_commission_cop / $r->avg_trm, 2);
-                }
-
-                $r->total_commission_usd = $commissionUsd;
-                return $r;
-            });
-        }
-
-        // global progress based on Sale totals (USD)
-        $totalUsdQuery = Sale::query()
-            ->whereBetween('sale_date', [$startDate, $endDate])
-            ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
-
-        if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
-            $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
-        }
-
-        $totalUsd = (float)$totalUsdQuery->sum(DB::raw('COALESCE(value_usd,0)'));
-
-        // For global pct computations use aggregated target amount (multi) or single budget target
-        $pct = ($targetAmount > 0) ? round(($totalUsd / $targetAmount) * 100, 2) : 0;
-        $isProvisionalGlobal = $pct < $this->MIN_PCT_TO_QUALIFY;
-
-        $requiredUsd = round($targetAmount * ($this->MIN_PCT_TO_QUALIFY / 100), 2);
-        $missingUsd = max(0, round($requiredUsd - $totalUsd, 2));
-
-        // total assigned across budgets
-        $totalAssigned = (int) DB::connection('budget')->table('budget_user_turns')
-            ->whereIn('budget_id', $budgetIds)
-            ->sum('assigned_turns');
-
-        $remainingTurns = max(0, $totalTurns - $totalAssigned);
-
-        // totals from aggregated table
-        $totalCommissionCop = (float) DB::connection('budget')->table('budget_user_totals')
-            ->whereIn('budget_id', $budgetIds)
-            ->sum('total_commission_cop');
-
-        // compute totalCopGlobal and totalUsdGlobal from categoryTotalsRaw (used for TRM fallback)
-        $totalCopFromCategoryTotals = 0.0;
-        $totalUsdFromCategoryTotals = 0.0;
-        foreach ($categoryTotalsRaw as $v) {
-            $totalCopFromCategoryTotals += $v['sales_cop'];
-            $totalUsdFromCategoryTotals += $v['sales_usd'];
-        }
-
-        // Prefer commission USD derived from category-level commission_usd if present
-        $totalCommissionUsd = null;
-        $sumFromCategories = 0.0;
-        foreach ($categoryTotalsRaw as $k => $v) {
-            $salesUsd = $v['sales_usd'];
-            $salesCop = $v['sales_cop'];
-            $commCop = $v['commission_cop'];
+        $rows = $rows->map(function ($r) {
             $commissionUsd = null;
-            if ($salesUsd > 0 && $salesCop > 0) {
-                $trm = $salesCop / $salesUsd;
-                if ($trm > 0) $commissionUsd = round($commCop / $trm, 2);
-            }
-            $sumFromCategories += ($commissionUsd ?? 0);
-        }
 
-        if ($sumFromCategories > 0) {
-            $totalCommissionUsd = round($sumFromCategories, 2);
-        } elseif ($totalCommissionCop > 0 && $totalUsd > 0) {
-            // derive global TRM from totals of sales_cop and sales_usd (category totals preferred)
-            $trmGlobal = ($totalUsdFromCategoryTotals > 0) ? ($totalCopFromCategoryTotals / $totalUsdFromCategoryTotals) : null;
-            if (empty($trmGlobal) && $totalUsd > 0 && $totalUsdFromCategoryTotals == 0) {
-                // fallback to global sales trm
-                $totalCopGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')->whereIn('budget_id', $budgetIds)->sum('total_sales_cop');
-                $totalUsdGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')->whereIn('budget_id', $budgetIds)->sum('total_sales_usd');
-                $trmGlobal = ($totalUsdGlobalFromSales > 0) ? ($totalCopGlobalFromSales / $totalUsdGlobalFromSales) : null;
-            }
-            if ($trmGlobal && $trmGlobal > 0) $totalCommissionUsd = round($totalCommissionCop / $trmGlobal, 2);
-        }
-
-        // Build categories_summary for response (using participationByCode + categoryTotalsRaw)
-        $categoriesSummary = [];
-        foreach ($categoryTotalsRaw as $norm => $data) {
-            $participation = $participationByCode[$norm] ?? 0.0;
-            $categoryBudgetUsd = round($targetAmount * ($participation / 100), 2);
-            $salesUsd = round($data['sales_usd'], 2);
-            $salesCop = round($data['sales_cop'], 2);
-            $pctOfCategory = $categoryBudgetUsd > 0 ? round(($salesUsd / $categoryBudgetUsd) * 100, 2) : null;
-            $qualifies = ($pctOfCategory !== null) && ($pctOfCategory >= $this->MIN_PCT_TO_QUALIFY);
-            $commissionCop = round($data['commission_cop'], 2);
-            $commissionUsd = null;
-            if ($salesUsd > 0 && $salesCop > 0) {
-                $trm = $salesCop / $salesUsd;
-                if ($trm > 0) $commissionUsd = round($commissionCop / $trm, 2);
+            if (
+                isset($r->total_commission_cop) &&
+                $r->total_commission_cop > 0 &&
+                isset($r->avg_trm) &&
+                $r->avg_trm > 0
+            ) {
+                $commissionUsd = round($r->total_commission_cop / $r->avg_trm, 2);
             }
 
-            $categoriesSummary[$norm] = [
-                'classification' => $norm,
-                'participation_pct' => $participation,
-                'category_budget_usd' => $categoryBudgetUsd, // GLOBAL budget per category (dashboard)
-                'sales_usd' => $salesUsd,
-                'sales_cop' => $salesCop,
-                'pct_of_category' => $pctOfCategory,
-                'qualifies' => $qualifies,
-                'commission_cop' => $commissionCop,
-                'commission_usd' => $commissionUsd,
-                'category_name' => $this->categoryName($norm),
-            ];
-        }
-
-        // ordenar categorías usando la clave 'classification' (norm)
-        uasort($categoriesSummary, function ($a, $b) {
-            return $this->categoryOrder($a['classification']) <=> $this->categoryOrder($b['classification']);
+            $r->total_commission_usd = $commissionUsd;
+            return $r;
         });
-
-        return response()->json([
-            'active' => true,
-            'currency' => 'COP',
-            'budget' => [
-                'ids' => $budgetIds,
-                'name' => count($budgetIds) === 1 ? $budgets->first()->name : 'Múltiples presupuestos',
-                'start_date' => $startDate,
-                'end_date' => $endDate,
-                'target_amount' => $targetAmount,
-                'min_pct_to_qualify' => $this->MIN_PCT_TO_QUALIFY,
-                'total_turns' => $totalTurns
-            ],
-            'progress' => [
-                'pct' => $pct,
-                'min_pct' => $this->MIN_PCT_TO_QUALIFY,
-                'missing_usd' => $missingUsd,
-                'is_provisional_global' => $isProvisionalGlobal,
-                'total_usd' => round($totalUsd, 2),
-                'required_usd' => $requiredUsd,
-                'total_commission_cop' => round($totalCommissionCop, 2),
-                'total_commission_usd' => $totalCommissionUsd,
-            ],
-            'categories_summary' => array_values($categoriesSummary),
-            'tickets_summary' => $globalTicketsSummary,
-            'turns' => [
-                'total' => $totalTurns,
-                'assigned_total' => $totalAssigned,
-                'remaining' => $remainingTurns,
-            ],
-            'sellers' => $rows
-        ]);
     }
 
+    // global progress based on Sale totals (USD)
+    $totalUsdQuery = Sale::query()
+        ->whereBetween('sale_date', [$startDate, $endDate])
+        ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
+
+    if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+        $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
+    }
+
+    $totalUsd = (float) $totalUsdQuery->sum(DB::raw('COALESCE(value_usd,0)'));
+
+    // For global pct computations use aggregated target amount (multi) or single budget target
+    $pct = ($targetAmount > 0) ? round(($totalUsd / $targetAmount) * 100, 2) : 0;
+    $isProvisionalGlobal = $pct < $this->MIN_PCT_TO_QUALIFY;
+
+    $requiredUsd = round($targetAmount * ($this->MIN_PCT_TO_QUALIFY / 100), 2);
+    $missingUsd = max(0, round($requiredUsd - $totalUsd, 2));
+
+    // total assigned across budgets
+    $totalAssigned = (int) DB::connection('budget')->table('budget_user_turns')
+        ->whereIn('budget_id', $budgetIds)
+        ->sum('assigned_turns');
+
+    $remainingTurns = max(0, $totalTurns - $totalAssigned);
+
+    // totals from aggregated table
+    $totalCommissionCop = (float) DB::connection('budget')->table('budget_user_totals')
+        ->whereIn('budget_id', $budgetIds)
+        ->sum('total_commission_cop');
+
+    // compute totalCopGlobal and totalUsdGlobal from categoryTotalsRaw (used for TRM fallback)
+    $totalCopFromCategoryTotals = 0.0;
+    $totalUsdFromCategoryTotals = 0.0;
+    foreach ($categoryTotalsRaw as $v) {
+        $totalCopFromCategoryTotals += $v['sales_cop'];
+        $totalUsdFromCategoryTotals += $v['sales_usd'];
+    }
+
+    // Prefer commission USD derived from category-level commission_usd if present
+    $totalCommissionUsd = null;
+    $sumFromCategories = 0.0;
+    foreach ($categoryTotalsRaw as $k => $v) {
+        $salesUsd = $v['sales_usd'];
+        $salesCop = $v['sales_cop'];
+        $commCop = $v['commission_cop'];
+        $commissionUsd = null;
+        if ($salesUsd > 0 && $salesCop > 0) {
+            $trm = $salesCop / $salesUsd;
+            if ($trm > 0) $commissionUsd = round($commCop / $trm, 2);
+        }
+        $sumFromCategories += ($commissionUsd ?? 0);
+    }
+
+    if ($sumFromCategories > 0) {
+        $totalCommissionUsd = round($sumFromCategories, 2);
+    } elseif ($totalCommissionCop > 0 && $totalUsd > 0) {
+        // derive global TRM from totals of sales_cop and sales_usd (category totals preferred)
+        $trmGlobal = ($totalUsdFromCategoryTotals > 0) ? ($totalCopFromCategoryTotals / $totalUsdFromCategoryTotals) : null;
+        if (empty($trmGlobal) && $totalUsd > 0 && $totalUsdFromCategoryTotals == 0) {
+            $totalCopGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')
+                ->whereIn('budget_id', $budgetIds)
+                ->sum('total_sales_cop');
+
+            $totalUsdGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')
+                ->whereIn('budget_id', $budgetIds)
+                ->sum('total_sales_usd');
+
+            $trmGlobal = ($totalUsdGlobalFromSales > 0) ? ($totalCopGlobalFromSales / $totalUsdGlobalFromSales) : null;
+        }
+
+        if ($trmGlobal && $trmGlobal > 0) $totalCommissionUsd = round($totalCommissionCop / $trmGlobal, 2);
+    }
+
+    // Build categories_summary for response (using participationByCode + categoryTotalsRaw)
+    $categoriesSummary = [];
+    foreach ($categoryTotalsRaw as $norm => $data) {
+        $participation = $participationByCode[$norm] ?? 0.0;
+        $categoryBudgetUsd = round($targetAmount * ($participation / 100), 2);
+        $salesUsd = round($data['sales_usd'], 2);
+        $salesCop = round($data['sales_cop'], 2);
+        $pctOfCategory = $categoryBudgetUsd > 0 ? round(($salesUsd / $categoryBudgetUsd) * 100, 2) : null;
+        $qualifies = ($pctOfCategory !== null) && ($pctOfCategory >= $this->MIN_PCT_TO_QUALIFY);
+        $commissionCop = round($data['commission_cop'], 2);
+        $commissionUsd = null;
+        if ($salesUsd > 0 && $salesCop > 0) {
+            $trm = $salesCop / $salesUsd;
+            if ($trm > 0) $commissionUsd = round($commissionCop / $trm, 2);
+        }
+
+        $categoriesSummary[$norm] = [
+            'classification' => $norm,
+            'participation_pct' => $participation,
+            'category_budget_usd' => $categoryBudgetUsd,
+            'sales_usd' => $salesUsd,
+            'sales_cop' => $salesCop,
+            'pct_of_category' => $pctOfCategory,
+            'qualifies' => $qualifies,
+            'commission_cop' => $commissionCop,
+            'commission_usd' => $commissionUsd,
+            'category_name' => $this->categoryName($norm),
+        ];
+    }
+
+    uasort($categoriesSummary, function ($a, $b) {
+        return $this->categoryOrder($a['classification']) <=> $this->categoryOrder($b['classification']);
+    });
+
+    return response()->json([
+        'active' => true,
+        'currency' => 'COP',
+        'budget' => [
+            'ids' => $budgetIds,
+            'name' => count($budgetIds) === 1 ? $budgets->first()->name : 'Múltiples presupuestos',
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'target_amount' => $targetAmount,
+            'min_pct_to_qualify' => $this->MIN_PCT_TO_QUALIFY,
+            'total_turns' => $totalTurns
+        ],
+        'progress' => [
+            'pct' => $pct,
+            'min_pct' => $this->MIN_PCT_TO_QUALIFY,
+            'missing_usd' => $missingUsd,
+            'is_provisional_global' => $isProvisionalGlobal,
+            'total_usd' => round($totalUsd, 2),
+            'required_usd' => $requiredUsd,
+            'total_commission_cop' => round($totalCommissionCop, 2),
+            'total_commission_usd' => $totalCommissionUsd,
+        ],
+        'categories_summary' => array_values($categoriesSummary),
+        'tickets_summary' => $globalTicketsSummary,
+        'turns' => [
+            'total' => $totalTurns,
+            'assigned_total' => $totalAssigned,
+            'remaining' => $remainingTurns,
+        ],
+        'sellers' => $rows
+    ]);
+}
     /**
      * Detail per seller using aggregated tables where possible and fallback to sales for ticket-level rows.
      *

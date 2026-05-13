@@ -412,7 +412,6 @@ protected function parseDate($value, string $context = 'sale'): ?string
     {
         $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
-            'store_id' => ['required', 'integer', 'exists:budget.stores,id'],
         ]);
 
         $file = $request->file('file');
@@ -423,11 +422,6 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ->where('id', $selectedStoreId)
             ->first();
 
-        if (!$selectedStore) {
-            return response()->json([
-                'message' => 'La tienda seleccionada no existe.',
-            ], 422);
-        }
 
         $checksum = hash('sha256', file_get_contents($file->getRealPath()));
 
@@ -939,7 +933,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     $request->validate([
         'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
-        'store_id' => ['required', 'integer', 'exists:budget.stores,id'],
+        'store_id' => ['nullable'],
     ]);
 
     return $this->import($request);
