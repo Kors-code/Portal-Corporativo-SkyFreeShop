@@ -92,7 +92,10 @@ Route::post('/inventory/import-automation', [InventoryImportController::class, '
 Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
 Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
     
-
+Route::patch(
+    '/budgets/{id}/cashier-prizes',
+    [BudgetController::class, 'updateCashierPrizes']
+);
 
     // Budget 
         

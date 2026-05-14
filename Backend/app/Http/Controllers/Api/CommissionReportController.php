@@ -813,12 +813,28 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         }
 
         // categories for user from aggregated table (SUM across selected budgets)
-        $userCategoryRows = DB::connection('budget')->table('budget_user_category_totals')
-            ->whereIn('budget_id', $budgetIds)
-            ->where('user_id', $userId)
-            ->selectRaw('category_group, SUM(sales_usd) AS sales_usd, SUM(sales_cop) AS sales_cop, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
-            ->groupBy('category_group')
-            ->get();
+        $userCategoryRows = DB::connection('budget')
+    ->table('sales')
+    ->leftJoin('products', 'sales.product_id', '=', 'products.id')
+    ->where('sales.seller_id', $userId)
+    ->whereBetween('sales.sale_date', [$startDate, $endDate])
+    ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+    ->when(
+        Schema::connection('budget')->hasColumn('sales', 'budget_id'),
+        fn($q) => $q->whereIn('sales.budget_id', $budgetIds)
+    )
+    ->selectRaw("
+        products.classification as category_group,
+        SUM(COALESCE(sales.value_usd,0)) AS sales_usd,
+        SUM(COALESCE(sales.amount_cop,0)) AS sales_cop
+    ")
+    ->groupBy('products.classification')
+    ->get()
+    ->map(function ($r) {
+        $r->commission_cop = 0;
+        $r->applied_pct = null;
+        return $r;
+    });
 
         // aggregate participation map for budgets (global participation)
         $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
@@ -942,11 +958,17 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         });
 
         // user totals from budget_user_totals (aggregate for selected budgets)
-        $userTotals = DB::connection('budget')->table('budget_user_totals')
-            ->whereIn('budget_id', $budgetIds)
-            ->where('user_id', $userId)
-            ->selectRaw('COALESCE(SUM(total_sales_usd),0) as total_sales_usd, COALESCE(SUM(total_sales_cop),0) as total_sales_cop, COALESCE(SUM(total_commission_cop),0) as total_commission_cop')
-            ->first();
+        $userTotals = (object)[
+                'total_sales_usd' => round((float)$sales->sum('value_usd'), 2),
+                'total_sales_cop' => round((float)$sales->sum('amount_cop'), 2),
+
+                // La comisión sigue viniendo de agregados
+                'total_commission_cop' => (float) DB::connection('budget')
+                    ->table('budget_user_totals')
+                    ->whereIn('budget_id', $budgetIds)
+                    ->where('user_id', $userId)
+                    ->sum('total_commission_cop')
+            ];
 
         // Totals: ensure total_commission_usd computed from category-level commissions when possible
         $totalCommissionUsdFromCats = 0.0;

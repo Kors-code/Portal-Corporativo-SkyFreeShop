@@ -220,5 +220,42 @@ public function close($id)
         'budget' => $budget
     ]);
 }
+    public function updateCashierPrizes(Request $request, $id)
+{
+    $validated = $request->validate([
+        'cashier_prize_80'  => ['required', 'numeric', 'min:0'],
+        'cashier_prize_100' => ['required', 'numeric', 'min:0'],
+        'cashier_prize_120' => ['required', 'numeric', 'min:0'],
+    ]);
+
+    $budget = DB::connection('budget')
+        ->table('budgets')
+        ->where('id', $id)
+        ->first();
+
+    if (!$budget) {
+        return response()->json([
+            'message' => 'Budget no encontrado'
+        ], 404);
+    }
+
+    DB::connection('budget')
+        ->table('budgets')
+        ->where('id', $id)
+        ->update([
+            'cashier_prize_80'  => $validated['cashier_prize_80'],
+            'cashier_prize_100' => $validated['cashier_prize_100'],
+            'cashier_prize_120' => $validated['cashier_prize_120'],
+
+            // compatibilidad temporal
+            'cashier_prize' => $validated['cashier_prize_120'],
+
+            'updated_at' => now(),
+        ]);
+
+    return response()->json([
+        'message' => 'Premiaciones actualizadas correctamente'
+    ]);
+}
 
 }
