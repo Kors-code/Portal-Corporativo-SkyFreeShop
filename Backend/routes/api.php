@@ -18,7 +18,6 @@ use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 
 
-
 Route::get('/test-api', function () {
     return response()->json([
         'ok' => true

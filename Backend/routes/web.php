@@ -37,6 +37,7 @@ use App\Http\Controllers\ApiInventarios\InventoryController;
 use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
 use App\Http\Controllers\ProductCatalogImportController;
 use App\Http\Controllers\importAutomation;
+use App\Http\Controllers\Api\AdvisorBudgetController;
 
 
 /*
@@ -284,6 +285,11 @@ Route::middleware('auth')->group(function () {
     /* ---------------------------------------------------------------------- */
 
     Route::prefix('api/v1')->middleware(['auth'])->group(function () {
+
+    // Presupuesto Asesores Especializados
+
+    Route::get('/advisor-budgets', [AdvisorBudgetController::class, 'show']);
+    Route::post('/advisor-budgets', [AdvisorBudgetController::class, 'store']);
 
         /* ---------------------- Permissions / Roles ------------------------ */
         Route::get('/permissions', [PermissionController::class, 'permissions'])

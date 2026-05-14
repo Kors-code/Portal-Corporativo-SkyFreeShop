@@ -196,132 +196,10 @@ class AdvisorController extends Controller
        SPLIT (guardar/leer)
        ====================== */
 
-    public function saveAdvisorSplit(Request $r)
-    {
-        $data = $r->validate([
-            'budget_id' => 'required|integer',
-            'advisor_a_id' => 'required|integer',
-            'advisor_a_pct' => 'required|numeric|min:0|max:100',
-            'advisor_b_id' => 'required|integer',
-            'advisor_b_pct' => 'required|numeric|min:0|max:100',
-        ]);
+   
 
-        $budgetId = (int)$data['budget_id'];
-        $aId = (int)$data['advisor_a_id'];
-        $bId = (int)$data['advisor_b_id'];
-        $aPct = (float)$data['advisor_a_pct'];
-        $bPct = (float)$data['advisor_b_pct'];
-
-        $sum = $aPct + $bPct;
-        if ($sum <= 0) {
-            return response()->json(['message' => 'Porcentajes inválidos'], 422);
-        }
-        if (abs($sum - 100.0) > 0.01) {
-            $aPct = round(($aPct / $sum) * 100, 2);
-            $bPct = round(100 - $aPct, 2);
-        }
-
-        $actor = auth()->id();
-
-        DB::connection('budget')->table('advisor_splits')->updateOrInsert(
-            ['budget_id' => $budgetId],
-            [
-                'advisor_a_id' => $aId,
-                'advisor_a_pct' => $aPct,
-                'advisor_b_id' => $bId,
-                'advisor_b_pct' => $bPct,
-                'updated_by' => $actor,
-                'updated_at' => now(),
-                'created_at' => DB::raw('COALESCE(created_at, NOW())')
-            ]
-        );
-
-        return response()->json(['message' => 'Split guardado', 'budget_id' => $budgetId]);
-    }
-
-    public function getAdvisorSplit(Request $r)
-    {
-        $data = $r->validate(['budget_id' => 'required|integer']);
-        $budgetId = (int)$data['budget_id'];
-
-        $row = DB::connection('budget')->table('advisor_splits')->where('budget_id', $budgetId)->first();
-        if (!$row) {
-            return response()->json([], 200);
-        }
-
-        $budgetRow = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
-        $targetAmount = $budgetRow ? ($budgetRow->target_amount ?? ($budgetRow->amount ?? 0)) : 0;
-
-        $advisorPctRow = DB::connection('budget')->table('category_commissions')
-            ->where('category_id', self::ADVISOR_CATEGORY_ID)
-            ->where('budget_id', $budgetId)
-            ->selectRaw('AVG(COALESCE(participation_pct,0)) as pct')
-            ->first();
-        $advisorPct = (float)($advisorPctRow->pct ?? 0);
-        $advisorPoolUsd = round($targetAmount * ($advisorPct / 100), 2);
-
-        $aPct = (float)($row->advisor_a_pct ?? 0);
-        $bPct = (float)($row->advisor_b_pct ?? 0);
-
-        $aAssigned = round($advisorPoolUsd * ($aPct / 100), 2);
-        $bAssigned = round($advisorPoolUsd * ($bPct / 100), 2);
-
-        return response()->json([
-            'budget_id' => $budgetId,
-            'advisor_pool_usd' => $advisorPoolUsd,
-            'advisor_a_id' => $row->advisor_a_id,
-            'advisor_a_pct' => $aPct,
-            'advisor_a_assigned_usd' => $aAssigned,
-            'advisor_b_id' => $row->advisor_b_id,
-            'advisor_b_pct' => $bPct,
-            'advisor_b_assigned_usd' => $bAssigned,
-            'saved_at' => $row->updated_at ?? $row->created_at,
-        ]);
-    }
-
-    public function splitAdvisorPool(Request $r)
-    {
-        $data = $r->validate([
-            'budget_id' => 'required|integer',
-            'advisor_a_pct' => 'required|numeric|min:0|max:100',
-            'advisor_b_pct' => 'required|numeric|min:0|max:100',
-        ]);
-
-        $budgetId = (int)$data['budget_id'];
-        $aPct = (float)$data['advisor_a_pct'];
-        $bPct = (float)$data['advisor_b_pct'];
-
-        $sum = $aPct + $bPct;
-        if ($sum <= 0) return response()->json(['message'=>'Porcentajes inválidos'], 422);
-
-        if (abs($sum - 100) > 0.01) {
-            $aPct = round(($aPct / $sum) * 100, 2);
-            $bPct = round(100 - $aPct, 2);
-        }
-
-        $budget = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
-        if (!$budget) return response()->json(['message'=>'Budget no encontrado'], 404);
-
-        $targetAmount = $budget->target_amount ?? ($budget->amount ?? 0);
-
-        $advisorPctRow = DB::connection('budget')->table('category_commissions')
-            ->where('category_id', self::ADVISOR_CATEGORY_ID)
-            ->where('budget_id', $budgetId)
-            ->selectRaw('AVG(COALESCE(participation_pct,0)) as pct')
-            ->first();
-        $advisorPct = (float)($advisorPctRow->pct ?? 0);
-        $advisorPoolUsd = round($targetAmount * ($advisorPct / 100), 2);
-
-        $advisorAUsd = round($advisorPoolUsd * ($aPct / 100), 2);
-        $advisorBUsd = round($advisorPoolUsd * ($bPct / 100), 2);
-
-        return response()->json([
-            'advisor_pool_usd' => $advisorPoolUsd,
-            'advisor_a' => ['pct' => $aPct, 'assigned_usd' => $advisorAUsd],
-            'advisor_b' => ['pct' => $bPct, 'assigned_usd' => $advisorBUsd]
-        ]);
-    }
-
+    
+   
     /**
      * computeAdvisorSplitWithOverrides
      * Similar to your original but hardened & clearer; returns per-line assigned budgets and sales.
@@ -1082,629 +960,673 @@ public function activeSpecialistsSales(Request $request)
         'user_id' => 'nullable|integer',
     ]);
 
-    $budgetId = isset($data['budget_id']) ? (int)$data['budget_id'] : null;
+    $budgetId = isset($data['budget_id']) ? (int) $data['budget_id'] : null;
     $businessLine = $data['business_line'] ?? null;
-    $forcedUserId = isset($data['user_id']) ? (int)$data['user_id'] : null;
+    $forcedUserId = isset($data['user_id']) ? (int) $data['user_id'] : null;
+
+    if (!$budgetId) {
+        return response()->json([
+            'count' => 0,
+            'message' => 'budget_id es requerido.',
+            'specialist' => null,
+            'specialist_name' => null,
+            'business_line' => $businessLine,
+            'budget_id' => null,
+            'totals' => ['sales_usd' => 0, 'sales_cop' => 0],
+            'user_budget_usd' => 0,
+            'breakdown' => [],
+            'sales' => [],
+            'detail_totals' => null,
+            'tickets' => [],
+            'tickets_summary' => null,
+            'days_worked' => [],
+            'assigned_turns_for_user' => 0,
+        ], 200);
+    }
 
     $roleId = null;
     if ($businessLine === 'parbel') {
-        $roleId = 4; // ajusta si es necesario
+        $roleId = 4;
     } elseif ($businessLine === 'montblanc') {
-        $roleId = 5; // ajusta si es necesario
+        $roleId = 5;
     }
 
-    // resolver especialista (activo o por user_id forzado)
+    // especialista activo
     $specialist = null;
     if (!$forcedUserId) {
         $specQ = DB::connection('budget')->table('advisor_specialists')->whereNull('valid_to');
-        if ($budgetId) $specQ->where('budget_id', $budgetId);
-        if ($businessLine) $specQ->where('business_line', $businessLine);
+        if ($budgetId) {
+            $specQ->where('budget_id', $budgetId);
+        }
+        if ($businessLine) {
+            $specQ->where('business_line', $businessLine);
+        }
         $specialist = $specQ->first();
     } else {
         $specRow = DB::connection('budget')->table('advisor_specialists')
             ->where('user_id', $forcedUserId)
-            ->when($budgetId, fn($q) => $q->where('budget_id', $budgetId))
-            ->when($businessLine, fn($q) => $q->where('business_line', $businessLine))
+            ->when($budgetId, fn ($q) => $q->where('budget_id', $budgetId))
+            ->when($businessLine, fn ($q) => $q->where('business_line', $businessLine))
             ->orderByDesc('valid_from')
             ->first();
-        if ($specRow) $specialist = $specRow;
+
+        if ($specRow) {
+            $specialist = $specRow;
+        }
     }
 
     $userId = $forcedUserId ?: ($specialist->user_id ?? null);
+
     if (!$userId) {
         return response()->json([
             'count' => 0,
             'message' => 'No se encontró especialista activo (ni user_id provisto).',
-            'specialist' => $specialist
+            'specialist' => $specialist,
+            'specialist_name' => null,
+            'business_line' => $businessLine,
+            'budget_id' => $budgetId,
+            'totals' => ['sales_usd' => 0, 'sales_cop' => 0],
+            'user_budget_usd' => 0,
+            'breakdown' => [],
+            'sales' => [],
+            'detail_totals' => null,
+            'tickets' => [],
+            'tickets_summary' => null,
+            'days_worked' => [],
+            'assigned_turns_for_user' => 0,
         ], 200);
     }
 
-    $user = DB::connection('budget')->table('users')->select('id','name','codigo_vendedor')->where('id', $userId)->first();
+    $user = DB::connection('budget')
+        ->table('users')
+        ->select('id', 'name', 'codigo_vendedor')
+        ->where('id', $userId)
+        ->first();
 
-    // ----------------------------
-    // 1) CALCULO DEL POOL ADVISOR
-    // ----------------------------
+    // presupuesto global del budget
     $budgetRow = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
-    $budgetTotal = $budgetRow ? ($budgetRow->target_amount ?? ($budgetRow->amount ?? 0)) : 0;
+    $budgetTotal = $budgetRow ? (float) ($budgetRow->target_amount ?? ($budgetRow->amount ?? 0)) : 0.0;
 
+    // % del advisor pool
     $advisorPctRow = DB::connection('budget')->table('category_commissions')
         ->where('category_id', self::ADVISOR_CATEGORY_ID)
         ->where('budget_id', $budgetId)
         ->selectRaw('AVG(COALESCE(participation_pct,0)) as pct')
         ->first();
-    $advisorPct = (float)($advisorPctRow->pct ?? 0);
+
+    $advisorPct = (float) ($advisorPctRow->pct ?? 0);
     $advisorPoolUsd = round($budgetTotal * ($advisorPct / 100), 2);
 
-    // read advisor_splits for budget -> derive user assigned %
-    $userAssignedPct = 0.0;
+    // presupuesto del usuario, sumando lo guardado en user_category_budgets
+    $userBudgetUsd = 0.0;
     try {
-        $splitRow = DB::connection('budget')->table('advisor_splits')->where('budget_id', $budgetId)->first();
-        if ($splitRow) {
-            if ((int)$splitRow->advisor_a_id === (int)$userId) $userAssignedPct = (float)($splitRow->advisor_a_pct ?? 0);
-            elseif ((int)$splitRow->advisor_b_id === (int)$userId) $userAssignedPct = (float)($splitRow->advisor_b_pct ?? 0);
-            else $userAssignedPct = 0.0;
-        } else {
-            $userAssignedPct = 0.0;
+        $qUserBudget = DB::connection('budget')->table('user_category_budgets')
+            ->where('budget_id', $budgetId)
+            ->where('user_id', $userId);
+
+        if ($businessLine) {
+            $qUserBudget->where('business_line', $businessLine);
         }
+
+        $userBudgetUsd = (float) $qUserBudget->sum('budget_usd');
     } catch (\Throwable $e) {
-        Log::warning('Error leyendo advisor_splits: ' . $e->getMessage());
-        $userAssignedPct = 0.0;
+        $userBudgetUsd = 0.0;
     }
 
-    $userPoolUsd = round($advisorPoolUsd * ($userAssignedPct / 100.0), 2);
+    if ($userBudgetUsd <= 0) {
+        $userBudgetUsd = $advisorPoolUsd;
+    }
 
-    // ----------------------------
-    // Helpers
-    // ----------------------------
-    $fetchUserCategoryBudget = function($budgetId, $classification) {
-        if (Schema::connection('budget')->hasTable('user_category_budgets')) {
-            try {
-                $r = DB::connection('budget')->table('user_category_budgets')
-                    ->where('budget_id', $budgetId)
-                    ->where(function($q) use ($classification) {
-                        $q->where(DB::raw('CAST(category_classification AS CHAR)'), $classification)
-                          ->orWhere('category_id', $classification)
-                          ->orWhereRaw('LOWER(name) = ?', [mb_strtolower($classification)]);
-                    })->first();
-                if ($r) return (float)($r->budget_usd ?? 0);
-            } catch (\Throwable $e) { /* continue */ }
+    // participaciones por classification_code
+    $categoriesParticipation = [];
+    try {
+        $rows = DB::connection('budget')
+            ->table('category_commissions')
+            ->join('categories', 'categories.id', '=', 'category_commissions.category_id')
+            ->where('category_commissions.budget_id', $budgetId)
+            ->select(
+                'categories.classification_code',
+                DB::raw('AVG(COALESCE(category_commissions.participation_pct,0)) as participation_pct')
+            )
+            ->groupBy('categories.classification_code')
+            ->get();
+
+        foreach ($rows as $c) {
+            $categoriesParticipation[(string) $c->classification_code] = (float) $c->participation_pct;
         }
+    } catch (\Throwable $e) {
+        $categoriesParticipation = [];
+    }
+
+    // helpers
+    $normalizeKey = function ($raw) {
+        $raw = trim((string) ($raw ?? ''));
+        if ($raw === '') return '';
+        if (is_numeric($raw)) return (string) ((int) $raw);
+        return mb_strtolower($raw);
+    };
+
+    $sumParticipation = function (array $keys) use ($categoriesParticipation) {
+        $sum = 0.0;
+        foreach ($keys as $k) {
+            $sum += (float) ($categoriesParticipation[(string) $k] ?? 0);
+        }
+        return $sum;
+    };
+
+    $fetchUserCategoryBudget = function ($budgetId, $classification) use ($userId, $businessLine) {
+        $classification = trim((string) $classification);
+
+        // 1) tabla user_category_budgets
         try {
-            $m = UserCategoryBudget::where('budget_id', $budgetId)
-                ->where(function($q) use ($classification) {
-                    $q->where('category_classification', $classification)
-                      ->orWhere('category_id', $classification);
-                })->first();
-            if ($m) return (float)($m->budget_usd ?? 0);
-        } catch (\Throwable $e) { /* ignore */ }
+            $q = DB::connection('budget')->table('user_category_budgets')
+                ->where('budget_id', $budgetId)
+                ->where('user_id', $userId);
+
+            if ($businessLine) {
+                $q->where('business_line', $businessLine);
+            }
+
+            $row = $q->where(function ($qq) use ($classification) {
+                $qq->where(DB::raw('CAST(category_classification AS CHAR)'), $classification)
+                    ->orWhere('category_classification', $classification);
+            })->first();
+
+
+            
+            Log::info('fetchUserCategoryBudget', [
+                'budgetId' => $budgetId,
+                'userId' => $userId,
+                'classification' => $classification,
+                'businessLine' => $businessLine,
+                'query' => $q->toSql(),
+                'bindings' => $q->getBindings(),
+                'foundRow' => $row ? (array) $row : null
+            ]);
+
+            if ($row) {
+                return (float) ($row->budget_usd ?? 0);
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // 2) modelo
+        try {
+            $row = UserCategoryBudget::where('budget_id', $budgetId)
+                ->where('user_id', $userId)
+                ->where(function ($qq) use ($classification) {
+                    $qq->where('category_classification', $classification)
+                        ->orWhere(DB::raw('CAST(category_classification AS CHAR)'), $classification)
+                        ->orWhere('category_id', $classification);
+                })
+                ->first();
+
+            if ($row) {
+                return (float) ($row->budget_usd ?? 0);
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         return 0.0;
     };
 
-    $fetchOverridePct = function($budgetId, $userId, $classification) {
+    $fetchOverridePct = function ($budgetId, $userId, $classification) {
         try {
             $val = DB::connection('budget')->table('advisor_category_overrides')
                 ->where('budget_id', $budgetId)
                 ->where('user_id', $userId)
-                ->where('classification_code', (string)$classification)
+                ->where('classification_code', (string) $classification)
                 ->value('applied_commission_pct');
-            return is_null($val) ? null : (float)$val;
+
+            return is_null($val) ? null : (float) $val;
         } catch (\Throwable $e) {
             return null;
         }
     };
 
-    // ----------------------------
-    // Participaciones por classification (category_commissions)
-    // ----------------------------
-    $categoriesParticipation = DB::connection('budget')
-        ->table('category_commissions')
-        ->join('categories','categories.id','=','category_commissions.category_id')
-        ->where('category_commissions.budget_id', $budgetId)
-        ->select('categories.classification_code', DB::raw('AVG(COALESCE(category_commissions.participation_pct,0)) as participation_pct'))
-        ->groupBy('categories.classification_code')
-        ->get()
-        ->mapWithKeys(function($c){ return [ (string)$c->classification_code => (float)$c->participation_pct ]; })
-        ->toArray();
+    $getCategoryCommissionTiers = function ($budgetId, $classification, $roleId) {
+        try {
+            $category = DB::connection('budget')->table('categories')
+                ->where(function ($q) use ($classification) {
+                    $q->where(DB::raw('CAST(classification_code AS CHAR)'), (string) $classification)
+                      ->orWhere('classification_code', (string) $classification);
+                })
+                ->first();
 
-    // heurísticas / canonical lists (reutilizo tu lógica)
-    $montClassifications = DB::connection('budget')->table('categories')
-        ->where(function($q) {
-            $q->whereRaw('LOWER(name) LIKE ?', ['%gifts%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%watch%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%jewel%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%sunglass%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%electro%']);
-        })
-        ->pluck('classification_code')
-        ->map(fn($v)=>(string)$v)
-        ->unique()
-        ->values()
-        ->all();
+            if (!$category) return null;
 
-    $fragCodes = self::FRAG_CODES;
-    $fragClassifications = DB::connection('budget')->table('categories')
-        ->whereIn(DB::raw('CAST(classification_code AS SIGNED)'), $fragCodes)
-        ->pluck('classification_code')->map(fn($v)=>(string)$v)->unique()->values()->all();
+            $row = DB::connection('budget')
+                ->table('category_commissions')
+                ->where('budget_id', $budgetId)
+                ->where('role_id', $roleId)
+                ->where('category_id', $category->id)
+                ->first();
 
-    $skinClassifications = DB::connection('budget')->table('categories')
-        ->where(function($q){
-            $q->whereRaw('LOWER(name) LIKE ?', ['%skin%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%skin care%'])
-              ->orWhereRaw('LOWER(name) LIKE ?', ['%skin-care%']);
-        })->pluck('classification_code')->map(fn($v)=>(string)$v)->unique()->values()->all();
+            if (!$row) return null;
 
-    $canonicalMont = !empty($montClassifications) ? array_values(array_unique(array_merge($montClassifications, self::DEFAULT_MONT_KEYS))) : self::DEFAULT_MONT_KEYS;
-    $canonicalParbel = !empty(array_merge($skinClassifications, $fragClassifications)) ? array_values(array_unique(array_merge($skinClassifications, $fragClassifications))) : self::DEFAULT_PARBEL_KEYS;
-    if (!in_array(self::FRAG_KEY, $canonicalParbel, true) && !empty($fragClassifications)) $canonicalParbel[] = self::FRAG_KEY;
+            return [
+                'pct_80'  => (float) ($row->commission_percentage ?? 0),
+                'pct_100' => (float) ($row->commission_percentage100 ?? 0),
+                'pct_120' => (float) ($row->commission_percentage120 ?? 0),
+            ];
+        } catch (\Throwable $e) {
+            return null;
+        }
+    };
 
-    // Add diamantes explicitly to canonicalMont
-    if (!in_array(self::DIAMANTES_KEY, $canonicalMont, true)) $canonicalMont[] = self::DIAMANTES_KEY;
+    $getDisplayName = function ($key) {
+        $namesMap = [
+            '19' => 'Gifts',
+            '14' => 'Watches',
+            '15' => 'Jewerly',
+            '16' => 'Sunglasses',
+            '21' => 'Electronics',
+            '13' => 'Skin care',
+            self::FRAG_KEY => 'Fragancias',
+            self::DIAMANTES_KEY => 'Diamantes',
+        ];
 
-    $montPartsSum = 0.0; foreach ($canonicalMont as $k) $montPartsSum += ($categoriesParticipation[$k] ?? 0.0);
-    $parbelPartsSum = 0.0; foreach ($canonicalParbel as $k) $parbelPartsSum += ($categoriesParticipation[$k] ?? 0.0);
+        if (isset($namesMap[(string) $key])) {
+            return $namesMap[(string) $key];
+        }
 
-    // friendly names fallback
-    $namesMap = [
-        '19' => 'Gifts',
-        '14' => 'Watches',
-        '15' => 'Jewerly',
-        '16' => 'Sunglasses',
-        '21' => 'Electronics',
-        '13' => 'Skin care',
-        self::FRAG_KEY => 'Fragancias',
-        self::DIAMANTES_KEY => 'Diamantes'
-    ];
+        if (is_numeric($key)) {
+            $cat = DB::connection('budget')->table('categories')->where('classification_code', $key)->first();
+            if ($cat && !empty($cat->name)) return $cat->name;
+        }
 
-    // estructura de respuesta base
+        return (string) $key;
+    };
+
+    $rows = [];
+    $totals = ['sales_usd' => 0.0, 'sales_cop' => 0.0];
+
+    // Canonical categories
+    $montClassifications = [];
+    try {
+        $montClassifications = DB::connection('budget')->table('categories')
+            ->where(function ($q) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%gifts%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%watch%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%jewel%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%sunglass%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%electro%']);
+            })
+            ->pluck('classification_code')
+            ->map(fn ($v) => (string) $v)
+            ->unique()
+            ->values()
+            ->all();
+    } catch (\Throwable $e) {
+        $montClassifications = [];
+    }
+
+    if (empty($montClassifications)) {
+        $montClassifications = self::DEFAULT_MONT_KEYS;
+    } else {
+        $montClassifications = array_values(array_unique(array_merge($montClassifications, self::DEFAULT_MONT_KEYS)));
+    }
+
+    if (!in_array(self::DIAMANTES_KEY, $montClassifications, true)) {
+        $montClassifications[] = self::DIAMANTES_KEY;
+    }
+
+    $skinClassifications = [];
+    try {
+        $skinClassifications = DB::connection('budget')->table('categories')
+            ->where(function ($q) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%skin%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%skin care%'])
+                  ->orWhereRaw('LOWER(name) LIKE ?', ['%skin-care%']);
+            })
+            ->pluck('classification_code')
+            ->map(fn ($v) => (string) $v)
+            ->unique()
+            ->values()
+            ->all();
+    } catch (\Throwable $e) {
+        $skinClassifications = [];
+    }
+
+    $fragClassifications = [];
+    try {
+        $fragClassifications = DB::connection('budget')->table('categories')
+            ->whereIn(DB::raw('CAST(classification_code AS SIGNED)'), self::FRAG_CODES)
+            ->pluck('classification_code')
+            ->map(fn ($v) => (string) $v)
+            ->unique()
+            ->values()
+            ->all();
+    } catch (\Throwable $e) {
+        $fragClassifications = [];
+    }
+
+    // Montblanc sales
+    if ($businessLine === 'montblanc') {
+        $montRows = [];
+
+        try {
+            $montQuery = DB::connection('budget')
+                ->table('budget_user_category_totals')
+                ->selectRaw('category_group AS classification, COALESCE(SUM(sales_usd),0) as sales_usd, COALESCE(SUM(sales_cop),0) as sales_cop')
+                ->where('user_id', $userId)
+                ->whereIn(DB::raw('CAST(category_group AS CHAR)'), array_values(array_filter($montClassifications, fn ($v) => is_numeric($v))))
+                ->groupBy('category_group');
+
+            if ($budgetId) {
+                $montQuery->where('budget_id', $budgetId);
+            }
+
+            foreach ($montQuery->get() as $mr) {
+                $montRows[(string) $mr->classification] = (object) [
+                    'classification' => (string) $mr->classification,
+                    'sales_usd' => (float) $mr->sales_usd,
+                    'sales_cop' => (float) $mr->sales_cop,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $montRows = [];
+        }
+
+        // diamantes sales (L'ARTIST + classification 15)
+        $diamantesSalesUsd = 0.0;
+        $diamantesSalesCop = 0.0;
+
+        try {
+            $diamQ = DB::connection('budget')->table('sales')
+                ->join('products', 'sales.product_id', '=', 'products.id')
+                ->where('sales.seller_id', $userId)
+                ->where('products.provider_name', "L'ARTIST")
+                ->where(DB::raw('CAST(products.classification AS CHAR)'), '15');
+
+            if ($budgetId && Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+                $diamQ->where('sales.budget_id', $budgetId);
+            } else {
+                [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
+                $diamQ->whereBetween('sales.sale_date', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]);
+            }
+
+            $diamantesSalesUsd = (float) $diamQ->sum(DB::raw('COALESCE(sales.value_usd,0)'));
+            $diamantesSalesCop = (float) $diamQ->sum(DB::raw('COALESCE(sales.amount_cop,0)'));
+        } catch (\Throwable $e) {
+            $diamantesSalesUsd = 0.0;
+            $diamantesSalesCop = 0.0;
+        }
+
+        // separar diamantes del jewelry si existe
+        if (isset($montRows['15'])) {
+            $montRows['15']->sales_usd = round(max(0, $montRows['15']->sales_usd - $diamantesSalesUsd), 2);
+            $montRows['15']->sales_cop = round(max(0, $montRows['15']->sales_cop - $diamantesSalesCop), 2);
+        }
+
+        $montRows[self::DIAMANTES_KEY] = (object) [
+            'classification' => self::DIAMANTES_KEY,
+            'sales_usd' => round($diamantesSalesUsd, 2),
+            'sales_cop' => round($diamantesSalesCop, 2),
+        ];
+
+        $montPartsSum = $sumParticipation($montClassifications);
+
+        foreach ($montClassifications as $key) {
+            $r = isset($montRows[$key]) ? $montRows[$key] : (object) [
+                'classification' => $key,
+                'sales_usd' => 0.0,
+                'sales_cop' => 0.0,
+            ];
+
+            $sUsd = round((float) ($r->sales_usd ?? 0), 2);
+            $sCop = round((float) ($r->sales_cop ?? 0), 2);
+
+            $displayName = $getDisplayName($key);
+
+            $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
+
+            // diamantes: si no hay presupuesto guardado, lo calcula desde 15
+            if ($key === self::DIAMANTES_KEY && $categoryBudgetUsd <= 0) {
+                $parentBudgetUsd = $fetchUserCategoryBudget($budgetId, '15');
+
+                if ($parentBudgetUsd <= 0) {
+                    $parentBudgetUsd = $userBudgetUsd > 0
+                        ? round($userBudgetUsd * (($categoriesParticipation['15'] ?? 0) / max(0.0001, $montPartsSum ?: 1)), 2)
+                        : 0.0;
+                }
+
+                $totalJewelrySalesUsd = (float) (($montRows['15']->sales_usd ?? 0) + ($montRows[self::DIAMANTES_KEY]->sales_usd ?? 0));
+                if ($totalJewelrySalesUsd > 0) {
+                    $categoryBudgetUsd = round($parentBudgetUsd * (($montRows[self::DIAMANTES_KEY]->sales_usd ?? 0) / $totalJewelrySalesUsd), 2);
+                } else {
+                    $categoryBudgetUsd = 0.0;
+                }
+            }
+
+            if ($key === '15' && $categoryBudgetUsd <= 0) {
+                $categoryBudgetUsd = $userBudgetUsd > 0
+                    ? round($userBudgetUsd * (($categoriesParticipation['15'] ?? 0) / max(0.0001, $montPartsSum ?: 1)), 2)
+                    : 0.0;
+            }
+
+            if ($categoryBudgetUsd <= 0) {
+                $part = (float) ($categoriesParticipation[(string) $key] ?? 0);
+                if ($montPartsSum > 0) {
+                    $categoryBudgetUsd = round($userBudgetUsd * ($part / $montPartsSum), 2);
+                } else {
+                    $count = max(1, count($montClassifications));
+                    $categoryBudgetUsd = round($userBudgetUsd / $count, 2);
+                }
+            }
+
+            $overridePct = $fetchOverridePct($budgetId, $userId, $key);
+            $pctOfBudget = $categoryBudgetUsd > 0 ? round(($sUsd / $categoryBudgetUsd) * 100, 4) : 0.0;
+
+            $tiersKey = $key === self::DIAMANTES_KEY ? '15' : $key;
+            $finalCommissionPct = 0.0;
+
+            if (!is_null($overridePct)) {
+                $finalCommissionPct = (float) $overridePct;
+            } else {
+                $tiers = $getCategoryCommissionTiers($budgetId, $tiersKey, $roleId);
+                if (!empty($tiers)) {
+                    if ($pctOfBudget >= 120 && !is_null($tiers['pct_120'])) {
+                        $finalCommissionPct = (float) $tiers['pct_120'];
+                    } elseif ($pctOfBudget >= 100 && !is_null($tiers['pct_100'])) {
+                        $finalCommissionPct = (float) $tiers['pct_100'];
+                    } elseif ($pctOfBudget >= 80 && !is_null($tiers['pct_80'])) {
+                        $finalCommissionPct = (float) $tiers['pct_80'];
+                    }
+                } else {
+                    try {
+                        $row = DB::connection('budget')->table('category_commissions')
+                            ->join('categories', 'categories.id', '=', 'category_commissions.category_id')
+                            ->where('category_commissions.budget_id', $budgetId)
+                            ->where(DB::raw('CAST(categories.classification_code AS CHAR)'), $tiersKey)
+                            ->selectRaw('AVG(COALESCE(category_commissions.applied_commission_pct, category_commissions.commission_pct, 0)) as pct')
+                            ->first();
+
+                        $finalCommissionPct = (float) ($row->pct ?? 0.0);
+                    } catch (\Throwable $e) {
+                        $finalCommissionPct = 0.0;
+                    }
+                }
+            }
+
+            $commissionUsd = round($sUsd * ($finalCommissionPct / 100.0), 2);
+
+            $rows[] = [
+                'classification_key' => (string) $key,
+                'classification_code' => (string) $key,
+                'classification_name' => $displayName,
+                'sales_usd' => $sUsd,
+                'sales_cop' => $sCop,
+                'category_budget_usd_for_user' => round($categoryBudgetUsd, 2),
+                'pct_user_of_category_budget' => $pctOfBudget,
+                'applied_commission_pct' => is_null($overridePct)
+                    ? ($finalCommissionPct ? round($finalCommissionPct, 4) : null)
+                    : round($overridePct, 4),
+                'commission_usd' => $commissionUsd,
+            ];
+
+            $totals['sales_usd'] += $sUsd;
+            $totals['sales_cop'] += $sCop;
+        }
+    } else {
+        // Parbel: skin + fragancias
+        $parbelKeys = ['13', self::FRAG_KEY];
+        $parbelPartsSum = $sumParticipation(array_merge($skinClassifications ?: ['13'], $fragClassifications ?: self::FRAG_CODES));
+
+        $parbelQuery = DB::connection('budget')
+            ->table('sales')
+            ->join('products', 'sales.product_id', '=', 'products.id')
+            ->selectRaw("CASE
+                WHEN CAST(products.classification AS CHAR) REGEXP '^(?:10|11|12)$' THEN '".self::FRAG_KEY."'
+                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%frag%' THEN '".self::FRAG_KEY."'
+                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%perf%' THEN '".self::FRAG_KEY."'
+                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%skin%' THEN '13'
+                WHEN CAST(products.classification AS CHAR) = '13' THEN '13'
+                ELSE TRIM(COALESCE(products.classification, 'sin_categoria'))
+            END as classification_key,
+            COALESCE(SUM(sales.value_usd),0) as sales_usd,
+            COALESCE(SUM(sales.amount_cop),0) as sales_cop")
+            ->where(function ($q) {
+                $q->where(function ($frag) {
+                    $frag->where('products.provider_name', 'PARBEL')
+                        ->where(function ($c) {
+                            $c->whereRaw("CAST(products.classification AS CHAR) REGEXP '^(?:10|11|12)$'")
+                              ->orWhereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%frag%'")
+                              ->orWhereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%perf%'");
+                        });
+                })->orWhere(function ($skin) {
+                    $skin->whereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%skin%'")
+                         ->orWhereRaw("CAST(products.classification AS CHAR) = '13'");
+                });
+            })
+            ->where('sales.seller_id', $userId)
+            ->groupBy(DB::raw('classification_key'));
+
+        if ($budgetId && Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+            $parbelQuery->where('sales.budget_id', $budgetId);
+        } elseif (!Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+            [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
+            $parbelQuery->whereBetween('sales.sale_date', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]);
+        }
+
+        $parbelRows = $parbelQuery->get();
+
+        foreach ($parbelRows as $r) {
+            $rawKey = $normalizeKey($r->classification_key);
+            $key = $rawKey === 'fragancias' ? self::FRAG_KEY : $rawKey;
+
+            if (!in_array($key, ['13', self::FRAG_KEY], true) && !is_numeric($key)) {
+                continue;
+            }
+
+            $sUsd = round((float) $r->sales_usd, 2);
+            $sCop = round((float) $r->sales_cop, 2);
+
+            $displayName = $key === self::FRAG_KEY ? 'Fragancias' : 'Skin care';
+
+            $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
+
+            if ($categoryBudgetUsd <= 0) {
+                if ($parbelPartsSum > 0) {
+                    $part = $key === '13'
+                        ? (float) ($categoriesParticipation['13'] ?? 0)
+                        : array_sum(array_map(
+                            fn ($c) => (float) ($categoriesParticipation[(string) $c] ?? 0),
+                            self::FRAG_CODES
+                        ));
+
+                    $categoryBudgetUsd = round($userBudgetUsd * ($part / $parbelPartsSum), 2);
+                } else {
+                    $categoryBudgetUsd = round($userBudgetUsd / 2, 2);
+                }
+            }
+
+            $overridePct = $fetchOverridePct($budgetId, $userId, $key);
+            $pctOfBudget = $categoryBudgetUsd > 0 ? round(($sUsd / $categoryBudgetUsd) * 100, 4) : 0.0;
+
+            $tiersKey = $key === self::FRAG_KEY ? (string) self::FRAG_CODES[0] : '13';
+            $finalCommissionPct = 0.0;
+
+            if (!is_null($overridePct)) {
+                $finalCommissionPct = (float) $overridePct;
+            } else {
+                $tiers = $getCategoryCommissionTiers($budgetId, $tiersKey, $roleId);
+                if (!empty($tiers)) {
+                    if ($pctOfBudget >= 120 && !is_null($tiers['pct_120'])) {
+                        $finalCommissionPct = (float) $tiers['pct_120'];
+                    } elseif ($pctOfBudget >= 100 && !is_null($tiers['pct_100'])) {
+                        $finalCommissionPct = (float) $tiers['pct_100'];
+                    } elseif ($pctOfBudget >= 80 && !is_null($tiers['pct_80'])) {
+                        $finalCommissionPct = (float) $tiers['pct_80'];
+                    }
+                } else {
+                    try {
+                        $row = DB::connection('budget')->table('category_commissions')
+                            ->join('categories', 'categories.id', '=', 'category_commissions.category_id')
+                            ->where('category_commissions.budget_id', $budgetId)
+                            ->where(DB::raw('CAST(categories.classification_code AS CHAR)'), $tiersKey)
+                            ->selectRaw('AVG(COALESCE(category_commissions.applied_commission_pct, category_commissions.commission_pct, 0)) as pct')
+                            ->first();
+
+                        $finalCommissionPct = (float) ($row->pct ?? 0.0);
+                    } catch (\Throwable $e) {
+                        $finalCommissionPct = 0.0;
+                    }
+                }
+            }
+
+            $commissionUsd = round($sUsd * ($finalCommissionPct / 100.0), 2);
+
+            $rows[] = [
+                'classification_key' => (string) $key,
+                'classification_code' => (string) $key,
+                'classification_name' => $displayName,
+                'sales_usd' => $sUsd,
+                'sales_cop' => $sCop,
+                'category_budget_usd_for_user' => round($categoryBudgetUsd, 2),
+                'pct_user_of_category_budget' => $pctOfBudget,
+                'applied_commission_pct' => is_null($overridePct)
+                    ? ($finalCommissionPct ? round($finalCommissionPct, 4) : null)
+                    : round($overridePct, 4),
+                'commission_usd' => $commissionUsd,
+            ];
+
+            $totals['sales_usd'] += $sUsd;
+            $totals['sales_cop'] += $sCop;
+        }
+    }
+
+    $totals['sales_usd'] = round($totals['sales_usd'], 2);
+    $totals['sales_cop'] = round($totals['sales_cop'], 2);
+
+    // traer detalle real de ventas para el front
+    $commissionController = new CommissionReportController();
+    $detailRequest = Request::create('/', 'GET', ['budget_id' => $budgetId]);
+
+    $detailResponse = $commissionController->bySellerDetail($detailRequest, $userId);
+    $detailData = $detailResponse->getData(true);
+
     $result = [
+        'count' => count($rows),
         'specialist_user_id' => $userId,
         'specialist' => $user,
         'specialist_name' => $user->name ?? null,
         'business_line' => $businessLine,
         'budget_id' => $budgetId,
-        'rows' => [],
-        'totals' => ['sales_usd' => 0.0, 'sales_cop' => 0.0],
-        'advisor_pool' => [
-            'pct' => $advisorPct,
-            'pool_usd' => $advisorPoolUsd,
-        ],
-        'user_budget_usd' => $userPoolUsd,
+        'totals' => $totals,
+        'user_budget_usd' => round($userBudgetUsd, 2),
+        'breakdown' => $rows,
+        'sales' => $detailData['sales'] ?? [],
+        'detail_totals' => $detailData['totals'] ?? null,
+        'tickets' => $detailData['tickets'] ?? [],
+        'tickets_summary' => $detailData['tickets_summary'] ?? null,
+        'days_worked' => $detailData['days_worked'] ?? [],
+        'assigned_turns_for_user' => $detailData['assigned_turns_for_user'] ?? 0,
     ];
 
-    // ----------------------------
-    // Helper para obtener commission tiers (si existen) => usa category_id y role_id
-    // ----------------------------
-    $getCategoryCommissionTiers = function($budgetId, $classification, $roleId) {
-        try {
-            // buscar category por classification (puede ser numérico)
-            $category = DB::connection('budget')->table('categories')
-                ->where('classification_code', $classification)
-                ->first();
-            if (!$category) return null;
-            $categoryId = $category->id;
-
-            // buscar fila de category_commissions por category_id + budget + role
-            $row = DB::connection('budget')
-                ->table('category_commissions')
-                ->where('budget_id', $budgetId)
-                ->where('role_id', $roleId)
-                ->where('category_id', $categoryId)
-                ->first();
-            if (!$row) return null;
-
-            return [
-                'pct_80'  => (float)($row->commission_percentage ?? 0),
-                'pct_100' => (float)($row->commission_percentage100 ?? 0),
-                'pct_120' => (float)($row->commission_percentage120 ?? 0),
-            ];
-        } catch (\Throwable $e) {
-            Log::error('Error getCategoryCommissionTiers: '.$e->getMessage());
-            return null;
-        }
-    };
-
-    // ----------------------------
-    // Recolectamos ventas por categoría según la línea solicitada
-    // ----------------------------
-    if ($businessLine === 'parbel') {
-        // (sin cambios respecto a tu lógica original para parbel)
-        $fragRegex = implode('|', array_map('intval', $fragCodes));
-        $parbelQuery = DB::connection('budget')
-            ->table('sales')
-            ->join('products','sales.product_id','=','products.id')
-            ->selectRaw("CASE
-                WHEN CAST(products.classification AS CHAR) REGEXP '^(?:{$fragRegex})$' THEN '".self::FRAG_KEY."'
-                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%frag%' THEN '".self::FRAG_KEY."'
-                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%perf%' THEN '".self::FRAG_KEY."'
-                WHEN LOWER(CAST(products.classification AS CHAR)) LIKE '%skin%' THEN 'skin'
-                ELSE TRIM(COALESCE(products.classification, 'sin_categoria'))
-            END as classification_key,
-            COALESCE(SUM(sales.value_usd),0) as sales_usd,
-            COALESCE(SUM(sales.amount_cop),0) as sales_cop")
-            ->where(function ($q) use ($fragRegex) {
-
-                // FRAGANCIAS → SOLO PARBEL
-                $q->where(function ($frag) use ($fragRegex) {
-                    $frag->where('products.provider_name', 'PARBEL')
-                        ->where(function ($c) use ($fragRegex) {
-                            $c->whereRaw("CAST(products.classification AS CHAR) REGEXP '^(?:{$fragRegex})$'")
-                              ->orWhereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%frag%'")
-                              ->orWhereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%perf%'");
-                        });
-                })
-            
-                // SKIN → TODOS LOS PROVIDERS
-                ->orWhere(function ($skin) {
-                    $skin->whereRaw("LOWER(CAST(products.classification AS CHAR)) LIKE '%skin%'")
-                         ->orWhereRaw("CAST(products.classification AS CHAR) = '13'");
-                });
-            
-            })
-            ->where('sales.seller_id', $userId)
-            ->groupBy(DB::raw('classification_key'));
-
-        $hasSalesBudgetId = Schema::connection('budget')->hasColumn('sales','budget_id');
-        if ($budgetId && $hasSalesBudgetId) {
-            $parbelQuery->where('sales.budget_id', $budgetId);
-        } elseif (!$hasSalesBudgetId) {
-            [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
-            $parbelQuery->whereBetween('sales.sale_date', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]);
-        }
-
-        Log::info('SQL Parbel:', [
-            'sql' => $parbelQuery->toSql(),
-            'bindings' => $parbelQuery->getBindings()
-        ]);
-        $parbelRows = $parbelQuery->get();
-        Log::info('Filas Parbel:', $parbelRows->toArray());
-
-        foreach ($parbelRows as $r) {
-            $rawKey = $r->classification_key;
-            $key = $this->normalizeClassification($rawKey);
-            // solo interesan skin/fragancias (o classification codes que sean relevantes)
-            if (!in_array($key, ['skin', self::FRAG_KEY], true) && !is_numeric($key)) continue;
-
-            $sUsd = round((float)$r->sales_usd, 2);
-            $sCop = round((float)$r->sales_cop, 2);
-
-            // Display name (prefer DB name cuando posible)
-            if ($key === self::FRAG_KEY) {
-                $displayName = $namesMap[self::FRAG_KEY] ?? 'Fragancias';
-            } elseif ($key === 'skin') {
-                $displayName = $namesMap['13'] ?? 'Skin care';
-            } elseif (is_numeric($key)) {
-                $cat = DB::connection('budget')->table('categories')->where('classification_code', $key)->first();
-                $displayName = $cat ? $cat->name : ($namesMap[$key] ?? (string)$key);
-            } else {
-                $displayName = (string)$key;
-            }
-
-            // presupuesto de categoría preferido (guardado) o calculado
-            $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
-            if ($categoryBudgetUsd <= 0) {
-                $partsSum = $parbelPartsSum;
-                if ($partsSum > 0) {
-                    $catPart = ($categoriesParticipation[$key] ?? 0.0);
-                    $categoryBudgetUsd = round($userPoolUsd * ($catPart / $partsSum), 2);
-                } else {
-                    $count = max(1, count($canonicalParbel));
-                    $categoryBudgetUsd = round($userPoolUsd / $count, 2);
-                }
-            }
-
-            $overridePct = $fetchOverridePct($budgetId, $userId, $key);
-            $pctOfBudget = $categoryBudgetUsd > 0 ? round(($sUsd / $categoryBudgetUsd) * 100, 4) : 0.0;
-
-            // determinar pct final (override > tiers > base)
-            $finalCommissionPct = 0.0;
-            if (!is_null($overridePct)) {
-                $finalCommissionPct = (float)$overridePct;
-            } else {
-                $tiers = $getCategoryCommissionTiers($budgetId, $key, $roleId);
-                if (!empty($tiers)) {
-                    if ($pctOfBudget >= 120 && !is_null($tiers['pct_120'])) $finalCommissionPct = (float)$tiers['pct_120'];
-                    elseif ($pctOfBudget >= 100 && !is_null($tiers['pct_100'])) $finalCommissionPct = (float)$tiers['pct_100'];
-                    elseif ($pctOfBudget >= 80 && !is_null($tiers['pct_80'])) $finalCommissionPct = (float)$tiers['pct_80'];
-                    else $finalCommissionPct = 0.0;
-                } else {
-                    try {
-                        $row = DB::connection('budget')->table('category_commissions')
-                            ->join('categories','categories.id','=','category_commissions.category_id')
-                            ->where('category_commissions.budget_id', $budgetId)
-                            ->where(DB::raw('CAST(categories.classification_code AS CHAR)'), $key)
-                            ->selectRaw('AVG(COALESCE(category_commissions.applied_commission_pct, category_commissions.commission_pct, 0)) as pct')
-                            ->first();
-                        $finalCommissionPct = (float)($row->pct ?? 0.0);
-                    } catch (\Throwable $e) {
-                        $finalCommissionPct = 0.0;
-                    }
-                }
-            }
-
-            $commissionUsd = round(($sUsd * ($finalCommissionPct / 100.0)), 2);
-
-            // guardar usando displayName como clave (nombre en vez de code)
-            $result['rows'][$displayName] = [
-                'classification_code' => is_numeric($key) ? (string)$key : $key,
-                'classification_name' => $displayName,
-                'sales_usd' => $sUsd,
-                'sales_cop' => $sCop,
-                'category_budget_usd_for_user' => round($categoryBudgetUsd,2),
-                'pct_user_of_category_budget' => $pctOfBudget,
-                'applied_commission_pct' => is_null($overridePct) ? ($finalCommissionPct ? round($finalCommissionPct,4) : null) : round($overridePct,4),
-                'commission_usd' => $commissionUsd,
-            ];
-
-            $result['totals']['sales_usd'] += $sUsd;
-            $result['totals']['sales_cop'] += $sCop;
-        }
-
-    } else { // montblanc
-        Log::info('ENTRANDO A BLOQUE MONTBLANC - inicio robusto');
-        $montRows = [];
-
-        $canonicalMont = array_map('strval', array_values(array_unique($canonicalMont)));
-
-        $montQuery = DB::connection('budget')
-            ->table('budget_user_category_totals')
-            ->selectRaw('category_group AS classification, COALESCE(SUM(sales_usd),0) as sales_usd, COALESCE(SUM(sales_cop),0) as sales_cop')
-            ->where('user_id', $userId)
-            ->whereIn(DB::raw('CAST(category_group AS CHAR)'), array_values(array_filter($canonicalMont, fn($v)=>is_numeric($v))))
-            ->groupBy('category_group');
-
-        if ($budgetId) $montQuery->where('budget_id', $budgetId);
-        $montRowsCollection = $montQuery->get();
-        foreach ($montRowsCollection as $mr) {
-            $montRows[(string)$mr->classification] = (object)[
-                'classification' => (string)$mr->classification,
-                'sales_usd' => (float)$mr->sales_usd,
-                'sales_cop' => (float)$mr->sales_cop
-            ];
-        }
-        Log::info('MontRows (from budget_user_category_totals):', array_keys($montRows));
-
-        // --- SPECIAL: compute diamantes sales (provider L'ARTIST) and subtract them from classification '15' totals ---
-        $jewKey = '15';
-        $diamantesSalesUsd = 0.0;
-        $diamantesSalesCop = 0.0;
-        $totalJewelrySalesUsd = $montRows[$jewKey]->sales_usd ?? 0.0;
-        $totalJewelrySalesCop = $montRows[$jewKey]->sales_cop ?? 0.0;
-
-        try {
-            // compute diamantes sales (provider L'ARTIST) for this user
-            $diamQ = DB::connection('budget')->table('sales')
-                ->join('products','sales.product_id','=','products.id')
-                ->where('sales.seller_id', $userId)
-                ->where('products.provider_name', "L'ARTIST")
-                ->where(DB::raw('CAST(products.classification AS CHAR)'), $jewKey);
-            if ($budgetId && Schema::connection('budget')->hasColumn('sales','budget_id')) $diamQ->where('sales.budget_id', $budgetId);
-            else {
-                [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
-                $diamQ->whereBetween('sales.sale_date', [$startDate->toDateTimeString(), $endDate->toDateTimeString()]);
-            }
-            $diamantesSalesUsd = (float)$diamQ->sum(DB::raw('COALESCE(sales.value_usd,0)'));
-            $diamantesSalesCop = (float)$diamQ->sum(DB::raw('COALESCE(sales.amount_cop,0)'));
-        } catch (\Throwable $e) {
-            Log::warning('Error calculando diamantes sales: '.$e->getMessage());
-            $diamantesSalesUsd = 0.0;
-            $diamantesSalesCop = 0.0;
-        }
-
-        // subtract diamantes from jewerly totals if present in montRows
-        if (isset($montRows[$jewKey])) {
-            $montRows[$jewKey]->sales_usd = round(max(0, $montRows[$jewKey]->sales_usd - $diamantesSalesUsd), 2);
-            $montRows[$jewKey]->sales_cop = round(max(0, $montRows[$jewKey]->sales_cop - $diamantesSalesCop), 2);
-        }
-
-        // set explicit diamantes row
-        $montRows[self::DIAMANTES_KEY] = (object)[
-            'classification' => self::DIAMANTES_KEY,
-            'sales_usd' => round($diamantesSalesUsd,2),
-            'sales_cop' => round($diamantesSalesCop,2)
-        ];
-
-        Log::info('MontRows ajustadas (diamantes separado):', array_keys($montRows));
-
-        foreach ($canonicalMont as $key) {
-            $r = isset($montRows[$key]) ? $montRows[$key] : (object)[
-                'classification' => $key,
-                'sales_usd' => 0.0,
-                'sales_cop' => 0.0
-            ];
-
-            $sUsd = round((float)($r->sales_usd ?? 0), 2);
-            $sCop = round((float)($r->sales_cop ?? 0), 2);
-
-            // display name prefer DB (for numeric classifications)
-            if (is_numeric($key)) {
-                $cat = DB::connection('budget')->table('categories')->where('classification_code', $key)->first();
-                $displayName = $cat ? $cat->name : ($namesMap[$key] ?? (string)$key);
-            } else {
-                // special keys: diamantes etc
-                $displayName = $namesMap[$key] ?? (string)$key;
-            }
-
-            // category budget (guardado o calculado)
-            $categoryBudgetUsd = 0.0;
-            // If diamantes, we try to split from the parent jewerly (15) budget (see explanation)
-            if ($key === self::DIAMANTES_KEY) {
-                // try direct saved budget first
-                $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
-                // if not saved, allocate from jewerly (15) budget proportionally to diamantes sales share
-                if ($categoryBudgetUsd <= 0) {
-                    // parent classification
-                    $parentKey = '15';
-                    // parent budget
-                    $parentBudgetUsd = $fetchUserCategoryBudget($budgetId, $parentKey);
-                    if ($parentBudgetUsd <= 0) {
-                        // fallback: derive parent budget from participation or equal split
-                        $partsSum = $montPartsSum;
-                        if ($partsSum > 0) {
-                            $catPart = ($categoriesParticipation[$parentKey] ?? 0.0);
-                            $parentBudgetUsd = round($userPoolUsd * ($catPart / max(0.0001, $partsSum)), 2);
-                        } else {
-                            $count = max(1, count(array_filter($canonicalMont, fn($v)=>is_numeric($v))));
-                            $parentBudgetUsd = round($userPoolUsd / $count, 2);
-                        }
-                    }
-
-                    // compute total jewelry sales to split parent budget
-                    $totalJewelrySalesUsd = 0.0;
-                    if (isset($montRows[$parentKey])) $totalJewelrySalesUsd = (float)$montRows[$parentKey]->sales_usd + (float)($montRows[self::DIAMANTES_KEY]->sales_usd ?? 0);
-                    // avoid division by 0
-                    if ($totalJewelrySalesUsd > 0) {
-                        $categoryBudgetUsd = round($parentBudgetUsd * (($montRows[self::DIAMANTES_KEY]->sales_usd ?? 0) / $totalJewelrySalesUsd), 2);
-                    } else {
-                        $categoryBudgetUsd = 0.0;
-                    }
-                }
-            } elseif ($key === '15') {
-                // jewerly (non-L'ARTIST) -> try saved or computed; but if diamantes got a split above, parent budget must be reduced accordingly
-                $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
-                if ($categoryBudgetUsd <= 0) {
-                    $partsSum = $montPartsSum;
-                    if ($partsSum > 0) {
-                        $catPart = ($categoriesParticipation[$key] ?? 0.0);
-                        $categoryBudgetUsd = round($userPoolUsd * ($catPart / max(0.0001, $partsSum)), 2);
-                    } else {
-                        $count = max(1, count(array_filter($canonicalMont, fn($v)=>is_numeric($v))));
-                        $categoryBudgetUsd = round($userPoolUsd / $count, 2);
-                    }
-                }
-
-                // subtract any diamantes budget that was computed from the same parent budget
-                // compute diamantes budget (if not already saved)
-                $diamSavedBudget = $fetchUserCategoryBudget($budgetId, self::DIAMANTES_KEY);
-                if ($diamSavedBudget <= 0) {
-                    // compute split by sales
-                    $totalJewelrySalesUsd = (float)$montRows[$key]->sales_usd + (float)$montRows[self::DIAMANTES_KEY]->sales_usd;
-                    if ($totalJewelrySalesUsd > 0) {
-                        $diamBudget = round($categoryBudgetUsd * ($montRows[self::DIAMANTES_KEY]->sales_usd / $totalJewelrySalesUsd), 2);
-                        $categoryBudgetUsd = round(max(0, $categoryBudgetUsd - $diamBudget), 2);
-                    }
-                } else {
-                    // if diamantes has a saved budget, subtract it
-                    $categoryBudgetUsd = round(max(0, $categoryBudgetUsd - $diamSavedBudget), 2);
-                }
-            } else {
-                // general case for numeric keys or others
-                $categoryBudgetUsd = $fetchUserCategoryBudget($budgetId, $key);
-                if ($categoryBudgetUsd <= 0) {
-                    $partsSum = $montPartsSum;
-                    if ($partsSum > 0) {
-                        $catPart = ($categoriesParticipation[$key] ?? 0.0);
-                        $categoryBudgetUsd = round($userPoolUsd * ($catPart / max(0.0001, $partsSum)), 2);
-                    } else {
-                        $count = max(1, count(array_filter($canonicalMont, fn($v)=>is_numeric($v))));
-                        $categoryBudgetUsd = round($userPoolUsd / $count, 2);
-                    }
-                }
-            }
-
-            $overridePct = $fetchOverridePct($budgetId, $userId, $key);
-            $pctOfBudget = $categoryBudgetUsd > 0 ? round(($sUsd / $categoryBudgetUsd) * 100, 4) : 0.0;
-
-            $finalCommissionPct = 0.0;
-            if (!is_null($overridePct)) {
-                $finalCommissionPct = (float)$overridePct;
-            } else {
-                // For diamantes we try to reuse tiers of parent '15' classification (if exist)
-                $tiersKey = $key === self::DIAMANTES_KEY ? '15' : $key;
-                $tiers = $getCategoryCommissionTiers($budgetId, $tiersKey, $roleId);
-                if (!empty($tiers)) {
-                    if ($pctOfBudget >= 120 && !is_null($tiers['pct_120'])) $finalCommissionPct = (float)$tiers['pct_120'];
-                    elseif ($pctOfBudget >= 100 && !is_null($tiers['pct_100'])) $finalCommissionPct = (float)$tiers['pct_100'];
-                    elseif ($pctOfBudget >= 80 && !is_null($tiers['pct_80'])) $finalCommissionPct = (float)$tiers['pct_80'];
-                    else $finalCommissionPct = 0.0;
-                } else {
-                    try {
-                        $row = DB::connection('budget')->table('category_commissions')
-                            ->join('categories','categories.id','=','category_commissions.category_id')
-                            ->where('category_commissions.budget_id', $budgetId)
-                            ->where(DB::raw('CAST(categories.classification_code AS CHAR)'), $tiersKey)
-                            ->selectRaw('AVG(COALESCE(category_commissions.applied_commission_pct, category_commissions.commission_pct, 0)) as pct')
-                            ->first();
-                        $finalCommissionPct = (float)($row->pct ?? 0.0);
-                    } catch (\Throwable $e) {
-                        $finalCommissionPct = 0.0;
-                    }
-                }
-            }
-
-            $commissionUsd = round(($sUsd * ($finalCommissionPct / 100.0)), 2);
-
-            // store row keyed by displayName (nombre)
-            $result['rows'][(string)$key] = [
-                'classification_code' => (string)$key,
-                'classification_name' => $displayName,
-                'sales_usd' => $sUsd,
-                'sales_cop' => $sCop,
-                'category_budget_usd_for_user' => round($categoryBudgetUsd,2),
-                'pct_user_of_category_budget' => $pctOfBudget,
-                'applied_commission_pct' => is_null($overridePct) ? ($finalCommissionPct ? round($finalCommissionPct,4) : null) : round($overridePct,4),
-                'commission_usd' => $commissionUsd,
-            ];
-
-            $result['totals']['sales_usd'] += $sUsd;
-            $result['totals']['sales_cop'] += $sCop;
-        }
-
-        Log::info('Montblanc rows finales contadas:', array_keys($result['rows']));
-    }
-
-    $result['totals']['sales_usd'] = round($result['totals']['sales_usd'], 2);
-    $result['totals']['sales_cop'] = round($result['totals']['sales_cop'], 2);
-    
-    // Controlador CommissionReportController 
-     
-    $commissionController = new CommissionReportController();
-
-    // crear Request con el budget_id en los query params (bySellerDetail usa ->query('budget_id' / 'budget_ids'))
-    $detailRequest = Request::create('/', 'GET', ['budget_id' => $budgetId]);
-
-    // pasar el userId como segundo argumento (la firma espera: (Request $request, $userId))
-    $detailResponse = $commissionController->bySellerDetail($detailRequest, $userId);
-
-    // si bySellerDetail devuelve un JsonResponse
-    $detailData = $detailResponse->getData(true);
-        
-        
-    // --- IMPORTANT: forward sales detail so frontend has a fallback ---
-    $result['sales'] = $detailData['sales'] ?? [];
-    $result['detail_totals'] = $detailData['totals'] ?? null;
-
-    // opcional: log para debugging
-    Log::info('activeSpecialistsSales -> bySellerDetail returned', [
-        'user_id' => $userId,
-        'budget_id' => $budgetId,
-        'sales_count' => is_array($detailData['sales'] ?? null) ? count($detailData['sales']) : 0
-    ]);
-    $result['tickets'] = $detailData['tickets'] ?? [];
-    $result['tickets_summary'] = $detailData['tickets_summary'] ?? null;
-    $result['days_worked'] = $detailData['days_worked'] ?? [];
-    $result['assigned_turns_for_user'] = $detailData['assigned_turns_for_user'] ?? 0;
-    return response()->json([
-        'count' => count($result['rows']),
-        'specialist_user_id' => $result['specialist_user_id'],
-        'specialist' => $result['specialist'],       // objeto user (id, name, ...)
-        'specialist_name' => $result['specialist_name'], // nombre directo para conveniencia
-        'business_line' => $result['business_line'],
-        'budget_id' => $result['budget_id'],
-        'totals' => $result['totals'],
-        'user_budget_usd' => $result['user_budget_usd'],
-        'breakdown' => $result['rows'],
-        
-        // sales
-        'sales' => $result['sales'] ?? [],
-        'detail_totals' => $result['detail_totals'] ?? null,
-        
-        // kpis Desde controlador 
-        
-        'tickets' => $result['tickets'] ?? [],
-        'tickets_summary' => $result['tickets_summary'] ?? null,
-        'days_worked' => $result['days_worked'] ?? [],
-        'assigned_turns_for_user' => $result['assigned_turns_for_user'] ?? 0
-    ]);
+    return response()->json($result);
 }
     /* ============================
        ENDPOINTS: My commissions

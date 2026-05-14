@@ -73,9 +73,16 @@ export default function AppRouter() {
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
           <Route path="/commissions/CommissionLeadersPage" element={<CommissionLeadersPage />} />
-          <Route path="/commissions/DualCommissionAdmin" element={<DualCommissionAdmin advisorAId={0} advisorBId={0} budgetIds={[]} onClose={function (): void {
-            throw new Error("Function not implemented.");
-          } }  />} />
+          <Route
+  path="/commissions/DualCommissionAdmin"
+  element={
+    <DualCommissionAdmin
+      advisorAId={0}
+      advisorBId={0}
+      budgetIds={[]}
+    />
+  }
+/>
         </Route>
       </Routes>
     </BrowserRouter>
