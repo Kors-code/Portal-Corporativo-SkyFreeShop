@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
+use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
+
 
 
 Route::get('/test-api', function () {
@@ -32,6 +34,13 @@ Route::get('/v1/ping', function () {
         });
         
         Route::prefix('v1')->group(function () {
+
+
+            Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
+    Route::get   ('inventory-imports/{id}',          [InventoryImportBatchController::class, 'show']);
+    Route::post  ('inventory-imports/import',        [InventoryImportBatchController::class, 'import']);
+    Route::post  ('inventory-imports/bulk-delete',   [InventoryImportBatchController::class, 'bulkDestroy']);
+    Route::delete('inventory-imports/{id}',          [InventoryImportBatchController::class, 'destroy']);
             
     // TURNOS (poner primero para evitar conflicto con imports/{id})
     Route::post('import-turns', [TurnsImportController::class, 'import']);

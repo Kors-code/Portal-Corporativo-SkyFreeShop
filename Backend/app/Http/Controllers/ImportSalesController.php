@@ -10,11 +10,82 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Models\Comisiones\ImportBatch;
+use App\Models\Comisiones\Sale;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Throwable;
 
 class ImportSalesController extends Controller
 {
+
+private function deletePreviousBatch($file)
+{
+        $originalName = $file->getClientOriginalName();
+
+        /*
+        SALES DFP COLOMBIA Marzo 2026.xlsx
+        */
+
+        preg_match(
+            '/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\s(\d{4})/i',
+            $originalName,
+            $matches
+        );
+
+        $monthName = $matches[1] ?? null;
+        $year = $matches[2] ?? null;
+
+        if (!$monthName || !$year) {
+            return;
+        }
+
+        $months = [
+            'Enero' => 1,
+            'Febrero' => 2,
+            'Marzo' => 3,
+            'Abril' => 4,
+            'Mayo' => 5,
+            'Junio' => 6,
+            'Julio' => 7,
+            'Agosto' => 8,
+            'Septiembre' => 9,
+            'Octubre' => 10,
+            'Noviembre' => 11,
+            'Diciembre' => 12,
+        ];
+
+        $month = $months[$monthName];
+
+        $company = str_contains($originalName, 'DFP')
+            ? 'DFP'
+            : 'LDC';
+
+        $type = str_contains($originalName, 'SALES')
+            ? 'SALES'
+            : 'INVENTORY';
+
+        $batch = ImportBatch::query()
+            ->whereYear('created_at', $year)
+            ->whereMonth('created_at', $month)
+            ->where('filename', 'LIKE', "%{$company}%")
+            ->where('filename', 'LIKE', "%{$type}%")
+            ->latest()
+            ->first();
+
+        if (!$batch) {
+            return;
+        }
+
+        DB::connection('budget')->transaction(function () use ($batch) {
+
+            Sale::where(
+                'import_batch_id',
+                $batch->id
+            )->delete();
+
+            $batch->delete();
+        });
+    }
     protected function logSkip(int $row, string $reason, array $context = []): void
     {
         Log::warning('IMPORT SKIP', [
@@ -411,8 +482,14 @@ protected function parseDate($value, string $context = 'sale'): ?string
     public function import(Request $request)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => ['required', 'file'],
         ]);
+
+        if ($request->boolean('replace_existing')) {
+            $this->deletePreviousBatch(
+                $request->file('file')
+            );
+        }
 
         $file = $request->file('file');
         $selectedStoreId = (int) $request->store_id;
@@ -921,7 +998,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ], 500);
         }
     }
-    public function importAutomation(Request $request)
+public function importAutomation(Request $request)
 {
     $token = $request->header('X-Automation-Token');
 
@@ -932,8 +1009,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
     }
 
     $request->validate([
-        'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+        'file' => ['required', 'file'],
         'store_id' => ['nullable'],
+        'replace_existing' => ['nullable', 'boolean'],
     ]);
 
     return $this->import($request);

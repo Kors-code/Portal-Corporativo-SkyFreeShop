@@ -26,6 +26,11 @@ import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
 import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
 import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
+import InventoryImportsManagerPage from "../modules/imports/pages/InventoryImportsManagerPage";
+import CrearEntregaPage from "../modules/entregas/pages/CrearEntregaPage";
+import DetalleEntregaPage from "../modules/entregas/pages/DetalleEntregaPage";
+import EntregasDashboardPage from "../modules/entregas/pages/EntregasDashboardPage";
+import ListadoEntregasPage from "../modules/entregas/pages/ListadoEntregasPage";
 
 
 
@@ -66,8 +71,16 @@ export default function AppRouter() {
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
+        // Novedades Lideres
+
+          <Route path="/CrearEntregaPage" element={<CrearEntregaPage/>} />
+          <Route path="/DetalleEntregaPage" element={<DetalleEntregaPage />} />
+          <Route path="/EntregasDashboardPage" element={<EntregasDashboardPage />} />
+          <Route path="/ListadoEntregasPage" element={<ListadoEntregasPage />} />
+
           
 
+          <Route path="/InventoryImportsManagerPage" element={<InventoryImportsManagerPage />} />
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />
