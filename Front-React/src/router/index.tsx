@@ -73,6 +73,7 @@ export default function AppRouter() {
 
           <Route path="/entregas" element={<EntregasDashboardPage />} />
           <Route path="/entregas/nuevo" element={<CrearEntregaPage />} />
+          <Route path="/entregas/:id/editar" element={<CrearEntregaPage />} />
           <Route path="/entregas/recibir" element={<ListadoEntregasPage tipoInicial="recepcion" titulo="Actas que me han enviado" />} />
           <Route path="/entregas/activas" element={<ListadoEntregasPage tipoInicial="activas" titulo="Actas activas y responsables" />} />
           <Route path="/entregas/listado" element={<ListadoEntregasPage />} />

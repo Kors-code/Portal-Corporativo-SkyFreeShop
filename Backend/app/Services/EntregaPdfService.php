@@ -33,7 +33,7 @@ class EntregaPdfService
             'prioridades' => Novedad::$prioridades,
         ];
 
-        return Pdf::loadView('pdf.entrega', $data)
+        return Pdf::loadView('pdf_entrega', $data)
                   ->setPaper('a4', 'portrait')
                   ->setOptions([
                       'isHtml5ParserEnabled' => true,

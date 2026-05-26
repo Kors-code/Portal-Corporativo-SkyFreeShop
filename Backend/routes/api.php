@@ -50,10 +50,13 @@ Route::get('/v1/ping', function () {
     Route::get('entregas/me', [EntregaController::class, 'empleadoActual']);
     Route::get('entregas', [EntregaController::class, 'index']);
     Route::post('entregas', [EntregaController::class, 'store']);
+    Route::put('entregas/{id}', [EntregaController::class, 'update']);
     Route::get('entregas/{id}', [EntregaController::class, 'show']);
     Route::delete('entregas/{id}', [EntregaController::class, 'destroy']);
     Route::post('entregas/{id}/firmar', [EntregaController::class, 'firmar']);
+    Route::post('entregas/{id}/cerrar', [EntregaController::class, 'cerrarActa']);
     Route::post('entregas/{id}/rechazar', [EntregaController::class, 'rechazar']);
+    Route::patch('entregas/{id}/novedades/{novedadId}', [EntregaController::class, 'actualizarNovedad']);
     Route::post('entregas/{id}/novedades/{novedadId}/observacion', [EntregaController::class, 'agregarObservacionNovedad']);
     Route::patch('entregas/{id}/novedades/{novedadId}/resuelto', [EntregaController::class, 'actualizarEstadoNovedad']);
     Route::get('entregas/{id}/pdf', [EntregaController::class, 'descargarPdf']);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Check, Mail, Plus, Save, Trash2, UserRound } from "lucide-react";
 import entregasApi from "../services/entregasApi";
 import useEmpleadoActual from "../hooks/useEmpleadoActual";
@@ -21,6 +21,7 @@ function today() {
 
 export default function CrearEntregaPage() {
   const navigate = useNavigate();
+  const { id: editId } = useParams<{ id: string }>();
   const { empleado } = useEmpleadoActual();
   const [lideres, setLideres] = useState<Empleado[]>([]);
   const [personas, setPersonas] = useState<Empleado[]>([]);
@@ -33,17 +34,34 @@ export default function CrearEntregaPage() {
   const [observaciones, setObservaciones] = useState("");
   const [activeCategory, setActiveCategory] = useState<HandoverCategoryKey>("personal");
   const [items, setItems] = useState<DraftItem[]>([]);
+  const [empleadosNoLideres, setEmpleadosNoLideres] = useState(0);
+  const editando = Boolean(editId);
 
   useEffect(() => {
     if (empleado?.sede) setSede(empleado.sede);
   }, [empleado?.sede]);
 
   useEffect(() => {
-    entregasApi.obtenerEmpleados()
-      .then((employees) => {
-        const disponibles = employees.filter((employee) => employee.id !== empleado?.id);
+    Promise.all([
+      entregasApi.obtenerLideres(),
+      entregasApi.obtenerEmpleados(),
+      editId && empleado?.id ? entregasApi.obtener(editId, empleado.id) : Promise.resolve(null),
+    ])
+      .then(([leaders, employees, acta]) => {
+        const disponibles = leaders.filter((leader) => leader.id !== empleado?.id);
         setLideres(disponibles);
         setPersonas(employees);
+        setEmpleadosNoLideres(employees.filter((employee) => employee.portal_user_role !== "lider").length);
+        if (acta) {
+          setFechaActa(String(acta.fecha_acta).slice(0, 10));
+          setTurno(acta.turno);
+          setSede(acta.sede ?? "");
+          setObservaciones(acta.observaciones ?? "");
+          setLiderRecibeId(acta.lider_recibe_id);
+          setItems((acta.novedades ?? []).map((novedad) => novedadToDraft(novedad)));
+          setActiveCategory(novedadToDraft((acta.novedades ?? [])[0]).categoryKey);
+          return;
+        }
         setLiderRecibeId((current) => disponibles.some((employee) => employee.id === current) ? current : disponibles[0]?.id ?? "");
         const personal = entregaCategories.find((category) => category.key === "personal")!;
         setItems((current) => current.length > 0 ? current : [
@@ -56,9 +74,9 @@ export default function CrearEntregaPage() {
             },
           ]);
       })
-      .catch(() => alert("No se pudieron cargar los empleados"))
+      .catch(() => alert("No se pudieron cargar los lideres/empleados"))
       .finally(() => setLoading(false));
-  }, [empleado?.id]);
+  }, [editId, empleado?.id]);
 
   const nombreActa = `Acta de entrega ${fechaActa} ${turno}`;
   const groupedItems = useMemo(
@@ -135,7 +153,7 @@ export default function CrearEntregaPage() {
 
     setSaving(true);
     try {
-      const res = await entregasApi.crear({
+      const payload = {
         lider_entrega_id: empleado.id,
         lider_recibe_id: Number(liderRecibeId),
         turno,
@@ -150,7 +168,8 @@ export default function CrearEntregaPage() {
           requiere_seguimiento: novedad.requiere_seguimiento,
           orden,
         })),
-      });
+      };
+      const res = editId ? await entregasApi.actualizar(editId, payload) : await entregasApi.crear(payload);
       navigate(`/entregas/${res.entrega.id}`);
     } catch (error: any) {
       alert(error?.response?.data?.message || error?.response?.data?.error || "No se pudo guardar el acta");
@@ -166,11 +185,11 @@ export default function CrearEntregaPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <button onClick={() => navigate("/entregas")} className="text-sm font-semibold text-primary">Volver al inicio de actas</button>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">Crear acta de entrega</h1>
-          <p className="mt-1 text-sm text-gray-500">Mientras este abierta puedes ajustarla. Al cerrar el acta ya no se modifica.</p>
+          <h1 className="mt-2 text-3xl font-bold text-gray-900">{editando ? "Editar acta de entrega" : "Crear acta de entrega"}</h1>
+          <p className="mt-1 text-sm text-gray-500">Mientras este abierta puedes ajustarla. Al entregar el acta ya no se modifica.</p>
         </div>
         <button disabled={saving} onClick={saveActa} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-          <Save size={16} /> Guardar acta
+          <Save size={16} /> {editando ? "Guardar cambios" : "Guardar acta"}
         </button>
       </div>
 
@@ -186,9 +205,15 @@ export default function CrearEntregaPage() {
           <label className="rounded-lg border border-gray-200 p-4">
             <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-500">Lider que recibe</span>
             <select value={liderRecibeId} onChange={(e) => setLiderRecibeId(Number(e.target.value))} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-              {lideres.map((leader) => <option key={leader.id} value={leader.id}>{leader.colaborador} - {leader.sede || leader.email || "Sin sede"}</option>)}
+              {lideres.length === 0 && <option value="">No hay usuarios con rol lider</option>}
+              {lideres.map((leader) => <option key={leader.id} value={leader.id}>{leader.colaborador} - {leader.sede || leader.portal_user_email || leader.email || "Sin sede"}</option>)}
             </select>
             <span className="mt-2 inline-flex items-center gap-1 text-xs text-gray-500"><Mail size={13} /> Se notificara por correo al cerrar acta</span>
+            {empleadosNoLideres > 0 && (
+              <span className="mt-2 block text-xs font-medium text-amber-700">
+                {empleadosNoLideres} empleados activos no aparecen aqui porque no tienen usuario con rol lider en el portal.
+              </span>
+            )}
           </label>
         </div>
       </section>
@@ -273,6 +298,39 @@ export default function CrearEntregaPage() {
       <div className="flex justify-end"><button onClick={saveActa} disabled={saving} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"><Check size={16} /> Guardar y continuar</button></div>
     </div>
   );
+}
+
+function novedadToDraft(novedad?: Novedad): DraftItem {
+  if (!novedad) {
+    const personal = entregaCategories.find((category) => category.key === "personal")!;
+    return {
+      id: crypto.randomUUID(),
+      categoryKey: "personal",
+      subcategoryKey: personal.subcategories[0].key,
+      descripcion: "",
+    };
+  }
+
+  const category = entregaCategories.find((entry) => entry.apiCategory === novedad.categoria) ?? entregaCategories[0];
+  const titleParts = (novedad.titulo ?? "").split(" - ");
+  const subLabel = titleParts[1] ?? "";
+  const subcategory = category.subcategories.find((entry) => entry.label === subLabel) ?? category.subcategories[0];
+  let descripcion = novedad.descripcion ?? "";
+  let persona = "";
+
+  if (category.key === "personal" && descripcion.includes(": ")) {
+    const [possiblePersona, ...rest] = descripcion.split(": ");
+    persona = possiblePersona;
+    descripcion = rest.join(": ");
+  }
+
+  return {
+    id: String(novedad.id ?? crypto.randomUUID()),
+    categoryKey: category.key,
+    subcategoryKey: subcategory.key,
+    persona,
+    descripcion,
+  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

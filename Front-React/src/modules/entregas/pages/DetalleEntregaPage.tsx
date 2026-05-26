@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Download, Mail, Printer, Signature } from "lucide-react";
+import { CheckCircle2, Download, Mail, Pencil, Printer, Save, Signature } from "lucide-react";
 import FirmaPad from "../components/FirmaPad";
 import entregasApi from "../services/entregasApi";
 import useEmpleadoActual from "../hooks/useEmpleadoActual";
@@ -14,10 +14,11 @@ export default function DetalleEntregaPage() {
   const [acta, setActa] = useState<Entrega | null>(null);
   const [firmaGuardada, setFirmaGuardada] = useState<string | null>(null);
   const [mostrarFirma, setMostrarFirma] = useState<"entrega" | "recepcion" | null>(null);
+  const [ediciones, setEdiciones] = useState<Record<number, { titulo: string; descripcion: string }>>({});
 
   const load = async () => {
-    if (!id) return;
-    const data = await entregasApi.obtener(id);
+    if (!id || !empleado?.id) return;
+    const data = await entregasApi.obtener(id, empleado.id);
     setActa(data);
     if (empleado?.id) {
       const firma = await entregasApi.obtenerFirmaEmpleado(empleado.id).catch(() => null);
@@ -43,24 +44,31 @@ export default function DetalleEntregaPage() {
   const completadas = (acta.novedades ?? []).length - pendientes;
   const esEntrega = empleado?.id === acta.lider_entrega_id;
   const esRecibe = empleado?.id === acta.lider_recibe_id;
-  const puedeCerrarActa = esEntrega && acta.estado === "abierta";
+  const puedeEntregarActa = esEntrega && acta.estado === "abierta";
   const puedeFirmarRecibido = esRecibe && acta.estado === "entregada";
-  const puedeChulear = esRecibe && acta.estado === "completada";
+  const puedeChulear = esRecibe && acta.estado === "recibida";
+  const puedeCerrarActa = esRecibe && acta.estado === "recibida";
+  const puedeEditar = false;
+  const puedeIrAEditar = esEntrega && acta.estado === "abierta";
   const estadoLabel = acta.estado === "completada" ? `Cerrada con ${pendientes} novedades pendientes` : acta.estado;
 
   const firmar = async (firmaData: string, usandoGuardada: boolean) => {
     if (!empleado?.id || !mostrarFirma) return;
-    const res = await entregasApi.firmar(acta.id, {
-      empleado_id: empleado.id,
-      tipo_firma: mostrarFirma,
-      firma_data: firmaData,
-      formato: "base64",
-      usar_firma_guardada: usandoGuardada,
-    });
-    setMostrarFirma(null);
-    setActa(res.entrega);
-    if (!usandoGuardada) setFirmaGuardada(firmaData);
-    if (res.message) alert(res.message);
+    try {
+      const res = await entregasApi.firmar(acta.id, {
+        empleado_id: empleado.id,
+        tipo_firma: mostrarFirma,
+        firma_data: firmaData,
+        formato: "base64",
+        usar_firma_guardada: usandoGuardada,
+      });
+      setMostrarFirma(null);
+      setActa(res.entrega);
+      if (!usandoGuardada) setFirmaGuardada(firmaData);
+      if (res.message) alert(res.message);
+    } catch (error: any) {
+      alert(error?.response?.data?.error || error?.response?.data?.message || "No se pudo firmar el acta");
+    }
   };
 
   const toggleNovedad = async (novedadId: number, current: boolean) => {
@@ -72,20 +80,69 @@ export default function DetalleEntregaPage() {
     setActa(res.entrega);
   };
 
+  const cambiarEdicion = (novedadId: number, field: "titulo" | "descripcion", value: string) => {
+    const novedad = acta.novedades?.find((entry) => entry.id === novedadId);
+    setEdiciones((prev) => ({
+      ...prev,
+      [novedadId]: {
+        titulo: prev[novedadId]?.titulo ?? novedad?.titulo ?? "",
+        descripcion: prev[novedadId]?.descripcion ?? novedad?.descripcion ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const guardarNovedad = async (novedadId: number) => {
+    if (!empleado?.id) return;
+    const novedad = acta.novedades?.find((entry) => entry.id === novedadId);
+    const edit = ediciones[novedadId] ?? { titulo: novedad?.titulo ?? "", descripcion: novedad?.descripcion ?? "" };
+    if (!edit.descripcion.trim()) {
+      alert("La descripcion no puede quedar vacia");
+      return;
+    }
+
+    try {
+      const res = await entregasApi.actualizarNovedad(acta.id, novedadId, {
+        empleado_id: empleado.id,
+        titulo: edit.titulo.trim() || null,
+        descripcion: edit.descripcion.trim(),
+      });
+      setActa(res.entrega);
+      setEdiciones((prev) => {
+        const next = { ...prev };
+        delete next[novedadId];
+        return next;
+      });
+    } catch (error: any) {
+      alert(error?.response?.data?.error || error?.response?.data?.message || "No se pudo actualizar la novedad");
+    }
+  };
+
+  const cerrarActa = async () => {
+    if (!empleado?.id) return;
+    const confirmar = window.confirm(`Vas a cerrar el acta con ${pendientes} novedades pendientes. Despues de cerrar no se podra modificar. Continuar?`);
+    if (!confirmar) return;
+    const res = await entregasApi.cerrar(acta.id, { empleado_id: empleado.id });
+    setActa(res.entrega);
+    if (res.message) alert(res.message);
+  };
+
   return (
     <div className="space-y-5">
       {mostrarFirma && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <FirmaPad titulo={mostrarFirma === "entrega" ? "Cerrar acta con firma" : "Firma de recibido"} firmaGuardada={firmaGuardada} onFirmaCapturada={firmar} onCancelar={() => setMostrarFirma(null)} />
+          <FirmaPad titulo={mostrarFirma === "entrega" ? "Entregar acta con firma" : "Firma de recibido"} firmaGuardada={firmaGuardada} onFirmaCapturada={firmar} onCancelar={() => setMostrarFirma(null)} />
         </div>
       )}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div><button onClick={() => navigate("/entregas")} className="text-sm font-semibold text-primary">Volver al inicio de actas</button><p className="mt-2 text-xs font-bold uppercase tracking-wide text-gray-500">{acta.codigo_acta}</p><h1 className="text-3xl font-bold text-gray-900">{acta.nombre_acta}</h1><p className="mt-2 text-sm font-semibold text-primary">{estadoLabel}</p></div>
         <div className="flex flex-wrap gap-2">
-          <a href={entregasApi.descargarPdfUrl(acta.id)} target="_blank" className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700"><Download size={16} /> PDF</a>
+          <a href={entregasApi.descargarPdfUrl(acta.id, empleado?.id)} target="_blank" className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700"><Download size={16} /> PDF</a>
           <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700"><Printer size={16} /> Imprimir</button>
-          {puedeCerrarActa && <button onClick={() => setMostrarFirma("entrega")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white"><Signature size={16} /> Cerrar acta</button>}
+          {puedeIrAEditar && <button onClick={() => navigate(`/entregas/${acta.id}/editar`)} className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700"><Pencil size={16} /> Editar acta</button>}
+          {puedeEntregarActa && <button onClick={() => setMostrarFirma("entrega")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white"><Signature size={16} /> Entregar acta</button>}
           {puedeFirmarRecibido && <button onClick={() => setMostrarFirma("recepcion")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white"><Signature size={16} /> Firmar recibido</button>}
+          {puedeCerrarActa && <button onClick={cerrarActa} className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"><CheckCircle2 size={16} /> Cerrar acta</button>}
         </div>
       </div>
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3"><Summary label="Novedades" value={acta.novedades?.length ?? 0} /><Summary label="Completadas" value={completadas} /><Summary label="Pendientes" value={pendientes} /></section>
@@ -94,8 +151,12 @@ export default function DetalleEntregaPage() {
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2"><Leader title="Lider entrega" name={acta.lider_entrega?.colaborador ?? ""} signed={Boolean(acta.firma_entrega)} firma={acta.firma_entrega?.firma_data} /><Leader title="Lider recibe" name={acta.lider_recibe?.colaborador ?? ""} signed={Boolean(acta.firma_recepcion)} firma={acta.firma_recepcion?.firma_data} /></div>
       </section>
       <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between border-b border-gray-200 pb-3"><div><h2 className="text-lg font-bold text-gray-900">Novedades del acta</h2><p className="text-sm text-gray-500">{puedeChulear ? "Puedes chulear cada novedad cuando quede completada." : "El contenido queda bloqueado cuando el acta se cierra."}</p></div><span className="text-sm font-semibold text-gray-500">{pendientes} pendientes</span></div>
-        <div className="space-y-5">{grouped.map(({ category, novedades }) => <div key={category.key}><h3 className="mb-2 rounded-md bg-gray-900 px-3 py-2 text-sm font-bold text-white">{category.label}</h3><div className="space-y-2">{novedades.map((novedad) => <div key={novedad.id} className={`rounded-md border p-3 ${novedad.resuelto ? "border-emerald-200 bg-emerald-50" : "border-gray-200"}`}><div className="flex items-start gap-3"><button type="button" onClick={() => novedad.id && toggleNovedad(novedad.id, Boolean(novedad.resuelto))} disabled={!puedeChulear} className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded border ${novedad.resuelto ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-300 bg-white text-transparent"} disabled:cursor-not-allowed`}><CheckCircle2 size={16} /></button><div><div className={`font-semibold ${novedad.resuelto ? "text-emerald-800 line-through" : "text-gray-900"}`}>{novedad.titulo}</div><p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">{novedad.descripcion}</p></div></div></div>)}</div></div>)}</div>
+        <div className="mb-4 flex items-center justify-between border-b border-gray-200 pb-3"><div><h2 className="text-lg font-bold text-gray-900">Novedades del acta</h2><p className="text-sm text-gray-500">{puedeEditar ? "Revisa y corrige las novedades antes de entregar el acta." : puedeChulear ? "Puedes chulear cada novedad cuando quede completada. Luego cierras el acta." : "El contenido queda bloqueado cuando el acta se cierra."}</p></div><span className="text-sm font-semibold text-gray-500">{pendientes} pendientes</span></div>
+        <div className="space-y-5">{grouped.map(({ category, novedades }) => <div key={category.key}><h3 className="mb-2 rounded-md bg-gray-900 px-3 py-2 text-sm font-bold text-white">{category.label}</h3><div className="space-y-2">{novedades.map((novedad) => {
+          const novedadId = novedad.id ?? 0;
+          const edit = ediciones[novedadId] ?? { titulo: novedad.titulo ?? "", descripcion: novedad.descripcion ?? "" };
+          return <div key={novedad.id} className={`rounded-md border p-3 ${novedad.resuelto ? "border-emerald-200 bg-emerald-50" : "border-gray-200"}`}><div className="flex items-start gap-3"><button type="button" onClick={() => novedad.id && toggleNovedad(novedad.id, Boolean(novedad.resuelto))} disabled={!puedeChulear} className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded border ${novedad.resuelto ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-300 bg-white text-transparent"} disabled:cursor-not-allowed`}><CheckCircle2 size={16} /></button><div className="flex-1">{puedeEditar && novedad.id ? <div className="space-y-2"><input value={edit.titulo} onChange={(event) => cambiarEdicion(novedad.id!, "titulo", event.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900" /><textarea value={edit.descripcion} onChange={(event) => cambiarEdicion(novedad.id!, "descripcion", event.target.value)} rows={3} className="w-full resize-y rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700" /><button type="button" onClick={() => guardarNovedad(novedad.id!)} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white"><Save size={14} /> Guardar novedad</button></div> : <><div className={`font-semibold ${novedad.resuelto ? "text-emerald-800" : "text-gray-900"}`}>{novedad.titulo}</div><p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">{novedad.descripcion}</p></>}</div></div></div>;
+        })}</div></div>)}</div>
       </section>
       <section className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5"><div className="flex items-center gap-2 text-sm text-gray-600"><Mail size={16} /> Al cerrar el acta se envia la notificacion y ya no se modifica el contenido. Si faltó algo, se crea otra acta.</div></section>
     </div>

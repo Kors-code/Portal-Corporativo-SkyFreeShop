@@ -17,17 +17,23 @@ export const entregasApi = {
   listar: (params: Record<string, any> = {}) =>
     api.get<PaginatedResponse<Entrega>>(BASE, { params }).then(r => r.data),
 
-  obtener: (id: number | string) =>
-    api.get<Entrega>(`${BASE}/${id}`).then(r => r.data),
+  obtener: (id: number | string, empleadoId?: number) =>
+    api.get<Entrega>(`${BASE}/${id}`, { params: empleadoId ? { empleado_id: empleadoId } : undefined }).then(r => r.data),
 
   crear: (data: CrearEntregaPayload) =>
     api.post<{ message: string; entrega: Entrega }>(BASE, data).then(r => r.data),
+
+  actualizar: (id: number | string, data: CrearEntregaPayload) =>
+    api.put<{ message: string; entrega: Entrega }>(`${BASE}/${id}`, data).then(r => r.data),
 
   eliminar: (id: number) =>
     api.delete(`${BASE}/${id}`).then(r => r.data),
 
   firmar: (id: number | string, data: FirmarPayload) =>
     api.post<{ message: string; entrega: Entrega }>(`${BASE}/${id}/firmar`, data).then(r => r.data),
+
+  cerrar: (id: number | string, data: { empleado_id: number }) =>
+    api.post<{ message: string; pendientes: number; entrega: Entrega }>(`${BASE}/${id}/cerrar`, data).then(r => r.data),
 
   rechazar: (id: number | string, data: { empleado_id: number; razon_rechazo: string }) =>
     api.post(`${BASE}/${id}/rechazar`, data).then(r => r.data),
@@ -38,6 +44,13 @@ export const entregasApi = {
     data: { observaciones_receptor: string }
   ) =>
     api.post(`${BASE}/${entregaId}/novedades/${novedadId}/observacion`, data).then(r => r.data),
+
+  actualizarNovedad: (
+    entregaId: number | string,
+    novedadId: number,
+    data: { empleado_id: number; titulo?: string | null; descripcion: string }
+  ) =>
+    api.patch(`${BASE}/${entregaId}/novedades/${novedadId}`, data).then(r => r.data),
 
   actualizarEstadoNovedad: (
     entregaId: number | string,
@@ -73,11 +86,11 @@ export const entregasApi = {
 
   // ============ PDF ============
 
-  descargarPdfUrl: (id: number | string) => `${api.defaults.baseURL}${BASE}/${id}/pdf`,
-  verPdfUrl: (id: number | string) => `${api.defaults.baseURL}${BASE}/${id}/pdf-view`,
+  descargarPdfUrl: (id: number | string, empleadoId?: number) => `${api.defaults.baseURL}${BASE}/${id}/pdf${empleadoId ? `?empleado_id=${empleadoId}` : ""}`,
+  verPdfUrl: (id: number | string, empleadoId?: number) => `${api.defaults.baseURL}${BASE}/${id}/pdf-view${empleadoId ? `?empleado_id=${empleadoId}` : ""}`,
 
-  descargarPdf: (id: number | string) =>
-    api.get(`${BASE}/${id}/pdf`, { responseType: 'blob' }).then(r => r.data),
+  descargarPdf: (id: number | string, empleadoId?: number) =>
+    api.get(`${BASE}/${id}/pdf`, { params: empleadoId ? { empleado_id: empleadoId } : undefined, responseType: 'blob' }).then(r => r.data),
 };
 
 export default entregasApi;

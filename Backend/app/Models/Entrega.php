@@ -118,7 +118,7 @@ class Entrega extends Model
     {
         return $this->lider_entrega_id === $empleadoId
             && !$this->tieneFirmaEntrega()
-            && in_array($this->estado, ['abierta', 'entregada']);
+            && $this->estado === 'abierta';
     }
 
     public function puedeFirmarComoRecepcion(int $empleadoId): bool
@@ -126,7 +126,7 @@ class Entrega extends Model
         return $this->lider_recibe_id === $empleadoId
             && !$this->tieneFirmaRecepcion()
             && $this->tieneFirmaEntrega()
-            && in_array($this->estado, ['entregada', 'recibida']);
+            && $this->estado === 'entregada';
     }
 
     public function getEstadoLabelAttribute(): string
