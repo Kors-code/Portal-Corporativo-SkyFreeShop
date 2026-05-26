@@ -1,135 +1,98 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import entregasApi from '../services/entregasApi';
-import useEmpleadoActual from '../hooks/useEmpleadoActual';
-import StatBox from '../components/StatBox';
-import EntregaListItem from '../components/EntregaListItem';
-import type { DashboardStats, Entrega } from '../types';
+import { useEffect, useState } from "react";
+import type React from "react";
+import { useNavigate } from "react-router-dom";
+import { ClipboardList, FileInput, FilePlus2, Inbox, Settings, UsersRound } from "lucide-react";
+import entregasApi from "../services/entregasApi";
+import useEmpleadoActual from "../hooks/useEmpleadoActual";
+import FirmaPad from "../components/FirmaPad";
+import type { DashboardStats, Entrega } from "../types";
 
 export default function EntregasDashboardPage() {
   const navigate = useNavigate();
   const { empleado } = useEmpleadoActual();
-
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recientes, setRecientes] = useState<Entrega[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [firmaGuardada, setFirmaGuardada] = useState<string | null>(null);
+  const [mostrarFirma, setMostrarFirma] = useState(false);
 
   useEffect(() => {
-    if (empleado?.id) {
-      load();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empleado?.id]);
-
-  const load = async () => {
     if (!empleado?.id) return;
-    setLoading(true);
-    try {
-      const data = await entregasApi.obtenerDashboard(empleado.id);
+    entregasApi.obtenerDashboard(empleado.id).then((data) => {
       setStats(data.stats);
       setRecientes(data.recientes ?? []);
-    } catch (e) {
-      console.error('Error cargando dashboard', e);
-    } finally {
-      setLoading(false);
-    }
+    });
+    entregasApi.obtenerFirmaEmpleado(empleado.id).then((data) => setFirmaGuardada(data.firma));
+  }, [empleado?.id]);
+
+  const guardarFirma = async (firma: string) => {
+    if (!empleado?.id) return;
+    await entregasApi.guardarFirmaEmpleado(empleado.id, firma);
+    setFirmaGuardada(firma);
+    setMostrarFirma(false);
   };
 
   if (!empleado) {
-    return (
-      <div className="p-6 text-center text-gray-600">
-        Debes iniciar sesión para ver el panel de entregas.
-      </div>
-    );
+    return <div className="rounded-lg bg-white p-8 text-center text-gray-600">No se encontro empleado asociado al usuario actual. Valida email o cedula en empleados.</div>;
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">📋 Sistema de Entregas</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Hola <strong>{empleado.colaborador}</strong>, ¿qué deseas hacer hoy?
-        </p>
-      </div>
-
-      {/* Acciones principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div
-          onClick={() => navigate('/entregas/nuevo')}
-          className="relative cursor-pointer p-6 rounded-xl shadow-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white hover:shadow-2xl hover:-translate-y-1 transition-all"
-        >
-          <div className="text-4xl mb-2">📤</div>
-          <h2 className="text-xl font-bold mb-1">Entregar Novedades</h2>
-          <p className="text-sm opacity-90 mb-3">
-            Crea una nueva acta para entregar tu turno con todas las novedades.
-          </p>
-          <button className="px-4 py-2 bg-white/20 hover:bg-white/30 border-2 border-white/40 rounded-md text-sm font-semibold">
-            + Nueva Acta
-          </button>
+    <div className="space-y-8">
+      {mostrarFirma && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <FirmaPad titulo="Mi firma" firmaGuardada={firmaGuardada} permitirGuardada={false} onFirmaCapturada={(firma) => guardarFirma(firma)} onCancelar={() => setMostrarFirma(false)} />
         </div>
-
-        <div
-          onClick={() => navigate('/entregas/recibir')}
-          className="relative cursor-pointer p-6 rounded-xl shadow-lg bg-gradient-to-br from-green-500 to-green-700 text-white hover:shadow-2xl hover:-translate-y-1 transition-all"
-        >
-          <div className="text-4xl mb-2">📥</div>
-          <h2 className="text-xl font-bold mb-1">Recibir Novedades</h2>
-          <p className="text-sm opacity-90 mb-3">
-            Revisa y firma las actas que otros líderes te han enviado.
-          </p>
-          {stats && stats.recibidas_pendientes > 0 && (
-            <div className="absolute top-4 right-4 bg-white text-red-600 px-2 py-1 rounded-full text-xs font-bold">
-              {stats.recibidas_pendientes} pendiente{stats.recibidas_pendientes !== 1 ? 's' : ''}
-            </div>
-          )}
-          <button className="px-4 py-2 bg-white/20 hover:bg-white/30 border-2 border-white/40 rounded-md text-sm font-semibold">
-            Ver Pendientes
-          </button>
-        </div>
-      </div>
-
-      {/* Estadísticas */}
-      <div className="flex gap-3 overflow-x-auto pb-2 mb-6">
-        <StatBox label="Entregas realizadas" value={stats?.entregas_realizadas ?? 0} variant="dark" />
-        <StatBox label="Completadas" value={stats?.entregas_completadas ?? 0} variant="success" />
-        <StatBox label="Pendientes firma" value={stats?.entregas_pendientes_firma ?? 0} variant="warning" />
-        <StatBox label="Por recibir" value={stats?.recibidas_pendientes ?? 0} variant="danger" />
-        <StatBox label="Recibidas" value={stats?.recibidas_completadas ?? 0} variant="dark" />
-      </div>
-
-      {/* Recientes */}
-      <div className="bg-white rounded-lg shadow p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">🕐 Actas Recientes</h2>
-          <button
-            onClick={() => navigate('/entregas/historial')}
-            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-          >
-            Ver historial →
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-10 text-gray-500">Cargando…</div>
-        ) : recientes.length === 0 ? (
-          <div className="text-center py-10 text-gray-400">
-            <div className="text-4xl mb-2">📭</div>
-            <p>No hay actas registradas aún</p>
+      )}
+      <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary">Entrega de lideres</p>
+            <h1 className="mt-2 text-3xl font-bold text-gray-900">Vas a entregar o a recibir acta?</h1>
+            <p className="mt-2 max-w-2xl text-sm text-gray-500">Hola {empleado.colaborador}. Crea, recibe y cierra actas desde la base de datos.</p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {recientes.map(e => (
-              <EntregaListItem
-                key={e.id}
-                entrega={e}
-                empleadoId={empleado.id}
-                onClick={() => navigate(`/entregas/${e.id}`)}
-              />
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setMostrarFirma(true)} className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700">
+              <Settings size={17} /> Mi firma
+            </button>
+            <button onClick={() => navigate("/entregas/listado")} className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700">
+              <ClipboardList size={17} /> Ver todas
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
+      <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <ActionCard title="Entregar" description="Crear una nueva acta para el lider que recibe el siguiente turno." button="Crear acta" icon={<FilePlus2 size={28} />} tone="primary" onClick={() => navigate("/entregas/nuevo")} />
+        <ActionCard title="Recibir" description="Ver las actas que te dejaron pendientes para leerlas, firmarlas y cerrarlas." button="Actas abiertas" icon={<FileInput size={28} />} tone="green" badge={stats?.recibidas_pendientes ?? 0} onClick={() => navigate("/entregas/recibir")} />
+      </section>
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={<FilePlus2 size={18} />} label="Actas creadas" value={stats?.entregas_realizadas ?? 0} />
+        <Metric icon={<Inbox size={18} />} label="Por recibir" value={stats?.recibidas_pendientes ?? 0} />
+        <Metric icon={<ClipboardList size={18} />} label="Recibidas" value={stats?.recibidas_completadas ?? 0} />
+        <Metric icon={<UsersRound size={18} />} label="Actas abiertas" value={stats?.entregas_pendientes_firma ?? 0} />
+      </section>
+      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">Actas recientes</h2>
+          <button onClick={() => navigate("/entregas/listado")} className="text-sm font-semibold text-primary">Abrir listado</button>
+        </div>
+        <div className="space-y-2">
+          {recientes.map((acta) => (
+            <button key={acta.id} onClick={() => navigate(`/entregas/${acta.id}`)} className="flex w-full items-center justify-between rounded-md border border-gray-200 p-3 text-left hover:bg-gray-50">
+              <span><strong>{acta.nombre_acta}</strong><span className="ml-2 text-sm text-gray-500">{acta.estado}</span></span>
+              <span className="text-sm text-primary">Ver</span>
+            </button>
+          ))}
+          {recientes.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No hay actas recientes.</div>}
+        </div>
+      </section>
     </div>
   );
+}
+
+function ActionCard({ title, description, button, icon, tone, badge, onClick }: { title: string; description: string; button: string; icon: React.ReactNode; tone: "primary" | "green"; badge?: number; onClick: () => void }) {
+  const classes = tone === "primary" ? "border-primary/20 bg-primary text-white" : "border-emerald-700/20 bg-emerald-700 text-white";
+  return <button onClick={onClick} className={`relative rounded-lg border p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${classes}`}>{Boolean(badge) && <span className="absolute right-4 top-4 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-primary">{badge} pendiente</span>}<div className="mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-white/15">{icon}</div><h2 className="text-2xl font-bold">{title}</h2><p className="mt-2 max-w-md text-sm text-white/85">{description}</p><span className="mt-5 inline-flex rounded-md bg-white/15 px-4 py-2 text-sm font-bold">{button}</span></button>;
+}
+
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+  return <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"><div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div><div className="text-2xl font-bold text-gray-900">{value}</div><div className="text-sm text-gray-500">{label}</div></div>;
 }

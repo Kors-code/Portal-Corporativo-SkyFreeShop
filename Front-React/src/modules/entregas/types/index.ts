@@ -38,6 +38,10 @@ export interface Empleado {
   email?: string;
   sede?: string;
   jefe_inmediato?: string;
+  tiene_usuario_portal?: boolean;
+  portal_user_id?: number | null;
+  portal_user_email?: string | null;
+  portal_user_role?: string | null;
 }
 
 export interface Novedad {

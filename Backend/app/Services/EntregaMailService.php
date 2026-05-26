@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\EntregaController;
+use App\Models\Empleado;
 use App\Models\Entrega;
 use Illuminate\Support\Facades\Log;
+use MailerSend\Helpers\Builder\Attachment;
 use MailerSend\Helpers\Builder\EmailParams;
 use MailerSend\Helpers\Builder\Recipient;
-use MailerSend\Helpers\Builder\Attachment;
 use MailerSend\MailerSend;
 
 class EntregaMailService
@@ -22,95 +24,82 @@ class EntregaMailService
         ]);
     }
 
-    /**
-     * Notificar al líder receptor que tiene una entrega pendiente
-     */
     public function notificarLiderReceptor(Entrega $entrega): bool
     {
-        $liderRecibe = $entrega->liderRecibe;
-        $liderEntrega = $entrega->liderEntrega;
+        $entrega->loadMissing(['liderEntrega', 'liderRecibe', 'novedades']);
 
-        if (!$liderRecibe || !$liderRecibe->email) {
-            Log::warning('Líder receptor sin email', ['entrega_id' => $entrega->id]);
+        $liderRecibe = $entrega->liderRecibe;
+        $emailRecibe = $this->emailEmpleado($liderRecibe);
+
+        if (!$liderRecibe || !$emailRecibe) {
+            Log::warning('Lider receptor sin email de portal', ['entrega_id' => $entrega->id]);
             return false;
         }
 
         $enlace = $this->urlEntrega($entrega);
 
-        $recipients = [new Recipient($liderRecibe->email, $liderRecibe->colaborador)];
-
-        $html = $this->plantillaEntregaPendiente($entrega, $enlace);
-
         $emailParams = (new EmailParams())
             ->setFrom('no-reply@skyfreeshopdutyfree.com')
             ->setFromName('Sky Free Shop - Entregas')
-            ->setRecipients($recipients)
-            ->setSubject("📋 Nueva acta de entrega - {$entrega->codigo_acta}")
-            ->setHtml($html)
+            ->setRecipients([new Recipient($emailRecibe, $liderRecibe->colaborador)])
+            ->setSubject("Nueva acta de entrega - {$entrega->codigo_acta}")
+            ->setHtml($this->plantillaEntregaPendiente($entrega, $enlace))
             ->setText($this->plantillaTexto($entrega, $enlace))
             ->setReplyTo('no-reply@skyfreeshopdutyfree.com')
             ->setReplyToName('No Reply');
 
-        return $this->enviar($emailParams, $entrega);
+        return $this->enviar($emailParams, $entrega, 'entrega_pendiente');
     }
 
-    /**
-     * Notificar al líder que entregó que ya fue recibida y firmada (con PDF)
-     */
     public function notificarCierreActa(Entrega $entrega): bool
     {
-        $liderEntrega = $entrega->liderEntrega;
+        $entrega->loadMissing(['liderEntrega', 'liderRecibe', 'novedades']);
 
-        if (!$liderEntrega || !$liderEntrega->email) {
+        $liderEntrega = $entrega->liderEntrega;
+        $emailEntrega = $this->emailEmpleado($liderEntrega);
+
+        if (!$liderEntrega || !$emailEntrega) {
+            Log::warning('Lider que entrega sin email de portal', ['entrega_id' => $entrega->id]);
             return false;
         }
 
         $enlace = $this->urlEntrega($entrega);
-
-        $recipients = [new Recipient($liderEntrega->email, $liderEntrega->colaborador)];
-
-        // Generar PDF para adjuntar
         $pdfContent = $this->pdfService->generarRespuesta($entrega)->output();
-        $pdfBase64 = base64_encode($pdfContent);
-
-        $attachment = new Attachment($pdfBase64, "acta-{$entrega->codigo_acta}.pdf", 'attachment');
-
-        $html = $this->plantillaCierre($entrega, $enlace);
+        $attachment = new Attachment(base64_encode($pdfContent), "acta-{$entrega->codigo_acta}.pdf", 'attachment');
 
         $emailParams = (new EmailParams())
             ->setFrom('no-reply@skyfreeshopdutyfree.com')
             ->setFromName('Sky Free Shop - Entregas')
-            ->setRecipients($recipients)
-            ->setSubject("✅ Acta completada - {$entrega->codigo_acta}")
-            ->setHtml($html)
+            ->setRecipients([new Recipient($emailEntrega, $liderEntrega->colaborador)])
+            ->setSubject("Acta recibida y firmada - {$entrega->codigo_acta}")
+            ->setHtml($this->plantillaCierre($entrega, $enlace))
             ->setText("Tu acta {$entrega->codigo_acta} fue recibida y firmada por {$entrega->liderRecibe->colaborador}.")
             ->setAttachments([$attachment]);
 
-        return $this->enviar($emailParams, $entrega);
+        return $this->enviar($emailParams, $entrega, 'acta_cerrada');
     }
 
-    /**
-     * Notificar rechazo
-     */
     public function notificarRechazo(Entrega $entrega): bool
     {
-        $liderEntrega = $entrega->liderEntrega;
+        $entrega->loadMissing(['liderEntrega', 'liderRecibe']);
 
-        if (!$liderEntrega || !$liderEntrega->email) {
+        $liderEntrega = $entrega->liderEntrega;
+        $emailEntrega = $this->emailEmpleado($liderEntrega);
+
+        if (!$liderEntrega || !$emailEntrega) {
+            Log::warning('Lider que entrega sin email de portal para rechazo', ['entrega_id' => $entrega->id]);
             return false;
         }
-
-        $recipients = [new Recipient($liderEntrega->email, $liderEntrega->colaborador)];
 
         $enlace = $this->urlEntrega($entrega);
 
         $html = "
-        <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto;'>
-            <h2 style='color: #dc2626;'>❌ Acta rechazada</h2>
+        <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; line-height: 1.6;'>
+            <h2 style='color: #dc2626;'>Acta rechazada</h2>
             <p>Hola <strong>{$liderEntrega->colaborador}</strong>,</p>
             <p>Tu acta <strong>{$entrega->codigo_acta}</strong> fue rechazada por {$entrega->liderRecibe->colaborador}.</p>
             <div style='background: #fef2f2; padding: 15px; border-left: 4px solid #dc2626;'>
-                <strong>Razón:</strong><br>
+                <strong>Razon:</strong><br>
                 {$entrega->razon_rechazo}
             </div>
             <p style='margin-top: 20px;'>
@@ -121,34 +110,46 @@ class EntregaMailService
         $emailParams = (new EmailParams())
             ->setFrom('no-reply@skyfreeshopdutyfree.com')
             ->setFromName('Sky Free Shop - Entregas')
-            ->setRecipients($recipients)
-            ->setSubject("❌ Acta rechazada - {$entrega->codigo_acta}")
+            ->setRecipients([new Recipient($emailEntrega, $liderEntrega->colaborador)])
+            ->setSubject("Acta rechazada - {$entrega->codigo_acta}")
             ->setHtml($html);
 
-        return $this->enviar($emailParams, $entrega);
+        return $this->enviar($emailParams, $entrega, 'acta_rechazada');
     }
 
-    private function enviar(EmailParams $params, Entrega $entrega): bool
+    private function emailEmpleado(?Empleado $empleado): ?string
+    {
+        if (!$empleado) {
+            return null;
+        }
+
+        $usuarioPortal = EntregaController::buscarUsuarioPortalParaEmpleado($empleado);
+
+        return $usuarioPortal->email ?? $empleado->email ?? null;
+    }
+
+    private function enviar(EmailParams $params, Entrega $entrega, string $tipo): bool
     {
         try {
             $response = $this->mailer->email->send($params);
 
-            if (isset($response['status_code']) && in_array($response['status_code'], [200, 202])) {
+            if (isset($response['status_code']) && in_array($response['status_code'], [200, 202], true)) {
                 $entrega->update(['correo_enviado' => true]);
-                Log::info('Correo enviado', ['entrega_id' => $entrega->id]);
+                Log::info('Correo de entrega enviado', ['entrega_id' => $entrega->id, 'tipo' => $tipo]);
                 return true;
             }
 
-            Log::warning('Correo no enviado', [
+            Log::warning('Correo de entrega no enviado', [
                 'entrega_id' => $entrega->id,
-                'response' => $response
+                'tipo' => $tipo,
+                'response' => $response,
             ]);
             return false;
-
         } catch (\Throwable $e) {
-            Log::error('Error enviando correo', [
+            Log::error('Error enviando correo de entrega', [
                 'entrega_id' => $entrega->id,
-                'error' => $e->getMessage()
+                'tipo' => $tipo,
+                'error' => $e->getMessage(),
             ]);
             return false;
         }
@@ -165,46 +166,30 @@ class EntregaMailService
         $liderEntrega = $entrega->liderEntrega->colaborador;
         $liderRecibe = $entrega->liderRecibe->colaborador;
         $totalNovedades = $entrega->novedades()->count();
-        $fecha = $entrega->fecha_acta->format('d/m/Y');
+        $fecha = optional($entrega->fecha_acta)->format('d/m/Y') ?? $entrega->fecha_acta;
         $turno = ucfirst($entrega->turno);
 
         return "
         <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; line-height: 1.6;'>
-            <div style='background: linear-gradient(135deg, #3b82f6, #1e40af); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;'>
-                <h1 style='margin: 0;'>📋 Nueva Acta de Entrega</h1>
-                <p style='margin: 10px 0 0;'>Código: <strong>{$entrega->codigo_acta}</strong></p>
+            <div style='background: #1e40af; color: white; padding: 28px; text-align: center; border-radius: 10px 10px 0 0;'>
+                <h1 style='margin: 0;'>Nueva acta de entrega</h1>
+                <p style='margin: 10px 0 0;'>Codigo: <strong>{$entrega->codigo_acta}</strong></p>
             </div>
-
             <div style='background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;'>
                 <p>Hola <strong>{$liderRecibe}</strong>,</p>
-
-                <p><strong>{$liderEntrega}</strong> ha completado el acta de entrega del turno y la ha firmado digitalmente.
-                Necesita que la revises y firmes para confirmar la recepción.</p>
-
+                <p><strong>{$liderEntrega}</strong> cerro y firmo un acta de entrega para tu revision.</p>
                 <div style='background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;'>
-                    <h3 style='margin-top: 0;'>Detalles del acta:</h3>
-                    <ul style='list-style: none; padding: 0;'>
-                        <li>📅 <strong>Fecha:</strong> {$fecha}</li>
-                        <li>🕒 <strong>Turno:</strong> {$turno}</li>
-                        <li>👤 <strong>Entregado por:</strong> {$liderEntrega}</li>
-                        <li>📋 <strong>Novedades reportadas:</strong> {$totalNovedades}</li>
-                    </ul>
+                    <p><strong>Fecha:</strong> {$fecha}</p>
+                    <p><strong>Turno:</strong> {$turno}</p>
+                    <p><strong>Novedades reportadas:</strong> {$totalNovedades}</p>
                 </div>
-
                 <div style='text-align: center; margin: 30px 0;'>
-                    <a href='{$enlace}' style='background: #3b82f6; color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;'>
-                        🔍 Ver y firmar acta
-                    </a>
+                    <a href='{$enlace}' style='background: #1e40af; color: white; padding: 14px 34px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;'>Ver y firmar acta</a>
                 </div>
-
-                <p style='color: #6b7280; font-size: 14px;'>
-                    Al firmar, recibirás el PDF completo del acta por correo para tus registros.
-                </p>
+                <p style='color: #6b7280; font-size: 14px;'>Al firmar, el acta quedara cerrada con las novedades pendientes registradas.</p>
             </div>
-
-            <div style='background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 10px 10px; color: #6b7280; font-size: 12px;'>
-                Sistema de Entregas Sky Free Shop<br>
-                Este es un correo automático, por favor no responder.
+            <div style='background: #f9fafb; padding: 18px; text-align: center; border-radius: 0 0 10px 10px; color: #6b7280; font-size: 12px;'>
+                Sistema de Entregas Sky Free Shop
             </div>
         </div>";
     }
@@ -213,31 +198,26 @@ class EntregaMailService
     {
         $liderEntrega = $entrega->liderEntrega->colaborador;
         $liderRecibe = $entrega->liderRecibe->colaborador;
+        $pendientes = $entrega->novedades()->where('resuelto', false)->count();
 
         return "
         <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; line-height: 1.6;'>
-            <div style='background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;'>
-                <h1 style='margin: 0;'>✅ Acta Completada</h1>
+            <div style='background: #047857; color: white; padding: 28px; text-align: center; border-radius: 10px 10px 0 0;'>
+                <h1 style='margin: 0;'>Acta recibida y firmada</h1>
                 <p style='margin: 10px 0 0;'>{$entrega->codigo_acta}</p>
             </div>
-
             <div style='background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;'>
                 <p>Hola <strong>{$liderEntrega}</strong>,</p>
-
-                <p>¡Buenas noticias! <strong>{$liderRecibe}</strong> ha firmado tu acta de entrega.</p>
-
-                <div style='background: #ecfdf5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;'>
-                    <p style='margin: 0;'>📎 Encontrarás el <strong>PDF del acta firmada</strong> adjunto a este correo.</p>
+                <p><strong>{$liderRecibe}</strong> recibio y firmo tu acta de entrega.</p>
+                <div style='background: #ecfdf5; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #047857;'>
+                    <p style='margin: 0;'><strong>Pendientes al cierre:</strong> {$pendientes}</p>
+                    <p style='margin: 8px 0 0;'>El PDF firmado va adjunto a este correo.</p>
                 </div>
-
                 <div style='text-align: center; margin: 30px 0;'>
-                    <a href='{$enlace}' style='background: #10b981; color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold;'>
-                        📄 Ver acta completa
-                    </a>
+                    <a href='{$enlace}' style='background: #047857; color: white; padding: 14px 34px; text-decoration: none; border-radius: 8px; font-weight: bold;'>Ver acta completa</a>
                 </div>
             </div>
-
-            <div style='background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 10px 10px; color: #6b7280; font-size: 12px;'>
+            <div style='background: #f9fafb; padding: 18px; text-align: center; border-radius: 0 0 10px 10px; color: #6b7280; font-size: 12px;'>
                 Sistema de Entregas Sky Free Shop
             </div>
         </div>";

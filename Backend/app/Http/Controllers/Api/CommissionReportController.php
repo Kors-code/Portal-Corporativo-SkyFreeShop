@@ -95,13 +95,13 @@ class CommissionReportController extends Controller
 
     /**
      * Devuelve la suma consistente de target_amount para un conjunto de budgets.
-     * Usa exclusivamente target_amount.
+     * Usa target_amount si existe; si no, usa amount.
      */
     private function aggregateTargetAmount($budgets): float
     {
         $sum = 0.0;
         foreach ($budgets as $b) {
-            $sum += (float) ($b->target_amount ?? 0);
+            $sum += (float)($b->target_amount ?? $b->amount ?? 0);
         }
         return $sum;
     }
@@ -255,7 +255,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         ->whereBetween('s.sale_date', [$startDate, $endDate])
         ->whereIn('s.pdv', ['COLS1', 'COLS2']);
 
-    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+    if (Schema::hasColumn('sales', 'budget_id')) {
         $salesTotalsSub->whereIn('s.budget_id', $budgetIds);
     }
 
@@ -343,7 +343,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
                 });
         });
 
-    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+    if (Schema::hasColumn('sales', 'budget_id')) {
         $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -367,7 +367,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             });
     });
 
-    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+    if (Schema::hasColumn('sales', 'budget_id')) {
         $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -486,7 +486,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereBetween('sale_date', [$startDate, $endDate]);
 
-        if (Schema::connection('budget')->hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+        if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
             $saleDatesPerUserQuery->whereIn('sales.budget_id', $budgetIds);
         }
 
@@ -558,7 +558,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         ->whereBetween('sale_date', [$startDate, $endDate])
         ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
-    if (Schema::connection('budget')->hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+    if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
         $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -752,7 +752,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
-        if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+        if (Schema::hasColumn('sales','budget_id')) {
             $salesQuery->whereIn('sales.budget_id', $budgetIds);
         }
 
@@ -772,7 +772,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         ->whereBetween('sales.sale_date', [$startDate, $endDate])
         ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
-        if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+        if (Schema::hasColumn('sales','budget_id')) {
             $userTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
         }
 
@@ -812,20 +812,29 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             if (!empty($trmValues)) $avgTrmForUser = round(array_sum($trmValues) / count($trmValues), 2);
         }
 
-        // categories for user from aggregated table (correct source: budget_user_category_totals)
+        // categories for user from aggregated table (SUM across selected budgets)
         $userCategoryRows = DB::connection('budget')
-            ->table('budget_user_category_totals as buct')
-            ->where('buct.user_id', $userId)
-            ->whereIn('buct.budget_id', $budgetIds)
-            ->selectRaw("
-                buct.category_group as category_group,
-                SUM(COALESCE(buct.sales_usd,0)) AS sales_usd,
-                SUM(COALESCE(buct.sales_cop,0)) AS sales_cop,
-                SUM(COALESCE(buct.commission_cop,0)) AS commission_cop,
-                MAX(COALESCE(buct.applied_pct,0)) AS applied_pct
-            ")
-            ->groupBy('buct.category_group')
-            ->get();
+    ->table('sales')
+    ->leftJoin('products', 'sales.product_id', '=', 'products.id')
+    ->where('sales.seller_id', $userId)
+    ->whereBetween('sales.sale_date', [$startDate, $endDate])
+    ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+    ->when(
+        Schema::connection('budget')->hasColumn('sales', 'budget_id'),
+        fn($q) => $q->whereIn('sales.budget_id', $budgetIds)
+    )
+    ->selectRaw("
+        products.classification as category_group,
+        SUM(COALESCE(sales.value_usd,0)) AS sales_usd,
+        SUM(COALESCE(sales.amount_cop,0)) AS sales_cop
+    ")
+    ->groupBy('products.classification')
+    ->get()
+    ->map(function ($r) {
+        $r->commission_cop = 0;
+        $r->applied_pct = null;
+        return $r;
+    });
 
         // aggregate participation map for budgets (global participation)
         $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
@@ -841,9 +850,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             ->sum('assigned_turns');
 
         $totalTurns = $budgets->sum('total_turns') ?: $this->TOTAL_TURNS;
-
-            $totalTarget = $this->aggregateTargetAmount($budgets);
-            
+        $totalTarget = $this->aggregateTargetAmount($budgets);
             $percentageAsesors = DB::connection('budget')
                 ->table('category_commissions')
                 ->whereIn('budget_id', $budgetIds)
@@ -868,8 +875,6 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             ? round($adjustedTarget * ($assignedToUser / $totalTurns), 2)
             : 0.0;
             
-        
-
         // Build categories summary using both GLOBAL category budget and USER category budget
         // aggregate userCategoryRows by normalized classification to avoid duplicates
         $aggByNorm = [];
@@ -922,10 +927,10 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
             $qualifiesUser = $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY;
 
-            $appliedPct = isset($data['applied_pct']) ? (float) $data['applied_pct'] : null;
+            $appliedPct = $data['applied_pct'] ?? $participationPct;
 
             $commissionUsd = null;
-            if (!is_null($appliedPct) && $appliedPct > 0 && $salesUsd > 0) {
+            if ($salesUsd > 0 && $appliedPct > 0) {
                 $commissionUsd = round($salesUsd * ($appliedPct / 100), 2);
             } else {
                 $trmUsed = null;
@@ -973,16 +978,8 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
         // user totals from budget_user_totals (aggregate for selected budgets)
         $userTotals = (object)[
-                'total_sales_usd' => round((float) DB::connection('budget')
-                    ->table('budget_user_totals')
-                    ->whereIn('budget_id', $budgetIds)
-                    ->where('user_id', $userId)
-                    ->sum('total_sales_usd'), 2),
-                'total_sales_cop' => round((float) DB::connection('budget')
-                    ->table('budget_user_totals')
-                    ->whereIn('budget_id', $budgetIds)
-                    ->where('user_id', $userId)
-                    ->sum('total_sales_cop'), 2),
+                'total_sales_usd' => round((float)$sales->sum('value_usd'), 2),
+                'total_sales_cop' => round((float)$sales->sum('amount_cop'), 2),
 
                 // La comisión sigue viniendo de agregados
                 'total_commission_cop' => (float) DB::connection('budget')
@@ -1335,7 +1332,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
         // leer presupuesto
         $budget = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
-        $budgetTotal = (float) ($budget->target_amount ?? 0);
+        $budgetTotal = (float)($budget->target_amount ?? $budget->amount ?? 0);
 
         // participation for advisor category (id 19) if present
         $commissionRow = DB::connection('budget')

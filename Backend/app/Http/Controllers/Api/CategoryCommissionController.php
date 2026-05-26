@@ -76,6 +76,7 @@ class CategoryCommissionController extends Controller
                 'commission_percentage100' => $r ? (float)$r->commission_percentage100 : null,
                 'commission_percentage120' => $r ? (float)$r->commission_percentage120 : null,
                 'participation_pct' => $r ? (float)$r->participation_pct : null,
+                'participation_value'      => $r ? (float)$r->participation_value : null,
                 'budget_id' => $r ? (float)$r->budget_id : null,
             ];
 
@@ -94,6 +95,7 @@ class CategoryCommissionController extends Controller
         'commission_percentage100' => ['nullable','numeric','min:0'],
         'commission_percentage120' => ['nullable','numeric','min:0'],
         'participation_pct' => ['nullable','numeric','min:0'],
+        'participation_value'      => ['nullable','numeric','min:0'],
         'budget_id' => ['nullable','integer','exists:budget.budgets,id'],
 
     ]);
@@ -112,6 +114,7 @@ class CategoryCommissionController extends Controller
                 'commission_percentage100' => $data['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $data['commission_percentage120'] ?? 0,
                 'participation_pct' => $data['participation_pct'] ?? 10,
+                'participation_value' => $data['participation_value'] ?? 0,
             ]
         );
 
@@ -146,7 +149,9 @@ public function bulkUpdate(Request $request)
     'items.*.commission_percentage100' => ['nullable','numeric','min:0'],
     'items.*.commission_percentage120' => ['nullable','numeric','min:0'],
     'items.*.participation_pct' => ['nullable','numeric','min:0'],
+    'items.*.participation_value' => ['nullable','numeric','min:0'],
     'items.*.budget_id' => ['nullable','integer','exists:budget.budgets,id'],
+    
 ]);
 
     foreach ($payload['items'] as $it) {
@@ -167,6 +172,7 @@ public function bulkUpdate(Request $request)
             'commission_percentage100' => $it['commission_percentage100'] ?? 0,
             'commission_percentage120' => $it['commission_percentage120'] ?? 0,
             'participation_pct' => $it['participation_pct'] ?? 10,
+            'participation_value' => $it['participation_value'] ?? 0,
         ]
     );
 

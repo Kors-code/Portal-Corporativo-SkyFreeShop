@@ -481,10 +481,11 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     public function import(Request $request)
     {
-        $request->validate([
-            'file' => ['required', 'file'],
-        ]);
-
+        if (!$request->hasFile('file')) {
+            return response()->json([
+                'message' => 'Archivo requerido'
+            ], 422);
+        }
         if ($request->boolean('replace_existing')) {
             $this->deletePreviousBatch(
                 $request->file('file')
@@ -998,7 +999,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ], 500);
         }
     }
-public function importAutomation(Request $request)
+    public function importAutomation(Request $request)
 {
     $token = $request->header('X-Automation-Token');
 
@@ -1011,9 +1012,9 @@ public function importAutomation(Request $request)
     $request->validate([
         'file' => ['required', 'file'],
         'store_id' => ['nullable'],
-        'replace_existing' => ['nullable', 'boolean'],
+        'replace_existing' => ['nullable', 'boolean']
     ]);
 
     return $this->import($request);
-}
+}  
 }

@@ -1,40 +1,83 @@
-import { useEffect, useState } from 'react';
-import type { Empleado } from '../types';
+import { useEffect, useState } from "react";
+import type { Empleado } from "../types";
+import { entregasApi } from "../services/entregasApi";
 
-/**
- * Hook para obtener el empleado actual.
- *
- * ⚠️ ADAPTAR a tu sistema de auth.
- * Por defecto lee de localStorage `empleado_actual` con shape Empleado.
- *
- * Si usas Context, reemplaza el cuerpo por:
- *   const { user } = useContext(AuthContext);
- *   return { empleado: user };
- */
+const STORAGE_KEY = "empleado_actual";
+
+type StoredEmpleado = {
+  portalUserId?: number | null;
+  empleado: Empleado;
+};
+
 export function useEmpleadoActual() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
+  const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('empleado_actual');
-      if (raw) {
-        setEmpleado(JSON.parse(raw));
+    let activo = true;
+
+    const cargarEmpleado = async () => {
+      try {
+        const metaUser = document.querySelector('meta[name="laravel-user"]');
+        const rawUser = metaUser?.getAttribute("content");
+        const portalUser = rawUser && rawUser !== "null" ? JSON.parse(rawUser) : null;
+        const portalUserId = portalUser?.id ?? null;
+        const meta = document.querySelector('meta[name="laravel-empleado"]');
+        const raw = meta?.getAttribute("content");
+
+        if (raw && raw !== "null") {
+          const empleadoMeta = JSON.parse(raw);
+          if (activo) {
+            setEmpleado(empleadoMeta);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ portalUserId, empleado: empleadoMeta }));
+          }
+          return;
+        }
+
+        const respuesta = await entregasApi.obtenerEmpleadoActual();
+        if (activo && respuesta.empleado) {
+          setEmpleado(respuesta.empleado);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ portalUserId: respuesta.user?.id ?? portalUserId, empleado: respuesta.empleado }));
+          return;
+        }
+
+        const local = localStorage.getItem(STORAGE_KEY);
+        if (activo && local) {
+          const parsed = JSON.parse(local) as StoredEmpleado | Empleado;
+          const stored = "empleado" in parsed ? parsed : { portalUserId: null, empleado: parsed };
+          if (!portalUserId || stored.portalUserId === portalUserId) {
+            setEmpleado(stored.empleado);
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+            setEmpleado(null);
+          }
+        }
+      } catch (e) {
+        console.error("Error leyendo empleado actual", e);
+      } finally {
+        if (activo) {
+          setCargando(false);
+        }
       }
-    } catch (e) {
-      console.error('Error parseando empleado_actual', e);
-    }
+    };
+
+    cargarEmpleado();
+
+    return () => {
+      activo = false;
+    };
   }, []);
 
   const setEmpleadoActual = (e: Empleado | null) => {
     setEmpleado(e);
     if (e) {
-      localStorage.setItem('empleado_actual', JSON.stringify(e));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ portalUserId: e.portal_user_id ?? null, empleado: e }));
     } else {
-      localStorage.removeItem('empleado_actual');
+      localStorage.removeItem(STORAGE_KEY);
     }
   };
 
-  return { empleado, setEmpleadoActual };
+  return { empleado, setEmpleadoActual, cargando };
 }
 
 export default useEmpleadoActual;

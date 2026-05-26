@@ -9,6 +9,8 @@ class FirmaDigital extends Model
 {
     use HasFactory;
 
+    protected $connection = 'mysql_personal';
+
     protected $table = 'firmas_digitales';
 
     protected $fillable = [

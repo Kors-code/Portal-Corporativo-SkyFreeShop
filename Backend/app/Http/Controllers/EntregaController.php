@@ -1,8 +1,7 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\Entrega;
 use App\Models\EntregaLog;
 use App\Models\Empleado;
@@ -25,6 +24,162 @@ class EntregaController extends Controller
     {
         $this->pdfService = $pdfService;
         $this->mailService = $mailService;
+    }
+
+    public static function resolverEmpleadoParaUsuario($user): ?Empleado
+    {
+        if (!$user) {
+            return null;
+        }
+
+        $email = trim((string) ($user->email ?? ''));
+        $username = trim((string) ($user->username ?? ''));
+        $sellerCode = trim((string) ($user->seller_code ?? ''));
+        $name = trim((string) ($user->name ?? ''));
+
+        $empleado = self::buscarEmpleadoPorDatos($email, $username, $sellerCode, $name);
+
+        if ($empleado) {
+            $empleado->setAttribute('portal_user_id', $user->id ?? null);
+            $empleado->setAttribute('portal_user_email', $email ?: null);
+            $empleado->setAttribute('portal_user_role', $user->role ?? null);
+            $empleado->setAttribute('tiene_usuario_portal', true);
+            return $empleado;
+        }
+
+        $budgetUser = self::buscarUsuarioBudget($email, $sellerCode, $name);
+
+        if ($budgetUser) {
+            $empleado = self::buscarEmpleadoPorDatos(
+                (string) ($budgetUser->email ?? ''),
+                '',
+                (string) ($budgetUser->codigo_vendedor ?? ''),
+                (string) ($budgetUser->name ?? '')
+            );
+
+            if ($empleado) {
+                $empleado->setAttribute('portal_user_id', $user->id ?? null);
+                $empleado->setAttribute('portal_user_email', $email ?: null);
+                $empleado->setAttribute('portal_user_role', $user->role ?? null);
+                $empleado->setAttribute('tiene_usuario_portal', true);
+            }
+
+            return $empleado;
+        }
+
+        return null;
+    }
+
+    public static function buscarUsuarioPortalParaEmpleado(Empleado $empleado)
+    {
+        try {
+            return DB::connection('mysql')
+                ->table('users')
+                ->select('id', 'name', 'email', 'username', 'seller_code', 'role')
+                ->where(function ($query) use ($empleado) {
+                    if (!empty($empleado->email)) {
+                        $query->orWhere('email', $empleado->email);
+                    }
+                    if (!empty($empleado->cedula)) {
+                        $query->orWhere('username', $empleado->cedula)
+                            ->orWhere('seller_code', $empleado->cedula);
+                    }
+                    if (!empty($empleado->colaborador)) {
+                        $query->orWhere('name', $empleado->colaborador);
+                    }
+                })
+                ->first();
+        } catch (Throwable $e) {
+            Log::warning('No fue posible consultar usuario del portal para empleado', [
+                'empleado_id' => $empleado->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    private static function buscarEmpleadoPorDatos(string $email = '', string $cedula = '', string $sellerCode = '', string $nombre = ''): ?Empleado
+    {
+        $email = trim($email);
+        $cedula = trim($cedula);
+        $sellerCode = trim($sellerCode);
+        $nombre = trim($nombre);
+
+        if ($email === '' && $cedula === '' && $sellerCode === '' && $nombre === '') {
+            return null;
+        }
+
+        $empleado = Empleado::query()
+            ->where(function ($query) use ($email, $cedula, $sellerCode, $nombre) {
+                if ($email !== '') {
+                    $query->orWhere('email', $email);
+                }
+                if ($cedula !== '') {
+                    $query->orWhere('cedula', $cedula);
+                }
+                if ($sellerCode !== '') {
+                    $query->orWhere('cedula', $sellerCode);
+                }
+                if ($nombre !== '') {
+                    $query->orWhere('colaborador', $nombre);
+                }
+            })
+            ->first();
+
+        if ($empleado || $nombre === '') {
+            return $empleado;
+        }
+
+        $nombreNormalizado = strtolower(preg_replace('/\s+/', ' ', $nombre));
+
+        return Empleado::query()
+            ->whereRaw('LOWER(TRIM(colaborador)) = ?', [$nombreNormalizado])
+            ->first()
+            ?: Empleado::query()
+                ->where('colaborador', 'LIKE', "%{$nombre}%")
+                ->first();
+    }
+
+    private static function buscarUsuarioBudget(string $email = '', string $sellerCode = '', string $nombre = '')
+    {
+        $email = trim($email);
+        $sellerCode = trim($sellerCode);
+        $nombre = trim($nombre);
+
+        if ($email === '' && $sellerCode === '' && $nombre === '') {
+            return null;
+        }
+
+        try {
+            return DB::connection('budget')
+                ->table('users')
+                ->where(function ($query) use ($email, $sellerCode, $nombre) {
+                    if ($email !== '') {
+                        $query->orWhere('email', $email);
+                    }
+                    if ($sellerCode !== '') {
+                        $query->orWhere('codigo_vendedor', $sellerCode);
+                    }
+                    if ($nombre !== '') {
+                        $query->orWhere('name', $nombre);
+                    }
+                })
+                ->first();
+        } catch (Throwable $e) {
+            Log::warning('No fue posible consultar usuario en budget', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    public function empleadoActual(Request $request)
+    {
+        $user = $request->user() ?: auth()->user();
+        $empleado = self::resolverEmpleadoParaUsuario($user);
+
+        return response()->json([
+            'empleado' => $empleado,
+            'user' => $user,
+        ]);
     }
 
     /**
@@ -96,6 +251,58 @@ class EntregaController extends Controller
         return response()->json($lideres);
     }
 
+    public function empleados()
+    {
+        $usuariosPortal = self::mapearUsuariosPortalPorEmpleado();
+
+        $empleados = Empleado::query()
+            ->select('id', 'colaborador', 'cedula', 'email', 'sede', 'jefe_inmediato')
+            ->where(function ($query) {
+                $query->where('estado', 'ACTIVO')
+                    ->orWhere('estado', 'Activo')
+                    ->orWhere('estado', 'activo');
+            })
+            ->orderBy('colaborador')
+            ->get()
+            ->map(function ($empleado) use ($usuariosPortal) {
+                $usuario = $usuariosPortal[$empleado->id] ?? null;
+                $empleado->setAttribute('tiene_usuario_portal', $usuario !== null);
+                $empleado->setAttribute('portal_user_id', $usuario->id ?? null);
+                $empleado->setAttribute('portal_user_email', $usuario->email ?? null);
+                $empleado->setAttribute('portal_user_role', $usuario->role ?? null);
+
+                return $empleado;
+            });
+
+        return response()->json($empleados);
+    }
+
+    private static function mapearUsuariosPortalPorEmpleado(): array
+    {
+        try {
+            $usuarios = DB::connection('mysql')
+                ->table('users')
+                ->select('id', 'name', 'email', 'username', 'seller_code', 'role')
+                ->whereNotNull('email')
+                ->get();
+        } catch (Throwable $e) {
+            Log::warning('No fue posible consultar usuarios del portal', ['error' => $e->getMessage()]);
+            return [];
+        }
+
+        $mapa = [];
+
+        foreach ($usuarios as $usuario) {
+            $empleado = self::resolverEmpleadoParaUsuario($usuario);
+
+            if ($empleado && !isset($mapa[$empleado->id])) {
+                $mapa[$empleado->id] = $usuario;
+            }
+        }
+
+        return $mapa;
+    }
+
     /**
      * GET /api/entregas/categorias
      * Devolver categorías y opciones predefinidas
@@ -148,8 +355,8 @@ class EntregaController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'lider_entrega_id' => 'required|exists:empleados,id',
-            'lider_recibe_id' => 'required|exists:empleados,id|different:lider_entrega_id',
+            'lider_entrega_id' => 'required|exists:mysql_personal.empleados,id',
+            'lider_recibe_id' => 'required|exists:mysql_personal.empleados,id|different:lider_entrega_id',
             'turno' => 'required|in:mañana,tarde,noche',
             'fecha_acta' => 'required|date',
             'sede' => 'nullable|string|max:100',
@@ -162,9 +369,11 @@ class EntregaController extends Controller
             'novedades.*.requiere_seguimiento' => 'nullable|boolean',
         ]);
 
-        DB::beginTransaction();
+        DB::connection('mysql_personal')->beginTransaction();
         try {
             $entrega = Entrega::create([
+                'codigo_acta' => $this->generarCodigoActa(),
+                'nombre_acta' => $this->generarNombreActa($validated['fecha_acta'], $validated['turno']),
                 'lider_entrega_id' => $validated['lider_entrega_id'],
                 'lider_recibe_id' => $validated['lider_recibe_id'],
                 'turno' => $validated['turno'],
@@ -195,7 +404,7 @@ class EntregaController extends Controller
                 'ip_address' => $request->ip(),
             ]);
 
-            DB::commit();
+            DB::connection('mysql_personal')->commit();
 
             $entrega->load(['liderEntrega', 'liderRecibe', 'novedades']);
 
@@ -205,7 +414,7 @@ class EntregaController extends Controller
             ], 201);
 
         } catch (Throwable $e) {
-            DB::rollBack();
+            DB::connection('mysql_personal')->rollBack();
             Log::error('Error creando entrega', ['error' => $e->getMessage()]);
             return response()->json(['error' => $e->getMessage()], 500);
         }
@@ -236,7 +445,7 @@ class EntregaController extends Controller
     public function firmar(Request $request, $id)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:empleados,id',
+            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'tipo_firma' => 'required|in:entrega,recepcion',
             'firma_data' => 'required|string',
             'formato' => 'nullable|in:svg,png,base64',
@@ -260,7 +469,7 @@ class EntregaController extends Controller
             ], 403);
         }
 
-        DB::beginTransaction();
+        DB::connection('mysql_personal')->beginTransaction();
         try {
             $firmaData = $validated['firma_data'];
 
@@ -301,6 +510,8 @@ class EntregaController extends Controller
                 $this->mailService->notificarLiderReceptor($entrega->fresh());
 
             } else { // recepcion
+                $pendientes = $entrega->novedades()->where('resuelto', false)->count();
+
                 $entrega->update([
                     'estado' => 'completada',
                     'fecha_recepcion' => now(),
@@ -319,19 +530,24 @@ class EntregaController extends Controller
                 'entrega_id' => $entrega->id,
                 'empleado_id' => $empleadoId,
                 'accion' => 'signed_' . $tipoFirma,
-                'detalles' => 'Firma capturada',
+                'detalles' => $tipoFirma === 'recepcion'
+                    ? "Acta cerrada con {$pendientes} novedades pendientes"
+                    : 'Firma capturada',
                 'ip_address' => $request->ip(),
             ]);
 
-            DB::commit();
+            DB::connection('mysql_personal')->commit();
 
             return response()->json([
-                'message' => 'Firma registrada exitosamente',
+                'message' => $tipoFirma === 'recepcion'
+                    ? "Acta cerrada con {$pendientes} novedades pendientes"
+                    : 'Firma registrada exitosamente',
+                'pendientes' => $tipoFirma === 'recepcion' ? $pendientes : null,
                 'entrega' => $entrega->fresh()->load(['liderEntrega', 'liderRecibe', 'novedades', 'firmaEntrega', 'firmaRecepcion']),
             ]);
 
         } catch (Throwable $e) {
-            DB::rollBack();
+            DB::connection('mysql_personal')->rollBack();
             Log::error('Error firmando entrega', ['error' => $e->getMessage()]);
             return response()->json(['error' => $e->getMessage()], 500);
         }
@@ -344,7 +560,7 @@ class EntregaController extends Controller
     public function rechazar(Request $request, $id)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:empleados,id',
+            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'razon_rechazo' => 'required|string|max:500',
         ]);
 
@@ -397,6 +613,51 @@ class EntregaController extends Controller
         return response()->json([
             'message' => 'Observación agregada',
             'novedad' => $novedad,
+        ]);
+    }
+
+    /**
+     * PATCH /api/entregas/{id}/novedades/{novedadId}/resuelto
+     * El lider receptor marca una novedad como completada o pendiente.
+     */
+    public function actualizarEstadoNovedad(Request $request, $id, $novedadId)
+    {
+        $validated = $request->validate([
+            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
+            'resuelto' => 'required|boolean',
+            'observaciones_receptor' => 'nullable|string|max:1000',
+        ]);
+
+        $entrega = Entrega::findOrFail($id);
+
+        if ($entrega->lider_recibe_id !== (int) $validated['empleado_id']) {
+            return response()->json(['error' => 'Solo el lider que recibe puede marcar novedades'], 403);
+        }
+
+        $novedad = Novedad::where('entrega_id', $entrega->id)
+            ->where('id', $novedadId)
+            ->firstOrFail();
+
+        $novedad->update([
+            'resuelto' => (bool) $validated['resuelto'],
+            'observaciones_receptor' => $validated['observaciones_receptor'] ?? $novedad->observaciones_receptor,
+        ]);
+
+        $pendientes = $entrega->novedades()->where('resuelto', false)->count();
+
+        EntregaLog::create([
+            'entrega_id' => $entrega->id,
+            'empleado_id' => $validated['empleado_id'],
+            'accion' => $validated['resuelto'] ? 'novedad_completed' : 'novedad_pending',
+            'detalles' => "Novedad {$novedad->id}. Pendientes: {$pendientes}",
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'message' => $validated['resuelto'] ? 'Novedad completada' : 'Novedad marcada como pendiente',
+            'pendientes' => $pendientes,
+            'novedad' => $novedad->fresh(),
+            'entrega' => $entrega->fresh()->load(['liderEntrega', 'liderRecibe', 'novedades', 'firmaEntrega', 'firmaRecepcion']),
         ]);
     }
 
@@ -468,6 +729,24 @@ class EntregaController extends Controller
         return response()->json([
             'message' => 'Firma personal guardada',
         ]);
+    }
+
+    private function generarCodigoActa(): string
+    {
+        $prefix = 'ENT-' . now()->format('Ymd');
+        $count = Entrega::whereDate('created_at', now()->toDateString())->count() + 1;
+
+        do {
+            $codigo = $prefix . '-' . str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+            $count++;
+        } while (Entrega::where('codigo_acta', $codigo)->exists());
+
+        return $codigo;
+    }
+
+    private function generarNombreActa(string $fechaActa, string $turno): string
+    {
+        return "Acta de entrega {$fechaActa} {$turno}";
     }
 
     /**

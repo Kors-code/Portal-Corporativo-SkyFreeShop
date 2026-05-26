@@ -9,6 +9,8 @@ class EntregaLog extends Model
 {
     use HasFactory;
 
+    protected $connection = 'mysql_personal';
+
     protected $table = 'entrega_log';
 
     public $timestamps = false;

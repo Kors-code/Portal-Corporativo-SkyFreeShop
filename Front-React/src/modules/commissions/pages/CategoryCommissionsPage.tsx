@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
 
@@ -14,6 +14,26 @@ import {
 import type { CategoryWithCommission, Role } from '../types/comissionscategory';
 
 type MessageState = { type: 'ok' | 'error'; text: string };
+
+/* =========================================================
+ * Precisión
+ * ========================================================= */
+const PARTICIPATION_PCT_DECIMALS = 5;
+const PARTICIPATION_PCT_DISPLAY_DECIMALS = 2;
+
+const roundTo = (value: number, decimals: number) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const factor = 10 ** decimals;
+  return Math.round((n + Number.EPSILON) * factor) / factor;
+};
+
+const computeParticipationPct = (participationValue: number, baseBudget: number) => {
+  if (!Number.isFinite(participationValue) || !Number.isFinite(baseBudget) || baseBudget <= 0) {
+    return 0;
+  }
+  return roundTo((participationValue / baseBudget) * 100, PARTICIPATION_PCT_DECIMALS);
+};
 
 const formatUSD = (value: number) =>
   new Intl.NumberFormat('en-US', {
@@ -44,6 +64,10 @@ export default function CategoryCommissionsPage() {
   const [message, setMessage] = useState<MessageState | null>(null);
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set());
 
+  // 🔑 Para detectar cambios de presupuesto y auto-marcar dirty
+  const lastBaseBudgetRef = useRef<number | null>(null);
+  const [budgetChangedNotice, setBudgetChangedNotice] = useState(false);
+
   const navigate = useNavigate();
 
   const isSpecialistRole = roleId === 4 || roleId === 5;
@@ -55,6 +79,9 @@ export default function CategoryCommissionsPage() {
     return String(name ?? '').toUpperCase();
   };
 
+  /* =========================================================
+   * Carga inicial de roles y presupuestos
+   * ========================================================= */
   useEffect(() => {
     let mounted = true;
 
@@ -90,6 +117,9 @@ export default function CategoryCommissionsPage() {
 
   const sellerRoles = useMemo(() => roles.filter((r) => r.id !== 2), [roles]);
 
+  /* =========================================================
+   * Helpers de presupuesto
+   * ========================================================= */
   const getBudgetTotal = (bId?: number | null) => {
     if (!bId) return 0;
     const b = budgets.find((item) => item.id === bId);
@@ -103,34 +133,43 @@ export default function CategoryCommissionsPage() {
     return fallbackBase > 0 ? fallbackBase : Number(current.toFixed(2));
   };
 
+  /* =========================================================
+   * Normalización: participation_value es la verdad,
+   * participation_pct se deriva.
+   * ========================================================= */
   const normalizeRowsWithBase = (rows: CategoryWithCommission[], baseBudget: number) => {
     return rows.map((row) => {
-      const rawPct = (row as any).participation_pct;
       const rawVal = (row as any).participation_value;
+      const rawPct = (row as any).participation_pct;
+
+      let valNum: number | null =
+        rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal))
+          ? Number(rawVal)
+          : null;
 
       const pctNum =
-        rawPct !== undefined && rawPct !== null && !isNaN(Number(rawPct)) ? Number(rawPct) : null;
+        rawPct !== undefined && rawPct !== null && !isNaN(Number(rawPct))
+          ? Number(rawPct)
+          : 0;
 
-      let valNum =
-        rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal)) ? Number(rawVal) : null;
-
-      if ((valNum === null || valNum === undefined) && pctNum !== null && baseBudget > 0) {
+      // Migración suave: si NO hay valor (o es 0) pero sí hay % histórico, derivamos USD
+      if ((valNum === null || valNum === 0) && pctNum > 0 && baseBudget > 0) {
         valNum = (pctNum / 100) * baseBudget;
       }
 
-      const pctComputed =
-        baseBudget > 0
-          ? ((Number(valNum ?? 0) / baseBudget) * 100)
-          : (pctNum ?? 0);
+      const pctComputed = computeParticipationPct(valNum ?? 0, baseBudget);
 
       return {
         ...row,
-        participation_value: valNum === null ? undefined : Number(Number(valNum).toFixed(2)),
-        participation_pct: Number(Number(pctComputed).toFixed(6)),
+        participation_value: valNum === null ? undefined : roundTo(valNum, 2),
+        participation_pct: pctComputed,
       };
     });
   };
 
+  /* =========================================================
+   * Carga de categorías
+   * ========================================================= */
   const loadCategories = async (rId: number, bId?: number | null, advisorBudgetOverride?: number) => {
     try {
       setLoading(true);
@@ -153,35 +192,15 @@ export default function CategoryCommissionsPage() {
         });
       } else if (rId === 5) {
         const allowedCodes = new Set([
-          '14',
-          '15',
-          '16',
-          '19',
-          '21',
-          '23',
-          '14.0',
-          '15.0',
-          '16.0',
-          '19.0',
-          '21.0',
-          '23.0',
+          '14','15','16','19','21','23',
+          '14.0','15.0','16.0','19.0','21.0','23.0',
         ]);
 
         filtered = filtered.filter((c) => {
           const codeNormalized = String((c as any).code ?? '').toLowerCase().trim();
           const nameNormalized = String((c as any).name ?? '').toLowerCase();
 
-          const keywords = [
-            'gift',
-            'gifts',
-            'watch',
-            'watches',
-            'jewel',
-            'jewelry',
-            'sunglass',
-            'electronics',
-            'diam',
-          ];
+          const keywords = ['gift','gifts','watch','watches','jewel','jewelry','sunglass','electronics','diam'];
 
           if (nameNormalized.includes('diam')) return true;
           if (keywords.some((k) => nameNormalized.includes(k))) return true;
@@ -207,6 +226,14 @@ export default function CategoryCommissionsPage() {
 
       setItems(withValues);
       setDirtyIds(new Set());
+      setBudgetChangedNotice(false);
+
+      // 🔑 Guardamos la base usada para la próxima comparación
+      lastBaseBudgetRef.current = isSpecialistRole
+        ? (advisorBudgetOverride && advisorBudgetOverride > 0
+            ? advisorBudgetOverride
+            : getRowsBaseBudget(withValues, 0))
+        : globalBudget;
     } catch (err) {
       console.error('Error cargando categorias:', err);
       setItems([]);
@@ -215,10 +242,15 @@ export default function CategoryCommissionsPage() {
     }
   };
 
+  /* =========================================================
+   * Inicialización al cambiar rol/presupuesto
+   * ========================================================= */
   useEffect(() => {
     if (!roleId) {
       setItems([]);
       setAdvisorBudgetUsd(0);
+      lastBaseBudgetRef.current = null;
+      setBudgetChangedNotice(false);
       return;
     }
 
@@ -231,12 +263,8 @@ export default function CategoryCommissionsPage() {
         if (isSpecialistRole && budgetId) {
           try {
             const res = await api.get('/advisor-budgets', {
-              params: {
-                budget_id: budgetId,
-                role_id: roleId,
-              },
+              params: { budget_id: budgetId, role_id: roleId },
             });
-
             loadedAdvisorBudget = Number(res.data?.budget_usd ?? 0);
           } catch {
             loadedAdvisorBudget = 0;
@@ -244,6 +272,10 @@ export default function CategoryCommissionsPage() {
         }
 
         if (cancelled) return;
+
+        // Reseteamos el ref antes de cargar para que loadCategories lo establezca
+        lastBaseBudgetRef.current = null;
+        setBudgetChangedNotice(false);
 
         setAdvisorBudgetUsd(loadedAdvisorBudget);
         await loadCategories(roleId, budgetId, loadedAdvisorBudget);
@@ -270,27 +302,53 @@ export default function CategoryCommissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, isSpecialistRole]);
 
+  /* =========================================================
+   * 🔑 Reaccionar a cambios de presupuesto base:
+   * - Renormaliza los %
+   * - Si la base cambió respecto a la última conocida, marca dirty
+   *   las filas con valor capturado y muestra el banner.
+   * ========================================================= */
   useEffect(() => {
     if (!roleId) return;
 
-    if (isSpecialistRole) {
-      const baseBudget = advisorBudgetUsd > 0 ? advisorBudgetUsd : getRowsBaseBudget(items, 0);
-      if (baseBudget <= 0) return;
+    const baseBudget = isSpecialistRole
+      ? (advisorBudgetUsd > 0 ? advisorBudgetUsd : getRowsBaseBudget(items, 0))
+      : getBudgetTotal(budgetId);
 
-      setItems((prev) => normalizeRowsWithBase(prev, baseBudget));
-      return;
+    if (baseBudget <= 0) return;
+
+    setItems((prev) => normalizeRowsWithBase(prev, baseBudget));
+
+    const prevBase = lastBaseBudgetRef.current;
+    const baseChanged =
+      prevBase !== null && Math.abs(prevBase - baseBudget) > 0.001;
+
+    if (baseChanged && items.length > 0) {
+      setDirtyIds((prev) => {
+        const merged = new Set(prev);
+        items.forEach((it) => {
+          const valNum = Number((it as any).participation_value ?? 0);
+          if (valNum > 0) merged.add(it.category_id);
+        });
+        return merged;
+      });
+      setBudgetChangedNotice(true);
     }
 
-    const globalBudget = getBudgetTotal(budgetId);
-    setItems((prev) => normalizeRowsWithBase(prev, globalBudget));
+    lastBaseBudgetRef.current = baseBudget;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advisorBudgetUsd]);
+  }, [advisorBudgetUsd, budgetId]);
 
+  /* =========================================================
+   * Edición
+   * ========================================================= */
   const markDirty = (categoryId: number, dirty = true) => {
     setDirtyIds((prev) => {
       const clone = new Set(prev);
       if (dirty) clone.add(categoryId);
       else clone.delete(categoryId);
+      // Si ya no quedan dirty, ocultamos el banner
+      if (clone.size === 0) setBudgetChangedNotice(false);
       return clone;
     });
   };
@@ -311,12 +369,16 @@ export default function CategoryCommissionsPage() {
     if (field === 'participation_value') {
       const baseBudget = getActiveBaseBudget();
       const valueNum = val ?? 0;
-      const pct = baseBudget > 0 ? (valueNum / baseBudget) * 100 : 0;
+      const pct = computeParticipationPct(valueNum, baseBudget);
 
       setItems((prev) =>
         prev.map((it) =>
           it.category_id === categoryId
-            ? { ...it, participation_value: valueNum, participation_pct: Number(pct.toFixed(6)) }
+            ? {
+                ...it,
+                participation_value: roundTo(valueNum, 2),
+                participation_pct: pct,
+              }
             : it
         )
       );
@@ -331,6 +393,9 @@ export default function CategoryCommissionsPage() {
     markDirty(categoryId, true);
   };
 
+  /* =========================================================
+   * Persistencia
+   * ========================================================= */
   const persistAdvisorBudget = async () => {
     if (!roleId || !budgetId || !isSpecialistRole) return;
 
@@ -341,7 +406,6 @@ export default function CategoryCommissionsPage() {
         role_id: roleId,
         budget_usd: Number(advisorBudgetUsd ?? 0),
       });
-
       setMessage({ type: 'ok', text: 'Presupuesto del asesor guardado correctamente' });
     } catch (e) {
       console.error('save advisor budget error', e);
@@ -360,8 +424,7 @@ export default function CategoryCommissionsPage() {
     try {
       const baseBudget = getActiveBaseBudget();
       const valNum = Number((it as any).participation_value ?? 0);
-
-      const computedPct = baseBudget > 0 ? (valNum / baseBudget) * 100 : Number((it as any).participation_pct ?? 0);
+      const computedPct = computeParticipationPct(valNum, baseBudget);
 
       const payload = {
         category_id: it.category_id,
@@ -370,8 +433,8 @@ export default function CategoryCommissionsPage() {
         commission_percentage: Number(it.commission_percentage ?? 0),
         commission_percentage100: Number(it.commission_percentage100 ?? 0),
         commission_percentage120: Number(it.commission_percentage120 ?? 0),
-        participation_pct: Number(Number(computedPct).toFixed(6)),
-        participation_value: Number((it as any).participation_value ?? 0),
+        participation_value: roundTo(valNum, 2),
+        participation_pct: computedPct,
       };
 
       await upsertCategoryCommission(payload);
@@ -407,7 +470,7 @@ export default function CategoryCommissionsPage() {
 
       const payload = items.map((i) => {
         const valNum = Number((i as any).participation_value ?? 0);
-        const computedPct = baseBudget > 0 ? (valNum / baseBudget) * 100 : Number((i as any).participation_pct ?? 0);
+        const computedPct = computeParticipationPct(valNum, baseBudget);
 
         return {
           category_id: i.category_id,
@@ -416,14 +479,15 @@ export default function CategoryCommissionsPage() {
           commission_percentage: Number(i.commission_percentage ?? 0),
           commission_percentage100: Number(i.commission_percentage100 ?? 0),
           commission_percentage120: Number(i.commission_percentage120 ?? 0),
-          participation_pct: Number(Number(computedPct).toFixed(6)),
-          participation_value: Number((i as any).participation_value ?? 0),
+          participation_value: roundTo(valNum, 2),
+          participation_pct: computedPct,
         };
       });
 
       await bulkSaveCategoryCommissions(roleId, payload);
       setMessage({ type: 'ok', text: 'Guardado masivo exitoso' });
       setDirtyIds(new Set());
+      setBudgetChangedNotice(false);
       await loadCategories(roleId, budgetId, isSpecialistRole ? advisorBudgetUsd : undefined);
     } catch (e) {
       console.error('saveAll error', e);
@@ -449,6 +513,9 @@ export default function CategoryCommissionsPage() {
     }
   };
 
+  /* =========================================================
+   * Derivados de UI
+   * ========================================================= */
   const anyDirty = useMemo(() => dirtyIds.size > 0, [dirtyIds]);
 
   const normalizedItems = useMemo(() => {
@@ -472,14 +539,12 @@ export default function CategoryCommissionsPage() {
       let mergedVal: number | null = null;
       const na = existingVal === null || existingVal === undefined ? null : Number(existingVal);
       const nb = currentVal === null || currentVal === undefined ? null : Number(currentVal);
-
       if (na === null && nb === null) mergedVal = null;
       else mergedVal = Math.max(na ?? 0, nb ?? 0);
 
       let mergedPct: number | null = null;
       const pa = existingPct === null || existingPct === undefined ? null : Number(existingPct);
       const pb = currentPct === null || currentPct === undefined ? null : Number(currentPct);
-
       if (pa === null && pb === null) mergedPct = null;
       else mergedPct = Math.max(pa ?? 0, pb ?? 0);
 
@@ -490,8 +555,8 @@ export default function CategoryCommissionsPage() {
         commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
         commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
         commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
-        participation_value: mergedVal === null ? undefined : Number(Number(mergedVal).toFixed(2)),
-        participation_pct: mergedPct === null ? undefined : Number(Number(mergedPct).toFixed(6)),
+        participation_value: mergedVal === null ? undefined : roundTo(mergedVal, 2),
+        participation_pct: mergedPct === null ? undefined : roundTo(mergedPct, PARTICIPATION_PCT_DECIMALS),
       });
     });
 
@@ -500,16 +565,19 @@ export default function CategoryCommissionsPage() {
 
   const totalParticipation = useMemo(() => {
     const total = normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0);
-    return Number(total.toFixed(2));
+    return roundTo(total, PARTICIPATION_PCT_DECIMALS);
   }, [normalizedItems]);
 
   const totalParticipationValue = useMemo(() => {
     const total = normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_value ?? 0), 0);
-    return Number(total.toFixed(2));
+    return roundTo(total, 2);
   }, [normalizedItems]);
 
   const visibleBaseBudget = isSpecialistRole ? advisorBudgetUsd : getBudgetTotal(budgetId);
 
+  /* =========================================================
+   * Render
+   * ========================================================= */
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6">
@@ -600,8 +668,6 @@ export default function CategoryCommissionsPage() {
                     </div>
                   </div>
                 </div>
-
-
               </div>
             </div>
           </div>
@@ -616,6 +682,23 @@ export default function CategoryCommissionsPage() {
                 }`}
               >
                 {message.text}
+              </div>
+            )}
+
+            {/* 🔔 Banner cuando cambia el presupuesto */}
+            {budgetChangedNotice && anyDirty && (
+              <div className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div>
+                  <strong>El presupuesto base cambió.</strong> Los porcentajes se
+                  recalcularon automáticamente con la nueva base. Pulsa{' '}
+                  <em>Guardar todo</em> para persistir los nuevos %.
+                </div>
+                <button
+                  onClick={() => setBudgetChangedNotice(false)}
+                  className="rounded-md px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+                >
+                  Cerrar
+                </button>
               </div>
             )}
 
@@ -703,12 +786,12 @@ export default function CategoryCommissionsPage() {
                           <td className="px-4 py-4 align-top">
                             <input
                               type="number"
-                              step="1"
+                              step="0.01"
                               min={0}
                               value={
                                 (it as any).participation_value !== undefined &&
                                 (it as any).participation_value !== null
-                                  ? Math.round(Number((it as any).participation_value))
+                                  ? Number((it as any).participation_value)
                                   : ''
                               }
                               onChange={(e) =>
@@ -723,17 +806,18 @@ export default function CategoryCommissionsPage() {
                             />
                             <div className="mt-1 text-[11px] text-slate-400">
                               {isSpecialistRole
-                                ? 'Este valor se calcula sobre el presupuesto del asesor.'
-                                : 'Este valor se calcula sobre el presupuesto seleccionado.'}
+                                ? 'Este valor se guarda en BD. El % se calcula sobre el presupuesto del asesor.'
+                                : 'Este valor se guarda en BD. El % se calcula sobre el presupuesto seleccionado.'}
                             </div>
                           </td>
 
                           <td className="px-4 py-4 align-top">
                             <input
                               type="number"
-                              value={Number((it as any).participation_pct ?? 0).toFixed(2)}
+                              value={Number((it as any).participation_pct ?? 0).toFixed(PARTICIPATION_PCT_DISPLAY_DECIMALS)}
                               readOnly
                               className="w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none"
+                              title={`Valor preciso: ${Number((it as any).participation_pct ?? 0).toFixed(PARTICIPATION_PCT_DECIMALS)}%`}
                             />
                           </td>
 
@@ -839,7 +923,7 @@ export default function CategoryCommissionsPage() {
                   Total participación
                 </div>
                 <div className="mt-2 text-lg font-semibold text-slate-900">
-                  {totalParticipation.toFixed(2)}%
+                  {totalParticipation.toFixed(PARTICIPATION_PCT_DISPLAY_DECIMALS)}%
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
                   Se recalcula en vivo con el valor de participación.

@@ -9,6 +9,8 @@ class Novedad extends Model
 {
     use HasFactory;
 
+    protected $connection = 'mysql_personal';
+
     protected $table = 'novedades';
 
     protected $fillable = [

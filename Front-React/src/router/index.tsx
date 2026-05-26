@@ -71,8 +71,12 @@ export default function AppRouter() {
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
-        // Novedades Lideres
-
+          <Route path="/entregas" element={<EntregasDashboardPage />} />
+          <Route path="/entregas/nuevo" element={<CrearEntregaPage />} />
+          <Route path="/entregas/recibir" element={<ListadoEntregasPage tipoInicial="recepcion" titulo="Actas que me han enviado" />} />
+          <Route path="/entregas/activas" element={<ListadoEntregasPage tipoInicial="activas" titulo="Actas activas y responsables" />} />
+          <Route path="/entregas/listado" element={<ListadoEntregasPage />} />
+          <Route path="/entregas/:id" element={<DetalleEntregaPage />} />
           <Route path="/CrearEntregaPage" element={<CrearEntregaPage/>} />
           <Route path="/DetalleEntregaPage" element={<DetalleEntregaPage />} />
           <Route path="/EntregasDashboardPage" element={<EntregasDashboardPage />} />

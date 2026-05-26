@@ -10,6 +10,8 @@ class Entrega extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected $connection = 'mysql_personal';
+
     protected $table = 'entregas';
 
     protected $fillable = [

@@ -9,7 +9,7 @@ import type {
   FirmarPayload,
 } from '../types';
 
-const BASE = '/v1/entregas';
+const BASE = '/entregas';
 
 export const entregasApi = {
   // ============ ENTREGAS ============
@@ -39,6 +39,13 @@ export const entregasApi = {
   ) =>
     api.post(`${BASE}/${entregaId}/novedades/${novedadId}/observacion`, data).then(r => r.data),
 
+  actualizarEstadoNovedad: (
+    entregaId: number | string,
+    novedadId: number,
+    data: { empleado_id: number; resuelto: boolean; observaciones_receptor?: string }
+  ) =>
+    api.patch(`${BASE}/${entregaId}/novedades/${novedadId}/resuelto`, data).then(r => r.data),
+
   // ============ HELPERS ============
 
   obtenerCategorias: () =>
@@ -47,16 +54,22 @@ export const entregasApi = {
   obtenerLideres: () =>
     api.get<Empleado[]>(`${BASE}/lideres`).then(r => r.data),
 
+  obtenerEmpleados: () =>
+    api.get<Empleado[]>(`${BASE}/empleados`).then(r => r.data),
+
   obtenerDashboard: (empleadoId: number) =>
     api.get<DashboardResponse>(`${BASE}/dashboard`, { params: { empleado_id: empleadoId } }).then(r => r.data),
+
+  obtenerEmpleadoActual: () =>
+    api.get<{ empleado: Empleado | null; user: any }>(`${BASE}/me`).then(r => r.data),
 
   // ============ FIRMAS PERSONALES ============
 
   obtenerFirmaEmpleado: (empleadoId: number) =>
-    api.get<{ tiene_firma: boolean; firma: string | null }>(`/v1/empleados/${empleadoId}/firma`).then(r => r.data),
+    api.get<{ tiene_firma: boolean; firma: string | null }>(`/empleados/${empleadoId}/firma`).then(r => r.data),
 
   guardarFirmaEmpleado: (empleadoId: number, firmaData: string) =>
-    api.post(`/v1/empleados/${empleadoId}/firma`, { firma_data: firmaData }).then(r => r.data),
+    api.post(`/empleados/${empleadoId}/firma`, { firma_data: firmaData }).then(r => r.data),
 
   // ============ PDF ============
 

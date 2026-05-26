@@ -10,6 +10,8 @@ class Empleado extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected $connection = 'mysql_personal';
+
     protected $table = 'empleados';
 
     protected $fillable = [

@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
+use App\Http\Controllers\EntregaController;
 
 
 
@@ -41,6 +42,24 @@ Route::get('/v1/ping', function () {
     Route::post  ('inventory-imports/import',        [InventoryImportBatchController::class, 'import']);
     Route::post  ('inventory-imports/bulk-delete',   [InventoryImportBatchController::class, 'bulkDestroy']);
     Route::delete('inventory-imports/{id}',          [InventoryImportBatchController::class, 'destroy']);
+
+    Route::get('entregas/categorias', [EntregaController::class, 'categorias']);
+    Route::get('entregas/lideres', [EntregaController::class, 'lideres']);
+    Route::get('entregas/empleados', [EntregaController::class, 'empleados']);
+    Route::get('entregas/dashboard', [EntregaController::class, 'dashboard']);
+    Route::get('entregas/me', [EntregaController::class, 'empleadoActual']);
+    Route::get('entregas', [EntregaController::class, 'index']);
+    Route::post('entregas', [EntregaController::class, 'store']);
+    Route::get('entregas/{id}', [EntregaController::class, 'show']);
+    Route::delete('entregas/{id}', [EntregaController::class, 'destroy']);
+    Route::post('entregas/{id}/firmar', [EntregaController::class, 'firmar']);
+    Route::post('entregas/{id}/rechazar', [EntregaController::class, 'rechazar']);
+    Route::post('entregas/{id}/novedades/{novedadId}/observacion', [EntregaController::class, 'agregarObservacionNovedad']);
+    Route::patch('entregas/{id}/novedades/{novedadId}/resuelto', [EntregaController::class, 'actualizarEstadoNovedad']);
+    Route::get('entregas/{id}/pdf', [EntregaController::class, 'descargarPdf']);
+    Route::get('entregas/{id}/pdf-view', [EntregaController::class, 'verPdf']);
+    Route::get('empleados/{id}/firma', [EntregaController::class, 'obtenerFirmaEmpleado']);
+    Route::post('empleados/{id}/firma', [EntregaController::class, 'guardarFirmaEmpleado']);
             
     // TURNOS (poner primero para evitar conflicto con imports/{id})
     Route::post('import-turns', [TurnsImportController::class, 'import']);

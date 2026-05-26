@@ -1,0 +1,120 @@
+[33mcommit e17b6d2e2fd1e448c7c10bf9e0b27d90dc65b854[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Fri May 22 08:56:10 2026 -0500
+
+    Actualizacion de 21/05/2026 Con avance a nuevo software
+
+[33mcommit 47f9135a1b10ca2c30529abbcd506db72abe5a77[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Fri May 15 15:05:17 2026 -0500
+
+    Actualizacion 15/05/2026 Para hostinger antes de subirla ( se subira el 16 )
+
+[33mcommit fea1a8c53448e62f6dcc847e727610a4dce1fe09[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu May 14 13:47:48 2026 -0500
+
+    Actualizacion 14-05-2026
+
+[33mcommit 9f8762cb60199f851ff7c76e653311fb07109dfd[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu May 14 08:38:16 2026 -0500
+
+    Actualizacion del 13/05/2026 Con Cambio en PCT Categorias
+
+[33mcommit 33c0d63473d3e408c8d610d4ffe82df726c09628[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Wed May 13 10:20:32 2026 -0500
+
+    13-05-2026
+
+[33mcommit 7c443af5b337af3219a0b41579fc98d417d60e43[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu May 7 15:31:58 2026 -0500
+
+    Actualizacion 7/5/26
+
+[33mcommit 136d7f8fb296cc806a0c2faf238273748b8af838[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Tue May 5 15:36:39 2026 -0500
+
+    Actualizacion 5/5
+
+[33mcommit e748e42858c012f2081540797b76724efffc6bf9[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Mon May 4 10:13:45 2026 -0500
+
+    Actualizacion Abril
+
+[33mcommit 8dc0e57899cdb68fd1c4c1d4cb39b894e59fb5ee[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Mon Apr 13 15:25:59 2026 -0500
+
+    Actualizacion 13/04/2026  Con JOb Para carga
+
+[33mcommit 9b54d7b0fd70e6e0ebfe3b131a9ddbc79be557f5[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Wed Mar 25 15:13:16 2026 -0500
+
+    Codigo actualizado desde hostinger
+
+[33mcommit b85152c188c177d5db0d530cfe11e5a7147a2455[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Wed Mar 25 15:04:38 2026 -0500
+
+    Actualizacion antes de traer archivos de hostinger
+
+[33mcommit 0c3089bb5e880cb5d03b8fe58a8c289a5c446896[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Fri Mar 20 12:59:56 2026 -0500
+
+    Todo react correcto igual que en hostinger
+    Back end aun no igual
+
+[33mcommit 5769f4419c4a897013a3955b212a03d059844818[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu Mar 19 08:31:55 2026 -0500
+
+    Actualizacion casi terminada del 18-03-2026
+
+[33mcommit e1f78b865897b8a66883f0b1b370fff23b384884[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Wed Mar 18 14:23:12 2026 -0500
+
+    Nuevo middleware cambio de estructrua en web.php Y nuevo modulo en React para poder asignar permisos por rol o usuario basandose en un campo en la BD
+
+[33mcommit 73b4e8d27edd01e49703567cff4aee53fcf48a47[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Tue Mar 17 12:03:00 2026 -0500
+
+    Codigo empezamos a cambiar la estructura de permisos
+
+[33mcommit 8c943a5acbcd43aa6e87fce938eeaf97051a8b84[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu Mar 12 15:24:59 2026 -0500
+
+    Mi codigo de hostinger funcional con comision lideres comision asesores especializados y solucionado problema de comisiones  12-03-2026
+
+[33mcommit ff796bc8b3a6b550d696dc73916fa4932ade9adc[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu Mar 12 15:23:29 2026 -0500
+
+    12/03/2026 Antes de la actualizacion desde hostinger
+
+[33mcommit df1cb93d7b95d8a79f626a1bc97fea62ffbafe2a[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Wed Mar 4 12:02:41 2026 -0500
+
+    4/3/2026 Actualizacion con Asesor especializado terminar detalles graficos por terminar
+
+[33mcommit 6ea45fa152763bc59f6453fea66f081783985dd8[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu Feb 26 15:04:50 2026 -0500
+
+    Avance 26/2/2026
+
+[33mcommit 952155410a26857cdb67855a6259425c3262fc5a[m
+Author: Kors-code <sebas2003asdi@gmail.com>
+Date:   Thu Feb 19 08:47:42 2026 -0500
+
+    Actualizacion con modulo presupuesto React y wishlist
