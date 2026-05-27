@@ -96,9 +96,9 @@ export default function FirmaPad({
   };
 
   return (
-    <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-lg">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800">{titulo}</h3>
+    <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-4 shadow-lg sm:p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-gray-800 sm:text-lg">{titulo}</h3>
       </div>
 
       {permitirGuardada && firmaGuardada && (
@@ -132,7 +132,7 @@ export default function FirmaPad({
               type="file"
               accept="image/*"
               onChange={(event) => cargarImagen(event.target.files?.[0])}
-              className="text-sm"
+              className="w-full text-sm sm:w-auto"
             />
           </div>
 
@@ -142,7 +142,7 @@ export default function FirmaPad({
             </div>
           ) : (
             <div className="relative mb-4 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50">
-              <canvas ref={canvasRef} className="block h-48 w-full cursor-crosshair rounded-lg" />
+              <canvas ref={canvasRef} className="block h-40 w-full cursor-crosshair rounded-lg sm:h-48" />
               {vacia && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-400">
                   Dibuja tu firma aqui
@@ -153,7 +153,7 @@ export default function FirmaPad({
         </>
       )}
 
-      <div className="flex justify-end gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:justify-end">
         {!usarGuardada && (
           <button
             type="button"

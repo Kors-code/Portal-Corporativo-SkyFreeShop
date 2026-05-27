@@ -254,15 +254,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 $errors = \DateTime::getLastErrors();
 
                 if (($errors['warning_count'] ?? 0) === 0 && ($errors['error_count'] ?? 0) === 0) {
-                    Log::info('DATE DEBUG OK', [
-                        'context' => $context,
-                        'input' => $text,
-                        'format' => $format,
-                        'parsed' => $dt->format('Y-m-d'),
-                    ]);
-
                     return $dt->format('Y-m-d');
                 }
+
             }
 
             Log::warning('DATE DEBUG REJECTED', [
@@ -326,6 +320,25 @@ protected function parseDate($value, string $context = 'sale'): ?string
         }
 
         return false;
+    }
+
+    protected function normalizeProductLookupCode(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        if ($value === '' || strtolower($value) === 'null') {
+            return null;
+        }
+
+        if (preg_match('/^\d+\.0+$/', $value)) {
+            $value = preg_replace('/\.0+$/', '', $value);
+        }
+
+        return $value;
     }
 
     protected function resolveSellerId(array $assoc, array &$usersCache, int $defaultSellerId, array &$created): int
@@ -460,7 +473,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     protected function resolveProduct(array $assoc, array &$productsCache, array &$created): ?Product
     {
-        $sku = $this->firstNotEmpty($assoc, ['sku', 'codigo', 'product_code', 'sku_code']);
+        $sku = $this->normalizeProductLookupCode(
+            $this->firstNotEmpty($assoc, ['sku', 'codigo', 'product_code', 'sku_code', 'upc', 'barcode', 'ean'])
+        );
 
         if (!$sku) {
             return null;
@@ -468,12 +483,54 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
         if (!array_key_exists($sku, $productsCache)) {
             $productsCache[$sku] = Product::on('budget')
-                ->where('product_code', $sku)
+                ->where(function ($query) use ($sku) {
+                    $query->where('product_code', $sku)
+                        ->orWhere('sku_mia', $sku)
+                        ->orWhere('upc', $sku)
+                        ->orWhere('upc2', $sku)
+                        ->orWhere('upc3', $sku);
+                })
                 ->first();
         }
 
         if (!$productsCache[$sku]) {
-            return null;
+            $description = $this->firstNotEmpty($assoc, [
+                'product_description',
+                'descripcion',
+                'description',
+                'product',
+                'producto',
+            ]);
+
+            $classification = $this->firstNotEmpty($assoc, ['category_code', 'classification', 'categoria']);
+            $classificationDesc = $this->firstNotEmpty($assoc, ['category_description', 'classification_desc', 'category']);
+            $brand = $this->firstNotEmpty($assoc, ['brand_description', 'brand', 'marca']);
+            $regularPrice = $this->parseNumber($this->firstNotEmpty($assoc, [
+                'retail_price',
+                'regular_price',
+                'precio_regular',
+                'precio',
+            ]));
+            $costUsd = $this->parseNumber($this->firstNotEmpty($assoc, [
+                'cost_unit_usd',
+                'cogs_usd',
+                'cost_usd',
+                'costo_usd',
+            ]));
+
+            $productsCache[$sku] = Product::on('budget')->create([
+                'product_code' => $sku,
+                'description' => $description ?: 'Producto importado sin catalogo',
+                'classification' => $classification,
+                'classification_desc' => $classificationDesc,
+                'brand' => $brand,
+                'regular_price' => $regularPrice,
+                'cost_usd' => $costUsd,
+                'avg_cost_usd' => $costUsd,
+                'currency' => $this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD',
+            ]);
+
+            $created['products']++;
         }
 
         return $productsCache[$sku];

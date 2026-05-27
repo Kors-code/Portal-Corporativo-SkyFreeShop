@@ -178,22 +178,22 @@ export default function CrearEntregaPage() {
     }
   };
 
-  if (loading) return <div className="rounded-lg bg-white p-8 text-center text-gray-500">Cargando...</div>;
+  if (loading) return <div className="rounded-lg bg-white p-5 text-center text-gray-500 sm:p-8">Cargando...</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <button onClick={() => navigate("/entregas")} className="text-sm font-semibold text-primary">Volver al inicio de actas</button>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">{editando ? "Editar acta de entrega" : "Crear acta de entrega"}</h1>
+          <h1 className="mt-2 text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">{editando ? "Editar acta de entrega" : "Crear acta de entrega"}</h1>
           <p className="mt-1 text-sm text-gray-500">Mientras este abierta puedes ajustarla. Al entregar el acta ya no se modifica.</p>
         </div>
-        <button disabled={saving} onClick={saveActa} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+        <button disabled={saving} onClick={saveActa} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto">
           <Save size={16} /> {editando ? "Guardar cambios" : "Guardar acta"}
         </button>
       </div>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Field label="Fecha"><input value={fechaActa} onChange={(e) => setFechaActa(e.target.value)} type="date" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field>
           <Field label="Nombre acta"><input value={nombreActa} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm" /></Field>
@@ -218,24 +218,24 @@ export default function CrearEntregaPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr] lg:gap-5">
         <aside className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
           <div className="mb-3 px-2 text-xs font-bold uppercase tracking-wide text-gray-500">Items</div>
-          <div className="space-y-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-visible lg:pb-0">
             {entregaCategories.map((category, index) => (
-              <button key={category.key} onClick={() => setActiveCategory(category.key)} className={`flex w-full items-center justify-between rounded-md border px-3 py-3 text-left text-sm ${activeCategory === category.key ? "border-primary bg-primary/10 text-primary" : "border-gray-200 hover:bg-gray-50"}`}>
+              <button key={category.key} onClick={() => setActiveCategory(category.key)} className={`flex min-w-[190px] items-center justify-between rounded-md border px-3 py-3 text-left text-sm lg:w-full lg:min-w-0 ${activeCategory === category.key ? "border-primary bg-primary/10 text-primary" : "border-gray-200 hover:bg-gray-50"}`}>
                 <span className="font-semibold">{index + 1}. {category.label}</span>
                 <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-gray-500">{items.filter((item) => item.categoryKey === category.key).length}</span>
               </button>
             ))}
           </div>
         </aside>
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           {groupedItems.map(({ category, items: categoryItems }) => category.key === activeCategory && (
             <div key={category.key}>
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="text-xl font-bold text-gray-900">{category.label}</h2><p className="text-sm text-gray-500">Selecciona la subcategoria y escribe la novedad.</p></div>
-                <button onClick={() => addItem(category.key)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white"><Plus size={16} /> Agregar</button>
+                <button onClick={() => addItem(category.key)} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white sm:w-auto"><Plus size={16} /> Agregar</button>
               </div>
               <div className="space-y-3">
                 {categoryItems.length === 0 && <button onClick={() => addItem(category.key)} className="flex min-h-32 w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm font-semibold text-gray-500">Agregar primera novedad</button>}
@@ -244,7 +244,7 @@ export default function CrearEntregaPage() {
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_1fr_auto]">
                       <Field label="Subcategoria"><select value={item.subcategoryKey} onChange={(e) => updateItem(item.id, { subcategoryKey: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">{category.subcategories.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></Field>
                       {category.key === "personal" && <Field label="Persona"><select value={item.persona ?? ""} onChange={(e) => updateItem(item.id, { persona: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">{personas.map((p) => <option key={p.id}>{p.colaborador}</option>)}</select></Field>}
-                      <button onClick={() => setItems((prev) => prev.filter((entry) => entry.id !== item.id))} className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600 hover:bg-red-50" title="Eliminar"><Trash2 size={16} /></button>
+                      <button onClick={() => setItems((prev) => prev.filter((entry) => entry.id !== item.id))} className="inline-flex h-10 w-full items-center justify-center rounded-md border border-red-200 px-3 text-red-600 hover:bg-red-50 lg:mt-5 lg:w-auto" title="Eliminar"><Trash2 size={16} /></button>
                     </div>
                     <Field label="Novedad"><textarea value={item.descripcion} onChange={(e) => updateItem(item.id, { descripcion: e.target.value })} rows={3} className="w-full resize-y rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field>
                   </div>
@@ -255,7 +255,7 @@ export default function CrearEntregaPage() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Revisión de novedades</h2>
@@ -294,8 +294,8 @@ export default function CrearEntregaPage() {
         )}
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm"><Field label="Observaciones generales"><textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field></section>
-      <div className="flex justify-end"><button onClick={saveActa} disabled={saving} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"><Check size={16} /> Guardar y continuar</button></div>
+      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-5"><Field label="Observaciones generales"><textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={4} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field></section>
+      <div className="flex justify-end"><button onClick={saveActa} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto"><Check size={16} /> Guardar y continuar</button></div>
     </div>
   );
 }
@@ -338,5 +338,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function LeaderBox({ title, name, email }: { title: string; name: string; email: string }) {
-  return <div className="rounded-lg border border-gray-200 p-4"><span className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-500">{title}</span><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary"><UserRound size={18} /></div><div><div className="font-semibold text-gray-900">{name}</div><div className="text-xs text-gray-500">{email}</div></div></div></div>;
+  return <div className="rounded-lg border border-gray-200 p-4"><span className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-500">{title}</span><div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><UserRound size={18} /></div><div className="min-w-0"><div className="break-words font-semibold text-gray-900">{name}</div><div className="break-all text-xs text-gray-500">{email}</div></div></div></div>;
 }

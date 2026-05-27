@@ -43,21 +43,6 @@ export type ActaLocal = {
   created_at: string;
 };
 
-export const lideresDemo = [
-  { id: 1, colaborador: "Lider actual", email: "lider.actual@skyfreeshop.com", sede: "MDE" },
-  { id: 2, colaborador: "Ana Martinez", email: "ana.martinez@skyfreeshop.com", sede: "MDE" },
-  { id: 3, colaborador: "Carlos Restrepo", email: "carlos.restrepo@skyfreeshop.com", sede: "CTG" },
-  { id: 4, colaborador: "Laura Gomez", email: "laura.gomez@skyfreeshop.com", sede: "CLO" },
-];
-
-export const personasDemo = [
-  "Andrea Salazar",
-  "Juan David Moreno",
-  "Valentina Rios",
-  "Sebastian Cano",
-  "Marcela Torres",
-];
-
 export const entregaCategories: HandoverCategory[] = [
   {
     key: "personal",
@@ -113,7 +98,7 @@ export const entregaCategories: HandoverCategory[] = [
   },
   {
     key: "temas_varios",
-    label: "Temas Varios",
+    label: "Temas varios",
     apiCategory: "temas_pendientes",
     subcategories: [
       { key: "precios_promociones", label: "Precios y promociones" },
@@ -129,69 +114,13 @@ export const ACTAS_STORAGE_KEY = "entregas_actas_locales";
 export function getLocalActas(): ActaLocal[] {
   try {
     const raw = localStorage.getItem(ACTAS_STORAGE_KEY);
-    if (!raw) return seedActas();
+    if (!raw) return [];
     return JSON.parse(raw) as ActaLocal[];
   } catch {
-    return seedActas();
+    return [];
   }
 }
 
 export function saveLocalActas(actas: ActaLocal[]) {
   localStorage.setItem(ACTAS_STORAGE_KEY, JSON.stringify(actas));
-}
-
-export function seedActas(): ActaLocal[] {
-  const today = new Date().toISOString().slice(0, 10);
-  return [
-    {
-      id: 1001,
-      codigo_acta: "ENT-20260525-001",
-      nombre_acta: `Acta de entrega ${today} tarde`,
-      lider_entrega_id: 2,
-      lider_recibe_id: 1,
-      lider_entrega_nombre: "Ana Martinez",
-      lider_recibe_nombre: "Lider actual",
-      turno: "tarde",
-      fecha_acta: today,
-      sede: "MDE",
-      estado: "entregada",
-      observaciones: "Queda pendiente validar una novedad de precios antes del cierre.",
-      created_at: new Date().toISOString(),
-      novedades: [
-        {
-          categoria: "precios_promociones",
-          titulo: "Producto - Promociones",
-          descripcion: "Validar promocion de fragancias con etiqueta anterior.",
-          prioridad: "media",
-          requiere_seguimiento: true,
-          resuelto: false,
-        },
-      ],
-    },
-    {
-      id: 1002,
-      codigo_acta: "ENT-20260525-002",
-      nombre_acta: `Acta de entrega ${today} manana`,
-      lider_entrega_id: 1,
-      lider_recibe_id: 3,
-      lider_entrega_nombre: "Lider actual",
-      lider_recibe_nombre: "Carlos Restrepo",
-      turno: "mañana",
-      fecha_acta: today,
-      sede: "MDE",
-      estado: "abierta",
-      observaciones: "Acta en preparacion.",
-      created_at: new Date().toISOString(),
-      novedades: [
-        {
-          categoria: "personal",
-          titulo: "Personal - Cambio turno",
-          descripcion: "Juan David Moreno cambia turno con Valentina Rios.",
-          prioridad: "media",
-          requiere_seguimiento: false,
-          resuelto: true,
-        },
-      ],
-    },
-  ];
 }

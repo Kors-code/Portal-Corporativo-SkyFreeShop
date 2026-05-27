@@ -34,7 +34,10 @@ export function useEmpleadoActual() {
           return;
         }
 
-        const respuesta = await entregasApi.obtenerEmpleadoActual();
+        const respuesta = await entregasApi.obtenerEmpleadoActual({
+          portal_user_id: portalUserId ?? undefined,
+          portal_user: portalUser ?? undefined,
+        });
         if (activo && respuesta.empleado) {
           setEmpleado(respuesta.empleado);
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ portalUserId: respuesta.user?.id ?? portalUserId, empleado: respuesta.empleado }));

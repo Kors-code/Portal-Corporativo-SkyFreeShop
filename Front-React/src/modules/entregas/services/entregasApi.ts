@@ -73,8 +73,8 @@ export const entregasApi = {
   obtenerDashboard: (empleadoId: number) =>
     api.get<DashboardResponse>(`${BASE}/dashboard`, { params: { empleado_id: empleadoId } }).then(r => r.data),
 
-  obtenerEmpleadoActual: () =>
-    api.get<{ empleado: Empleado | null; user: any }>(`${BASE}/me`).then(r => r.data),
+  obtenerEmpleadoActual: (params: Record<string, any> = {}) =>
+    api.get<{ empleado: Empleado | null; user: any }>(`${BASE}/me`, { params }).then(r => r.data),
 
   // ============ FIRMAS PERSONALES ============
 

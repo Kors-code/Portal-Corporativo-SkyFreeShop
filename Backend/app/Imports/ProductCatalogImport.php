@@ -108,6 +108,20 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
                         'supplier_id' => $supplierId,
                     ]
                 );
+
+                DB::connection('mysql_personal')->table('catalog_products')->updateOrInsert(
+                    ['sku' => $productCode],
+                    [
+                        'product' => $description !== '' ? $description : null,
+                        'category' => $classificationDesc !== '' ? $classificationDesc : ($classification !== '' ? $classification : null),
+                        'brand' => $brand !== '' ? $brand : null,
+                        'supplier' => $supplierName !== '' ? $supplierName : null,
+                        'cost_unit' => $costUsd ?? $costUnit,
+                        'price_sale' => $retail ?? $retailCop ?? $precioMx,
+                        'updated_at' => now(),
+                        'created_at' => now(),
+                    ]
+                );
             }
         });
     }

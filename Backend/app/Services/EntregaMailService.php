@@ -57,6 +57,7 @@ class EntregaMailService
         }
 
         $enlace = $this->urlEntrega($entrega);
+
         return $this->enviar([
             'to' => $emailEntrega,
             'to_name' => $liderEntrega->colaborador,
@@ -82,7 +83,6 @@ class EntregaMailService
             return false;
         }
 
-        $enlace = $this->urlEntrega($entrega);
         $codigo = e($entrega->codigo_acta);
         $liderEntregaNombre = e($liderEntrega->colaborador);
         $liderRecibeNombre = e($entrega->liderRecibe->colaborador);
@@ -105,7 +105,7 @@ class EntregaMailService
             "Se requiere revision de {$codigo}",
             $contenido,
             'Ver acta',
-            $enlace
+            $this->urlEntrega($entrega)
         );
 
         return $this->enviar([
@@ -173,8 +173,8 @@ class EntregaMailService
 
     private function urlEntrega(Entrega $entrega): string
     {
-        $base = rtrim(config('app.frontend_url', env('FRONTEND_URL', config('app.url'))), '/');
-        return "{$base}/entregas/{$entrega->id}";
+        $base = rtrim(( env('APP_URL_PORT')), '/');
+        return "{$base}/panel/entregas/{$entrega->id}";
     }
 
     private function plantillaEntregaPendiente(Entrega $entrega, string $enlace): string
@@ -230,12 +230,6 @@ class EntregaMailService
             'Ver acta completa',
             $enlace
         );
-    }
-
-    private function plantillaTexto(Entrega $entrega, string $enlace): string
-    {
-        return "Nueva acta de entrega {$entrega->codigo_acta} de {$entrega->liderEntrega->colaborador}. "
-             . "Revisar y firmar en: {$enlace}";
     }
 
     private function plantillaCorporativa(string $titulo, string $subtitulo, string $contenido, string $cta, string $enlace): string

@@ -40,6 +40,7 @@ class EntregaController extends Controller
         $empleado = self::buscarEmpleadoPorDatos($email, $username, $name);
 
         if ($empleado) {
+            self::actualizarEmpleadoConDatosPortal($empleado, $user);
             $empleado->setAttribute('portal_user_id', $user->id ?? null);
             $empleado->setAttribute('portal_user_email', $email ?: null);
             $empleado->setAttribute('portal_user_role', $user->role ?? null);
@@ -57,6 +58,7 @@ class EntregaController extends Controller
             );
 
             if ($empleado) {
+                self::actualizarEmpleadoConDatosPortal($empleado, $user);
                 $empleado->setAttribute('portal_user_id', $user->id ?? null);
                 $empleado->setAttribute('portal_user_email', $email ?: null);
                 $empleado->setAttribute('portal_user_role', $user->role ?? null);
@@ -66,11 +68,45 @@ class EntregaController extends Controller
             return $empleado;
         }
 
-        if (($user->role ?? null) === 'lider') {
-            return self::crearEmpleadoPuenteParaUsuarioPortal($user);
+        return null;
+    }
+
+    private static function actualizarEmpleadoConDatosPortal(Empleado $empleado, $user): void
+    {
+        $emailUsuario = trim((string) ($user->email ?? ''));
+        $username = trim((string) ($user->username ?? ''));
+        $emailEmpleado = trim((string) ($empleado->email ?? ''));
+
+        $cambios = [];
+
+        if (($empleado->cedula ?? '') === '' && $username !== '') {
+            $cambios['cedula'] = $username;
         }
 
-        return null;
+        if (
+            $emailUsuario !== ''
+            && self::emailEsNotificable($emailUsuario)
+            && ($emailEmpleado === '' || !self::emailEsNotificable($emailEmpleado))
+        ) {
+            $cambios['email'] = $emailUsuario;
+        }
+
+        if (!empty($cambios)) {
+            $empleado->forceFill($cambios)->save();
+            $empleado->refresh();
+        }
+    }
+
+    private static function usuarioEsLider($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($user->role ?? '')));
+        $roleId = (int) ($user->role_id ?? 0);
+
+        return $role === 'lider' || $roleId === 12;
     }
 
     public static function buscarUsuarioPortalParaEmpleado(Empleado $empleado)
@@ -78,7 +114,7 @@ class EntregaController extends Controller
         try {
             $usuarios = DB::connection('mysql')
                 ->table('users')
-                ->select('id', 'name', 'email', 'username', 'role')
+                ->select('id', 'name', 'email', 'username', 'role', 'role_id')
                 ->whereNotNull('email')
                 ->where(function ($query) use ($empleado) {
                     if (!empty($empleado->email)) {
@@ -98,7 +134,7 @@ class EntregaController extends Controller
 
                 $usuarios = DB::connection('mysql')
                     ->table('users')
-                    ->select('id', 'name', 'email', 'username', 'role')
+                    ->select('id', 'name', 'email', 'username', 'role', 'role_id')
                     ->whereNotNull('email')
                     ->get()
                     ->filter(fn ($usuario) => self::normalizarTexto($usuario->name ?? '') === $nombreEmpleado);
@@ -203,12 +239,36 @@ class EntregaController extends Controller
 
         $dominio = strtolower((string) Str::of($email)->afterLast('@'));
 
+        if (!str_contains($dominio, '.')) {
+            return false;
+        }
+
         return !in_array($dominio, ['local', 'empresa.local'], true);
     }
 
     public function empleadoActual(Request $request)
     {
         $user = $request->user() ?: auth()->user();
+
+        if (!$user && $request->filled('portal_user_id')) {
+            try {
+                $user = DB::connection('mysql')
+                    ->table('users')
+                    ->select('id', 'name', 'email', 'username', 'role', 'role_id')
+                    ->where('id', $request->get('portal_user_id'))
+                    ->first();
+            } catch (Throwable $e) {
+                Log::warning('No fue posible consultar usuario portal por id', [
+                    'portal_user_id' => $request->get('portal_user_id'),
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if (!$user && $request->filled('portal_user')) {
+            $user = (object) $request->get('portal_user');
+        }
+
         $empleado = self::resolverEmpleadoParaUsuario($user);
 
         return response()->json([
@@ -245,6 +305,23 @@ class EntregaController extends Controller
         return null;
     }
 
+    private function puedeVerListadoGlobal(Request $request): bool
+    {
+        $role = $request->user()?->role ?? auth()->user()?->role;
+
+        if (in_array($role, ['lider', 'admin', 'super_admin'], true)) {
+            return true;
+        }
+
+        if (!$request->filled('empleado_id')) {
+            return false;
+        }
+
+        $empleado = Empleado::find($request->get('empleado_id'));
+
+        return $empleado && in_array(strtolower((string) $empleado->estado), ['activo', 'activa'], true);
+    }
+
     /**
      * GET /api/entregas
      * Listar todas las entregas con filtros
@@ -252,9 +329,10 @@ class EntregaController extends Controller
     public function index(Request $request)
     {
         $empleadoActual = $this->empleadoAutenticado($request);
+        $vistaGlobal = $request->boolean('global') && $this->puedeVerListadoGlobal($request);
         $liderId = $empleadoActual?->id ?: (int) $request->get('lider_id');
 
-        if (!$liderId) {
+        if (!$vistaGlobal && !$liderId) {
             return response()->json([
                 'data' => [],
                 'current_page' => 1,
@@ -277,13 +355,17 @@ class EntregaController extends Controller
             $query->where('estado', $request->estado);
         }
 
-        $query->paraLider($liderId);
+        if (!$vistaGlobal) {
+            $query->paraLider($liderId);
+        }
 
         if ($request->filled('tipo')) {
             if ($request->tipo === 'entrega') {
                 $query->entregadasPor($liderId);
             } elseif ($request->tipo === 'recepcion') {
                 $query->recibidasPor($liderId);
+            } elseif ($request->tipo === 'activas') {
+                $query->whereNotIn('estado', ['completada', 'rechazada']);
             }
         }
 
@@ -320,8 +402,11 @@ class EntregaController extends Controller
         try {
             $usuarios = DB::connection('mysql')
                 ->table('users')
-                ->select('id', 'name', 'email', 'username', 'role')
-                ->where('role', 'lider')
+                ->select('id', 'name', 'email', 'username', 'role', 'role_id')
+                ->where(function ($query) {
+                    $query->where('role', 'lider')
+                        ->orWhere('role_id', 12);
+                })
                 ->orderBy('name')
                 ->get();
         } catch (Throwable $e) {
@@ -332,7 +417,7 @@ class EntregaController extends Controller
         $lideres = $usuarios
             ->filter(fn ($usuario) => self::emailEsNotificable($usuario->email ?? null))
             ->map(function ($usuario) {
-                $empleado = self::buscarOCrearEmpleadoParaUsuarioPortal($usuario);
+                $empleado = self::buscarEmpleadoVinculadoParaUsuarioPortal($usuario);
 
                 if (!$empleado) {
                     return null;
@@ -351,61 +436,9 @@ class EntregaController extends Controller
         return response()->json($lideres);
     }
 
-    private static function buscarOCrearEmpleadoParaUsuarioPortal($usuario): ?Empleado
+    private static function buscarEmpleadoVinculadoParaUsuarioPortal($usuario): ?Empleado
     {
-        $empleado = self::resolverEmpleadoParaUsuario($usuario);
-
-        if ($empleado) {
-            return $empleado;
-        }
-
-        return self::crearEmpleadoPuenteParaUsuarioPortal($usuario);
-    }
-
-    private static function crearEmpleadoPuenteParaUsuarioPortal($usuario): ?Empleado
-    {
-        $cedula = trim((string) ($usuario->username ?? ''))
-            ?: 'USR' . (string) $usuario->id;
-
-        $empleado = Empleado::withTrashed()
-            ->where('cedula', $cedula)
-            ->first();
-
-        if ($empleado) {
-            if (method_exists($empleado, 'restore') && $empleado->trashed()) {
-                $empleado->restore();
-            }
-
-            $empleado->update([
-                'colaborador' => $empleado->colaborador ?: ($usuario->name ?? 'Lider portal'),
-                'email' => $empleado->email ?: ($usuario->email ?? null),
-                'estado' => $empleado->estado ?: 'ACTIVO',
-            ]);
-
-            return $empleado->fresh();
-        }
-
-        try {
-            $empleado = Empleado::create([
-                'colaborador' => $usuario->name ?? 'Lider portal',
-                'cedula' => $cedula,
-                'estado' => 'ACTIVO',
-                'email' => $usuario->email ?? null,
-            ]);
-
-            $empleado->setAttribute('portal_user_id', $usuario->id ?? null);
-            $empleado->setAttribute('portal_user_email', $usuario->email ?? null);
-            $empleado->setAttribute('portal_user_role', $usuario->role ?? null);
-            $empleado->setAttribute('tiene_usuario_portal', true);
-
-            return $empleado;
-        } catch (Throwable $e) {
-            Log::error('No fue posible crear empleado puente para lider del portal', [
-                'portal_user_id' => $usuario->id ?? null,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
-        }
+        return self::resolverEmpleadoParaUsuario($usuario);
     }
 
     public function empleados()
@@ -439,7 +472,7 @@ class EntregaController extends Controller
         try {
             $usuariosQuery = DB::connection('mysql')
                 ->table('users')
-                ->select('id', 'name', 'email', 'username', 'role')
+                ->select('id', 'name', 'email', 'username', 'role', 'role_id')
                 ->whereNotNull('email');
 
             if ($role) {
@@ -500,7 +533,7 @@ class EntregaController extends Controller
         ];
 
         $entregasRecientes = Entrega::with(['liderEntrega:id,colaborador', 'liderRecibe:id,colaborador'])
-            ->paraLider($empleadoId)
+            ->recibidasPor($empleadoId)
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get();
@@ -671,8 +704,10 @@ class EntregaController extends Controller
             'logs.empleado:id,colaborador',
         ])->findOrFail($id);
 
-        if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
-            return $response;
+        if (!$this->puedeVerListadoGlobal($request)) {
+            if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
+                return $response;
+            }
         }
 
         return response()->json($entrega);
@@ -1000,8 +1035,10 @@ class EntregaController extends Controller
             'firmaRecepcion.empleado',
         ])->findOrFail($id);
 
-        if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
-            return $response;
+        if (!$this->puedeVerListadoGlobal($request)) {
+            if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
+                return $response;
+            }
         }
 
         $pdf = $this->pdfService->generarRespuesta($entrega);
@@ -1023,8 +1060,10 @@ class EntregaController extends Controller
             'firmaRecepcion.empleado',
         ])->findOrFail($id);
 
-        if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
-            return $response;
+        if (!$this->puedeVerListadoGlobal($request)) {
+            if ($response = $this->abortarSiNoParticipa($entrega, $this->empleadoAutenticado($request))) {
+                return $response;
+            }
         }
 
         $pdf = $this->pdfService->generarRespuesta($entrega);

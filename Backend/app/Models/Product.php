@@ -14,7 +14,10 @@ class Product extends Model
 
     protected $fillable = [
         'product_code',
+        'sku_mia',
         'upc',
+        'upc2',
+        'upc3',
         'description',
         'brand',
         'classification',
@@ -26,6 +29,9 @@ class Product extends Model
         'avg_cost_usd',
         'currency',
         'type',
+        'status',
+        'origin',
+        'line',
         'supplier_id'
     ];
 
