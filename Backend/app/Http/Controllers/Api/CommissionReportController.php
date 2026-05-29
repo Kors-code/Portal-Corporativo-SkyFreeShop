@@ -144,6 +144,42 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
     return $map;
 }
 
+private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): array
+{
+    $q = DB::connection('budget')
+        ->table('category_commissions as cc')
+        ->join('categories as c', 'c.id', '=', 'cc.category_id')
+        ->whereIn('cc.budget_id', $budgetIds);
+
+    if (!empty($roleId)) {
+        $q->where('cc.role_id', $roleId);
+    } else {
+        $q->where('cc.role_id', 1);
+    }
+
+    $rows = $q->select(
+        'c.classification_code',
+        'cc.commission_percentage',
+        'cc.commission_percentage100',
+        'cc.commission_percentage120'
+    )->get();
+
+    $map = [];
+
+    foreach ($rows as $r) {
+        $key = $this->normalizeClassification($r->classification_code);
+        $current = $map[$key] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
+
+        $map[$key] = [
+            'base' => max($current['base'], (float) ($r->commission_percentage ?? 0)),
+            'pct100' => max($current['pct100'], (float) ($r->commission_percentage100 ?? 0)),
+            'pct120' => max($current['pct120'], (float) ($r->commission_percentage120 ?? 0)),
+        ];
+    }
+
+    return $map;
+}
+
     /**
      * Build category totals aggregated from budget_user_category_totals
      * Returns map normalized_key => [sales_usd, sales_cop, commission_cop, classification_raws...]
@@ -745,7 +781,8 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
                 'products.provider_name as provider',
                 'sales.amount_cop',
                 'sales.value_usd',
-                'sales.exchange_rate'
+                'sales.exchange_rate',
+                'sales.quantity'
             )
             ->leftJoin('products', 'sales.product_id', '=', 'products.id')
             ->where('sales.seller_id', $userId)
@@ -759,29 +796,24 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
         $sales = $salesQuery->orderBy('sales.sale_date')->get();
         $saleDates = $sales->pluck('sale_date')->unique()->values()->all();
 
-        // user tickets (group by folio)
-        $userTicketRowsQuery = Sale::selectRaw(
-            "COALESCE(sales.folio, CONCAT('folio_null_', DATE(sales.sale_date), '_', COALESCE(sales.pdv, ''))) AS folio_key,
-             SUM(COALESCE(sales.amount_cop,0)) AS ticket_cop,
-             SUM(COALESCE(sales.value_usd,0)) AS ticket_usd,
-             COUNT(*) AS lines_count,
-             SUM(COALESCE(sales.quantity,1)) AS units_count,
-             MIN(sales.sale_date) AS sale_date"
-        )
-        ->where('sales.seller_id', $userId)
-        ->whereBetween('sales.sale_date', [$startDate, $endDate])
-        ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
-
-        if (Schema::hasColumn('sales','budget_id')) {
-            $userTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
-        }
-
-        $userTicketRows = $userTicketRowsQuery
-            ->groupBy(DB::raw("COALESCE(sales.folio, CONCAT('folio_null_', DATE(sales.sale_date), '_', COALESCE(sales.pdv, '')))"))
-            ->orderByDesc('ticket_usd')
-            ->get();
-
-        $userTicketsList = $userTicketRows->map(function ($t) {
+        // user tickets (group by folio) from the already-loaded sales rows.
+        $userTicketsList = $sales
+            ->groupBy(function ($s) {
+                return $s->folio ?: ('folio_null_' . $s->sale_date . '_' . ($s->pdv ?? ''));
+            })
+            ->map(function ($rows, $folioKey) {
+                return (object) [
+                    'folio_key' => $folioKey,
+                    'ticket_cop' => $rows->sum(fn ($r) => (float) ($r->amount_cop ?? 0)),
+                    'ticket_usd' => $rows->sum(fn ($r) => (float) ($r->value_usd ?? 0)),
+                    'lines_count' => $rows->count(),
+                    'units_count' => $rows->sum(fn ($r) => (float) ($r->quantity ?? 1)),
+                    'sale_date' => $rows->min('sale_date'),
+                ];
+            })
+            ->sortByDesc('ticket_usd')
+            ->values()
+            ->map(function ($t) {
             return [
                 'folio' => (string)$t->folio_key,
                 'ticket_usd' => round((float)$t->ticket_usd, 2),
@@ -812,33 +844,50 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
             if (!empty($trmValues)) $avgTrmForUser = round(array_sum($trmValues) / count($trmValues), 2);
         }
 
-        // categories for user from aggregated table (SUM across selected budgets)
+        if (empty($avgTrmForUser)) {
+            $dailyValues = $sales
+                ->filter(fn ($s) => !empty($s->exchange_rate) && (float) $s->exchange_rate > 0)
+                ->groupBy('sale_date')
+                ->map(fn ($rows) => $rows->avg(fn ($s) => (float) $s->exchange_rate))
+                ->map(fn ($v) => (float) $v)
+                ->filter(fn ($v) => $v > 0)
+                ->values();
+
+            if ($dailyValues->isNotEmpty()) {
+                $avgExchangeRate = (float) $dailyValues->avg();
+                $avgTrmForUser = round($avgExchangeRate < 100 ? $avgExchangeRate * 1000 : $avgExchangeRate, 2);
+            }
+        }
+
+        // categories for user: prefer CommissionService aggregates, fallback to sales if not generated yet.
         $userCategoryRows = DB::connection('budget')
-    ->table('sales')
-    ->leftJoin('products', 'sales.product_id', '=', 'products.id')
-    ->where('sales.seller_id', $userId)
-    ->whereBetween('sales.sale_date', [$startDate, $endDate])
-    ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
-    ->when(
-        Schema::connection('budget')->hasColumn('sales', 'budget_id'),
-        fn($q) => $q->whereIn('sales.budget_id', $budgetIds)
-    )
-    ->selectRaw("
-        products.classification as category_group,
-        SUM(COALESCE(sales.value_usd,0)) AS sales_usd,
-        SUM(COALESCE(sales.amount_cop,0)) AS sales_cop
-    ")
-    ->groupBy('products.classification')
-    ->get()
-    ->map(function ($r) {
-        $r->commission_cop = 0;
-        $r->applied_pct = null;
-        return $r;
-    });
+            ->table('budget_user_category_totals')
+            ->selectRaw('category_group, SUM(sales_usd) AS sales_usd, SUM(sales_cop) AS sales_cop, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
+            ->whereIn('budget_id', $budgetIds)
+            ->where('user_id', $userId)
+            ->groupBy('category_group')
+            ->havingRaw('SUM(sales_usd) <> 0 OR SUM(sales_cop) <> 0 OR SUM(commission_cop) <> 0')
+            ->get();
+
+        if ($userCategoryRows->isEmpty()) {
+            $userCategoryRows = $sales
+                ->groupBy(fn ($s) => $s->category_code)
+                ->map(function ($rows, $categoryGroup) {
+                    return (object) [
+                        'category_group' => $categoryGroup,
+                        'sales_usd' => $rows->sum(fn ($r) => (float) ($r->value_usd ?? 0)),
+                        'sales_cop' => $rows->sum(fn ($r) => (float) ($r->amount_cop ?? 0)),
+                        'commission_cop' => 0,
+                        'applied_pct' => null,
+                    ];
+                })
+                ->values();
+        }
 
         // aggregate participation map for budgets (global participation)
         $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
         $participationMap = $this->buildParticipationMap($budgetIds, $roleId);
+        $commissionTierMap = $this->buildCommissionTierMap($budgetIds, $roleId);
 
         // total participation (sum) to avoid division by zero if needed
         $totalParticipation = array_sum($participationMap) ?: 100.0;
@@ -927,12 +976,28 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
             $qualifiesUser = $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY;
 
-            $appliedPct = $data['applied_pct'] ?? $participationPct;
+            $tiers = $commissionTierMap[$classificationNorm] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
+            $appliedPct = 0.0;
+            if ($qualifiesUser) {
+                if ($pctOfCategoryUser >= 120) {
+                    $appliedPct = $tiers['pct120'] ?: ($tiers['pct100'] ?: $tiers['base']);
+                } elseif ($pctOfCategoryUser >= 100) {
+                    $appliedPct = $tiers['pct100'] ?: $tiers['base'];
+                } else {
+                    $appliedPct = $tiers['base'];
+                }
+            }
 
-            $commissionUsd = null;
+            $commissionUsd = 0.0;
+            $calculatedCommissionCop = 0.0;
             if ($salesUsd > 0 && $appliedPct > 0) {
                 $commissionUsd = round($salesUsd * ($appliedPct / 100), 2);
-            } else {
+                if ($salesCop > 0) {
+                    $calculatedCommissionCop = round($salesCop * ($appliedPct / 100), 2);
+                } elseif (!empty($avgTrmForUser) && $avgTrmForUser > 0) {
+                    $calculatedCommissionCop = round($commissionUsd * $avgTrmForUser, 2);
+                }
+            } elseif ($qualifiesUser) {
                 $trmUsed = null;
                 if ($salesUsd > 0 && $salesCop > 0) {
                     $trmUsed = $salesCop / $salesUsd;
@@ -941,6 +1006,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
                 }
                 if ($commissionCop > 0 && !empty($trmUsed) && $trmUsed > 0) {
                     $commissionUsd = round($commissionCop / $trmUsed, 2);
+                    $calculatedCommissionCop = round($commissionCop, 2);
                 }
             }
 
@@ -965,7 +1031,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
                 'applied_commission_pct' => $appliedPct,
                 'commission_sum_usd'     => $commissionUsd,
-                'commission_sum_cop'     => round($commissionCop, 2),
+                'commission_sum_cop'     => $calculatedCommissionCop,
 
                 'qualifies' => $qualifiesUser,
             ];
@@ -989,15 +1055,22 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
                     ->sum('total_commission_cop')
             ];
 
+        if (empty($avgTrmForUser) && $userTotals->total_sales_usd > 0 && $userTotals->total_sales_cop > 0) {
+            $avgTrmForUser = round($userTotals->total_sales_cop / $userTotals->total_sales_usd, 2);
+        }
+
         // Totals: ensure total_commission_usd computed from category-level commissions when possible
         $totalCommissionUsdFromCats = 0.0;
+        $totalCommissionCopFromCats = 0.0;
         foreach ($categoriesSummary as $c) {
             $totalCommissionUsdFromCats += ($c['commission_sum_usd'] ?? 0);
+            $totalCommissionCopFromCats += ($c['commission_sum_cop'] ?? 0);
         }
         $totalCommissionUsdFromCats = round($totalCommissionUsdFromCats, 2);
+        $totalCommissionCopFromCats = round($totalCommissionCopFromCats, 2);
 
         $totals = [
-            'total_commission_cop' => $userTotals->total_commission_cop ?? 0,
+            'total_commission_cop' => $totalCommissionCopFromCats,
             'total_sales_cop' => $userTotals->total_sales_cop ?? 0,
             'total_sales_usd' => $userTotals->total_sales_usd ?? 0,
             'avg_trm' => $avgTrmForUser,

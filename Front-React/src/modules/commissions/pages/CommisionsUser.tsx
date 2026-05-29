@@ -77,7 +77,7 @@ export default function MyCommissionsPage() {
 
   // const turnos Totales 
   const [turnosTotales, setTurnosTotales] = useState<number>(0);
-console.log(turnosTotales)
+
   /* ================= EFFECTS ================= */
   useEffect(() => {
     // load budgets list

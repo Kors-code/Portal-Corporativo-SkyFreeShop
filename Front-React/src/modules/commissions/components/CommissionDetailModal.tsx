@@ -15,8 +15,7 @@ type SaleRow = {
   provider?: string;
   brand?: string;
 
-  // ⚠️ calculado en frontend
-  commission_amount?: number;
+  commission_amount?: number | null;
 
   is_provisional?: boolean;
   category_code?: string;
@@ -105,31 +104,17 @@ const [daysWorked, setDaysWorked] = useState<{
       // días trabajados
       setDaysWorked(d.days_worked || []);
 
-      // sales: calculamos la comisión provisional en frontend (igual que exportSellerDetail)
-      const avgTrm = Number(d.totals?.avg_trm || 0) || 1;
+      // Las comisiones salen del backend por categoría/totales. Evitamos recalcular
+      // por línea aquí para no mostrar valores distintos al reporte oficial.
       const computedSales: SaleRow[] = (d.sales || []).map((s: any, i: number) => {
-        const amountCop = Number(s.amount_cop || 0);
-        const valueUsd = Number(s.value_usd || 0);
-
-        const cat = (d.categories || []).find((c: any) =>
-          String(c.classification_code) === String(s.category_code)
-        );
-
-        const pct = Number(cat?.applied_commission_pct || 0);
-
-        const commission =
-          amountCop > 0
-            ? amountCop * (pct / 100)
-            : valueUsd * avgTrm * (pct / 100);
-
         // clave única por fila. Usa s.id si el backend la trae (recomendado).
         const rowKey = s.id ? String(s.id) : `${s.folio ?? 'nofolio'}-${s.sale_date ?? 'nodate'}-${String(s.product ?? '').slice(0,30)}-${i}`;
 
         return {
           ...s,
           id: s.id,
-          commission_amount: Math.round(commission),
-          is_provisional: true,
+          commission_amount: s.commission_amount ?? null,
+          is_provisional: Boolean(s.commission_amount),
           rowKey,
         } as SaleRow;
       });
@@ -586,7 +571,11 @@ const ticketsPorDia = useMemo(() => {
                       <td className="p-3">{s.brand ?? '—'}</td>
                       <td className="p-3">{s.product || s.folio}</td>
                       <td className="p-3 text-right">{moneyUSD(s.value_usd)}</td>
-                      <td className="p-3 text-right font-semibold">{moneyCOP(s.commission_amount || 0)}</td>
+                      <td className="p-3 text-right font-semibold">
+                        {s.commission_amount != null
+                          ? moneyCOP(Number(s.commission_amount))
+                          : 'Calculada por categoría'}
+                      </td>
 
                     </tr>
                   ))}
