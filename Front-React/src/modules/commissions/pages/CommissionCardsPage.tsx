@@ -153,12 +153,28 @@ export default function CommissionCardsPage() {
       alert('Selecciona al menos un presupuesto antes de generar comisiones.');
       return;
     }
+    if (budgetIds.length !== 1) {
+      alert('Para generar comisiones selecciona solo un presupuesto.');
+      return;
+    }
+
+    const selectedBudget = budgets.find(b => Number(b.id) === Number(budgetIds[0]));
+    if (selectedBudget?.is_closed) {
+      alert('Ese presupuesto esta cerrado. No se pueden generar comisiones.');
+      return;
+    }
     if (!confirm(`¿Deseas generar/actualizar las comisiones para ${budgetIds.length} presupuesto(s) seleccionado(s)?`)) return;
 
     try {
-      // For each selected budget call the generate endpoint (the backend expects single budget_id)
-      const promises = budgetIds.map(id => api.post(`commissions/generate?budget_id=${id}`));
+      const promises = [api.post(`commissions/generate?budget_id=${budgetIds[0]}`)];
       const results = await Promise.allSettled(promises);
+      if (results[0]?.status === 'rejected') {
+        throw results[0].reason;
+      }
+      const processed = Number(results[0]?.value.data?.users_processed ?? 0);
+      alert(`Generacion completada. usuarios procesados: ${processed}`);
+      await load();
+      return;
 
       // summarize results
       let created = 0, updated = 0, errors = 0;

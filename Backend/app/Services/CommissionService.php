@@ -41,6 +41,14 @@ class CommissionService
             return ['status' => 'budget_not_found'];
         }
 
+        if ((bool) ($budget->is_closed ?? false)) {
+            Log::warning('[COMMISSION] Budget is closed', ['budget_id' => $budgetId]);
+            return [
+                'status' => 'budget_closed',
+                'message' => 'El presupuesto esta cerrado. No se pueden generar comisiones.',
+            ];
+        }
+
         return $this->processBudget($budget);
     }
 
@@ -239,6 +247,18 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
                     $categoryGroupMap[$grp]['participation_pct'] += $pctVal;
                 }
             }
+
+            foreach ($salesByUserGroup as $groups) {
+                foreach ($groups as $grp => $_sales) {
+                    if (!isset($categoryGroupMap[$grp])) {
+                        $categoryGroupMap[$grp] = [
+                            'category_ids' => [],
+                            'participation_pct' => 0.0,
+                        ];
+                    }
+                }
+            }
+
             Log::info('[COMMISSION] Category groups', ['budget_id' => $budgetId, 'categoryGroupMap' => $categoryGroupMap]);
 
             // Debug frag mapping
@@ -307,7 +327,7 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
 
             // 5) build ratesByGroupByRole and rules map
             $allCategoryIds = collect($categoriesWithParticipation)->pluck('id')->all();
-            if (empty($allCategoryIds)) {
+            if (empty($allCategoryIds) && empty($categoryGroupMap)) {
                 // si no hay categories en este budget, no hay nada que hacer
                 Log::warning('[COMMISSION] No categories found for budget', ['budget_id' => $budgetId]);
                 $conn->commit();
@@ -381,7 +401,10 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
 
                 $userModel = User::find($uid); // User en conexión app por defecto
                 $userRole = $this->resolveRoleModelForUserAtDate($userModel, $budget->end_date ?? $budget->end_date);
-                $roleId = $userRole ? (int)$userRole->id : null;
+                $roleId = $this->sellerRoleId();
+                if (!$roleId && $userRole) {
+                    $roleId = (int)$userRole->id;
+                }
 
                 foreach ($groups as $grp => $entry) {
                     $salesUsd = (float)($entry['sales_usd'] ?? 0.0);
@@ -551,6 +574,15 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
 
     // ---------- Helpers ----------
 
+    private function sellerRoleId(): ?int
+    {
+        $id = $this->budgetDB()->table('roles')
+            ->whereRaw("LOWER(name) IN ('vendedor', 'seller')")
+            ->value('id');
+
+        return $id ? (int) $id : null;
+    }
+
     /**
      * Normaliza classification_code en un "grupo" seguro.
      */
@@ -562,6 +594,9 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
 
         // eliminar acentos básicos para comparación
         $normalized = iconv('UTF-8', 'ASCII//TRANSLIT', $raw);
+        if ($normalized === false) {
+            $normalized = $raw;
+        }
         $normalized = mb_strtolower(trim($normalized));
 
         // 1) intentar extraer un número (ej: "10", "10 - Fragancias", "010", "22a")

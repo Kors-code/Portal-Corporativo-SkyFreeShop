@@ -40,7 +40,6 @@ class EntregaController extends Controller
         $empleado = self::buscarEmpleadoPorDatos($email, $username, $name);
 
         if ($empleado) {
-            self::actualizarEmpleadoConDatosPortal($empleado, $user);
             $empleado->setAttribute('portal_user_id', $user->id ?? null);
             $empleado->setAttribute('portal_user_email', $email ?: null);
             $empleado->setAttribute('portal_user_role', $user->role ?? null);
@@ -58,7 +57,6 @@ class EntregaController extends Controller
             );
 
             if ($empleado) {
-                self::actualizarEmpleadoConDatosPortal($empleado, $user);
                 $empleado->setAttribute('portal_user_id', $user->id ?? null);
                 $empleado->setAttribute('portal_user_email', $email ?: null);
                 $empleado->setAttribute('portal_user_role', $user->role ?? null);
@@ -68,33 +66,11 @@ class EntregaController extends Controller
             return $empleado;
         }
 
+        if (self::usuarioEsLider($user)) {
+            return self::crearEmpleadoPuenteParaUsuarioPortal($user);
+        }
+
         return null;
-    }
-
-    private static function actualizarEmpleadoConDatosPortal(Empleado $empleado, $user): void
-    {
-        $emailUsuario = trim((string) ($user->email ?? ''));
-        $username = trim((string) ($user->username ?? ''));
-        $emailEmpleado = trim((string) ($empleado->email ?? ''));
-
-        $cambios = [];
-
-        if (($empleado->cedula ?? '') === '' && $username !== '') {
-            $cambios['cedula'] = $username;
-        }
-
-        if (
-            $emailUsuario !== ''
-            && self::emailEsNotificable($emailUsuario)
-            && ($emailEmpleado === '' || !self::emailEsNotificable($emailEmpleado))
-        ) {
-            $cambios['email'] = $emailUsuario;
-        }
-
-        if (!empty($cambios)) {
-            $empleado->forceFill($cambios)->save();
-            $empleado->refresh();
-        }
     }
 
     private static function usuarioEsLider($user): bool
@@ -238,10 +214,6 @@ class EntregaController extends Controller
         }
 
         $dominio = strtolower((string) Str::of($email)->afterLast('@'));
-
-        if (!str_contains($dominio, '.')) {
-            return false;
-        }
 
         return !in_array($dominio, ['local', 'empresa.local'], true);
     }
@@ -417,7 +389,7 @@ class EntregaController extends Controller
         $lideres = $usuarios
             ->filter(fn ($usuario) => self::emailEsNotificable($usuario->email ?? null))
             ->map(function ($usuario) {
-                $empleado = self::buscarEmpleadoVinculadoParaUsuarioPortal($usuario);
+                $empleado = self::buscarOCrearEmpleadoParaUsuarioPortal($usuario);
 
                 if (!$empleado) {
                     return null;
@@ -436,9 +408,61 @@ class EntregaController extends Controller
         return response()->json($lideres);
     }
 
-    private static function buscarEmpleadoVinculadoParaUsuarioPortal($usuario): ?Empleado
+    private static function buscarOCrearEmpleadoParaUsuarioPortal($usuario): ?Empleado
     {
-        return self::resolverEmpleadoParaUsuario($usuario);
+        $empleado = self::resolverEmpleadoParaUsuario($usuario);
+
+        if ($empleado) {
+            return $empleado;
+        }
+
+        return self::crearEmpleadoPuenteParaUsuarioPortal($usuario);
+    }
+
+    private static function crearEmpleadoPuenteParaUsuarioPortal($usuario): ?Empleado
+    {
+        $cedula = trim((string) ($usuario->username ?? ''))
+            ?: 'USR' . (string) $usuario->id;
+
+        $empleado = Empleado::withTrashed()
+            ->where('cedula', $cedula)
+            ->first();
+
+        if ($empleado) {
+            if (method_exists($empleado, 'restore') && $empleado->trashed()) {
+                $empleado->restore();
+            }
+
+            $empleado->update([
+                'colaborador' => $empleado->colaborador ?: ($usuario->name ?? 'Lider portal'),
+                'email' => $empleado->email ?: ($usuario->email ?? null),
+                'estado' => $empleado->estado ?: 'ACTIVO',
+            ]);
+
+            return $empleado->fresh();
+        }
+
+        try {
+            $empleado = Empleado::create([
+                'colaborador' => $usuario->name ?? 'Lider portal',
+                'cedula' => $cedula,
+                'estado' => 'ACTIVO',
+                'email' => $usuario->email ?? null,
+            ]);
+
+            $empleado->setAttribute('portal_user_id', $usuario->id ?? null);
+            $empleado->setAttribute('portal_user_email', $usuario->email ?? null);
+            $empleado->setAttribute('portal_user_role', $usuario->role ?? null);
+            $empleado->setAttribute('tiene_usuario_portal', true);
+
+            return $empleado;
+        } catch (Throwable $e) {
+            Log::error('No fue posible crear empleado puente para lider del portal', [
+                'portal_user_id' => $usuario->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     public function empleados()

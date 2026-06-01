@@ -45,6 +45,12 @@ class ShowInicioController extends Controller
                         'text'  => 'Wish List'
                     ],
                     [
+                        'route' => '/panel/EntregasDashboardPage',
+                        'class' => 'btn btn-primary',
+                        'icon'  => 'fa-solid fa-clipboard-check',
+                        'text'  => 'Minuta Entrega'
+                    ],
+                    [
                         'route' => 'Disciplina.show',
                         'class' => 'btn btn-primary',
                         'icon'  => 'fa-solid fa-user-check',
@@ -61,6 +67,13 @@ class ShowInicioController extends Controller
                         'class' => 'btn btn-outline',
                         'icon'  => 'fa-solid fa-briefcase',
                         'text'  => 'Presupuesto'
+                    ],
+                    [
+                        'route' => '/panel/AdminPermissionsPanel',
+                        'class' => 'btn btn-outline',
+                        'icon'  => 'fa-solid fa-shield-halved',
+                        'text'  => 'Permisos',
+                        'roles' => ['super_admin']
                     ],
                 ],
                 'cards' => [
@@ -81,6 +94,12 @@ class ShowInicioController extends Controller
                         'title' => 'Centro de Información',
                         'text' => 'Consulta comunicados y documentos institucionales.',
                         'route' => '#'
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-clipboard-check',
+                        'title' => 'Minuta Entrega',
+                        'text' => 'Crea, revisa y recibe actas de entrega entre lideres.',
+                        'route' => '/panel/EntregasDashboardPage'
                     ],
                 ],
             ],

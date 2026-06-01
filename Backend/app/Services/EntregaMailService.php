@@ -173,10 +173,9 @@ class EntregaMailService
 
     private function urlEntrega(Entrega $entrega): string
     {
-        $base = rtrim(( env('APP_URL_PORT')), '/');
+        $base = rtrim(( env('APP_URL')), '/');
         return "{$base}/panel/entregas/{$entrega->id}";
     }
-
     private function plantillaEntregaPendiente(Entrega $entrega, string $enlace): string
     {
         $liderEntrega = e($entrega->liderEntrega->colaborador);

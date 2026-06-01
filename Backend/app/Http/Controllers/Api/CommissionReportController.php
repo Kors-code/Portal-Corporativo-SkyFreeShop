@@ -44,19 +44,40 @@ class CommissionReportController extends Controller
         $raw = trim($raw);
         if ($raw === '') return 'sin_categoria';
 
-        // numeric codes that map to frag
-        if (is_numeric($raw) && in_array((int)$raw, self::FRAG_CODES, true)) {
+        $normalized = iconv('UTF-8', 'ASCII//TRANSLIT', $raw);
+        if ($normalized === false) {
+            $normalized = $raw;
+        }
+        $normalized = mb_strtolower(trim($normalized));
+
+        if (preg_match('/\b(\d{1,5})\b/', $normalized, $m)) {
+            $num = (int) $m[1];
+            if (in_array($num, self::FRAG_CODES, true)) {
+                return self::FRAG_KEY;
+            }
+
+            return (string) $num;
+        }
+
+        $clean = preg_replace('/\s+/', ' ', $normalized);
+        $acceptedFragNames = [
+            'fragancias',
+            'fragancia',
+            'fragancias perfumeria',
+            'perfumeria',
+            'perfumeria fragancias',
+            'fragancias/perfumeria',
+            'fragancias y perfumeria',
+        ];
+
+        if (in_array($clean, $acceptedFragNames, true)) {
             return self::FRAG_KEY;
         }
 
-        $low = mb_strtolower($raw);
+        $clean = preg_replace('/[^a-z0-9\-_ ]+/', '', $clean);
+        $clean = preg_replace('/\s+/', ' ', $clean);
 
-        if (str_contains($low, 'frag') || str_contains($low, 'perf')) {
-            return self::FRAG_KEY;
-        }
-
-        // keep classification as lowercase trimmed string
-        return preg_replace('/\s+/', ' ', trim($low));
+        return trim($clean);
     }
 
     private function categoryName(string $code): string
@@ -291,7 +312,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereBetween('s.sale_date', [$startDate, $endDate])
         ->whereIn('s.pdv', ['COLS1', 'COLS2']);
 
-    if (Schema::hasColumn('sales', 'budget_id')) {
+    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $salesTotalsSub->whereIn('s.budget_id', $budgetIds);
     }
 
@@ -379,7 +400,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 });
         });
 
-    if (Schema::hasColumn('sales', 'budget_id')) {
+    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -403,7 +424,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             });
     });
 
-    if (Schema::hasColumn('sales', 'budget_id')) {
+    if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -522,7 +543,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereBetween('sale_date', [$startDate, $endDate]);
 
-        if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+        if (Schema::connection('budget')->hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
             $saleDatesPerUserQuery->whereIn('sales.budget_id', $budgetIds);
         }
 
@@ -594,7 +615,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereBetween('sale_date', [$startDate, $endDate])
         ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
-    if (Schema::hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
+    if (Schema::connection('budget')->hasColumn('sales', 'budget_id') && !empty($budgetIds)) {
         $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
@@ -789,7 +810,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
             ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
-        if (Schema::hasColumn('sales','budget_id')) {
+        if (Schema::connection('budget')->hasColumn('sales','budget_id')) {
             $salesQuery->whereIn('sales.budget_id', $budgetIds);
         }
 
@@ -859,35 +880,49 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             }
         }
 
-        // categories for user: prefer CommissionService aggregates, fallback to sales if not generated yet.
-        $userCategoryRows = DB::connection('budget')
+        $commissionRows = DB::connection('budget')
             ->table('budget_user_category_totals')
-            ->selectRaw('category_group, SUM(sales_usd) AS sales_usd, SUM(sales_cop) AS sales_cop, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
+            ->selectRaw('category_group, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
             ->whereIn('budget_id', $budgetIds)
             ->where('user_id', $userId)
             ->groupBy('category_group')
-            ->havingRaw('SUM(sales_usd) <> 0 OR SUM(sales_cop) <> 0 OR SUM(commission_cop) <> 0')
             ->get();
 
-        if ($userCategoryRows->isEmpty()) {
-            $userCategoryRows = $sales
-                ->groupBy(fn ($s) => $s->category_code)
-                ->map(function ($rows, $categoryGroup) {
-                    return (object) [
-                        'category_group' => $categoryGroup,
-                        'sales_usd' => $rows->sum(fn ($r) => (float) ($r->value_usd ?? 0)),
-                        'sales_cop' => $rows->sum(fn ($r) => (float) ($r->amount_cop ?? 0)),
-                        'commission_cop' => 0,
-                        'applied_pct' => null,
-                    ];
-                })
-                ->values();
+        $commissionByNorm = [];
+        foreach ($commissionRows as $r) {
+            $classificationNorm = $this->normalizeClassification($r->category_group);
+            if (!isset($commissionByNorm[$classificationNorm])) {
+                $commissionByNorm[$classificationNorm] = [
+                    'commission_cop' => 0.0,
+                    'applied_pct' => null,
+                ];
+            }
+
+            $commissionByNorm[$classificationNorm]['commission_cop'] += (float) $r->commission_cop;
+            if (isset($r->applied_pct) && $r->applied_pct !== null) {
+                $commissionByNorm[$classificationNorm]['applied_pct'] = max(
+                    $commissionByNorm[$classificationNorm]['applied_pct'] ?? 0,
+                    (float) $r->applied_pct
+                );
+            }
         }
+
+        $userCategoryRows = $sales
+            ->groupBy(fn ($s) => $s->category_code)
+            ->map(function ($rows, $categoryGroup) {
+                return (object) [
+                    'category_group' => $categoryGroup,
+                    'sales_usd' => $rows->sum(fn ($r) => (float) ($r->value_usd ?? 0)),
+                    'sales_cop' => $rows->sum(fn ($r) => (float) ($r->amount_cop ?? 0)),
+                    'commission_cop' => 0,
+                    'applied_pct' => null,
+                ];
+            })
+            ->values();
 
         // aggregate participation map for budgets (global participation)
         $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
         $participationMap = $this->buildParticipationMap($budgetIds, $roleId);
-        $commissionTierMap = $this->buildCommissionTierMap($budgetIds, $roleId);
 
         // total participation (sum) to avoid division by zero if needed
         $totalParticipation = array_sum($participationMap) ?: 100.0;
@@ -955,6 +990,21 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             }
         }
 
+        foreach ($commissionByNorm as $classificationNorm => $commissionData) {
+            if (!isset($aggByNorm[$classificationNorm])) {
+                $aggByNorm[$classificationNorm] = [
+                    'classification_codes' => [$classificationNorm],
+                    'sales_usd' => 0.0,
+                    'sales_cop' => 0.0,
+                    'commission_cop' => 0.0,
+                    'applied_pct' => null,
+                ];
+            }
+
+            $aggByNorm[$classificationNorm]['commission_cop'] = (float) ($commissionData['commission_cop'] ?? 0);
+            $aggByNorm[$classificationNorm]['applied_pct'] = $commissionData['applied_pct'];
+        }
+
         $categoriesSummary = [];
         foreach ($aggByNorm as $classificationNorm => $data) {
             $salesUsd = $data['sales_usd'];
@@ -976,38 +1026,20 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
             $qualifiesUser = $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY;
 
-            $tiers = $commissionTierMap[$classificationNorm] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
-            $appliedPct = 0.0;
-            if ($qualifiesUser) {
-                if ($pctOfCategoryUser >= 120) {
-                    $appliedPct = $tiers['pct120'] ?: ($tiers['pct100'] ?: $tiers['base']);
-                } elseif ($pctOfCategoryUser >= 100) {
-                    $appliedPct = $tiers['pct100'] ?: $tiers['base'];
-                } else {
-                    $appliedPct = $tiers['base'];
-                }
-            }
+            $appliedPct = isset($data['applied_pct']) && $data['applied_pct'] !== null
+                ? (float) $data['applied_pct']
+                : 0.0;
 
             $commissionUsd = 0.0;
-            $calculatedCommissionCop = 0.0;
-            if ($salesUsd > 0 && $appliedPct > 0) {
-                $commissionUsd = round($salesUsd * ($appliedPct / 100), 2);
-                if ($salesCop > 0) {
-                    $calculatedCommissionCop = round($salesCop * ($appliedPct / 100), 2);
-                } elseif (!empty($avgTrmForUser) && $avgTrmForUser > 0) {
-                    $calculatedCommissionCop = round($commissionUsd * $avgTrmForUser, 2);
-                }
-            } elseif ($qualifiesUser) {
-                $trmUsed = null;
-                if ($salesUsd > 0 && $salesCop > 0) {
-                    $trmUsed = $salesCop / $salesUsd;
-                } elseif (!empty($avgTrmForUser)) {
-                    $trmUsed = $avgTrmForUser;
-                }
-                if ($commissionCop > 0 && !empty($trmUsed) && $trmUsed > 0) {
-                    $commissionUsd = round($commissionCop / $trmUsed, 2);
-                    $calculatedCommissionCop = round($commissionCop, 2);
-                }
+            $calculatedCommissionCop = round($commissionCop, 2);
+            $trmUsed = null;
+            if ($salesUsd > 0 && $salesCop > 0) {
+                $trmUsed = $salesCop / $salesUsd;
+            } elseif (!empty($avgTrmForUser)) {
+                $trmUsed = $avgTrmForUser;
+            }
+            if ($calculatedCommissionCop > 0 && !empty($trmUsed) && $trmUsed > 0) {
+                $commissionUsd = round($calculatedCommissionCop / $trmUsed, 2);
             }
 
             // representative classification_code: first raw code (for exports)
@@ -1070,7 +1102,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $totalCommissionCopFromCats = round($totalCommissionCopFromCats, 2);
 
         $totals = [
-            'total_commission_cop' => $totalCommissionCopFromCats,
+            'total_commission_cop' => round((float) ($userTotals->total_commission_cop ?? $totalCommissionCopFromCats), 2),
             'total_sales_cop' => $userTotals->total_sales_cop ?? 0,
             'total_sales_usd' => $userTotals->total_sales_usd ?? 0,
             'avg_trm' => $avgTrmForUser,
