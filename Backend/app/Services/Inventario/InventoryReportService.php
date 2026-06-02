@@ -137,20 +137,29 @@ class InventoryReportService
                 $monthColumns = [];
             }
 
+            $monthColumns = collect($monthColumns)
+                ->mapWithKeys(fn ($value, $key) => [(string) $key => (float) $value])
+                ->sortKeysUsing(function (string $left, string $right) {
+                    return $this->monthKeyTimestamp($left) <=> $this->monthKeyTimestamp($right);
+                })
+                ->all();
+
             $totalGeneral = array_sum($monthColumns);
             $maximoMes = !empty($monthColumns) ? max($monthColumns) : (float) ($row->maximo_mes ?? 0);
+            $maximoMesKey = null;
+            foreach ($monthColumns as $monthKey => $monthValue) {
+                if ((float) $monthValue === (float) $maximoMes) {
+                    $maximoMesKey = $monthKey;
+                    break;
+                }
+            }
+
             $stockActual = (float) ($row->stock_actual ?? 0);
             $maximoDia = (float) ($row->maximo_dia ?? 0);
-            $rotDia = $maximoMes > 0 ? $maximoMes / 30 : 0;
-            $diasDisponibles = $rotDia > 0 ? $stockActual / $rotDia : 0;
-            $alerta = $this->resolveStockAlert($diasDisponibles, $stockActual, $maximoDia);
-            $totalGeneral = array_sum($monthColumns);
-            $maximoMes = !empty($monthColumns) ? max($monthColumns) : (float) ($row->maximo_mes ?? 0);
-            $stockActual = (float) ($row->stock_actual ?? 0);
+            $rotDiaMes = $maximoMes > 0 ? $maximoMes / 30 : 0;
+            $diasDisponibles = $rotDiaMes > 0 ? $stockActual / $rotDiaMes : 0;
+            $alerta = $this->resolveStockAlert($diasDisponibles, $stockActual, $rotDiaMes);
 
-
-
-$alerta = $this->resolveStockAlert($diasDisponibles, $stockActual, $rotDia);
             return [
                 'product_id' => (int) $row->product_id,
                 'store_id' => (int) $row->store_id,
@@ -164,7 +173,9 @@ $alerta = $this->resolveStockAlert($diasDisponibles, $stockActual, $rotDia);
                 'total_ventas' => (float) ($row->total_ventas ?? 0),
                 'total_general' => (float) $totalGeneral,
                 'maximo_mes' => (float) $maximoMes,
+                'maximo_mes_key' => $maximoMesKey,
                 'maximo_dia' => $maximoDia,
+                'rotacion_diaria_mes' => $rotDiaMes,
                 'ind_rot_stock' => $maximoDia > 0 ? round($stockActual / $maximoDia, 2) : 0,
                 'ind_rot_promedio' => $maximoMes > 0 ? round(((float) ($row->promedio_diario ?? 0)) / $maximoMes, 2) : 0,
                 'proveedor' => $row->proveedor,
@@ -235,5 +246,16 @@ $alerta = $this->resolveStockAlert($diasDisponibles, $stockActual, $rotDia);
             'label' => 'Estable',
             'color' => 'emerald',
         ];
+    }
+
+    private function monthKeyTimestamp(string $monthKey): int
+    {
+        [$month, $year] = array_pad(explode('.', $monthKey, 2), 2, '0');
+
+        $month = max(1, min(12, (int) $month));
+        $year = (int) $year;
+        $year += $year < 100 ? 2000 : 0;
+
+        return (int) sprintf('%04d%02d', $year, $month);
     }
 }

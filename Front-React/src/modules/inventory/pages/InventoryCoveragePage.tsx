@@ -205,10 +205,12 @@ export default function InventoryCoveragePage() {
         return matchesSearch && matchesBrand && matchesProvider && matchesCategory;
       })
       .map((row) => {
-        const maximoDia = Number(row.maximo_dia ?? 0);
+        const monthlyRate = Number(row.rotacion_diaria_mes ?? 0);
+        const fallbackRate = Number(row.maximo_mes ?? 0) > 0 ? Number(row.maximo_mes ?? 0) / 30 : 0;
         const stockActual = Number(row.stock_actual ?? 0);
+        const rotationBase = monthlyRate > 0 ? monthlyRate : fallbackRate;
         const suggestedPurchase =
-          maximoDia > 0 ? Math.max(0, Math.ceil(maximoDia * planningDays - stockActual)) : 0;
+          rotationBase > 0 ? Math.max(0, Math.ceil(rotationBase * planningDays - stockActual)) : 0;
 
         return {
           ...row,

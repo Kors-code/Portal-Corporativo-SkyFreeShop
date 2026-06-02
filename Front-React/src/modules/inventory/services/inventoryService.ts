@@ -37,7 +37,9 @@ export interface InventoryItem {
 
   total_ventas?: number | null;
   maximo_mes?: number | null;
+  maximo_mes_key?: string | null;
   maximo_dia?: number | null;
+  rotacion_diaria_mes?: number | null;
   promedio_diario?: number | null;
   ind_rot_stock?: number | null;
   ind_rot_promedio?: number | null;

@@ -38,16 +38,12 @@ export default function InventoryCoverageTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto px-2 pb-2">
-        <table className="min-w-[1780px] w-full border-separate border-spacing-0 text-left text-[15px]">
+      <div className="overflow-x-auto px-2 pb-2 xl:overflow-visible">
+        <table className="min-w-[980px] w-full border-separate border-spacing-0 text-left text-sm xl:min-w-0">
           <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600">
             <tr>
-              <Th sticky>Tienda</Th>
-              <Th stickyOffset="left-[180px]">SKU</Th>
-              <Th>Descripcion</Th>
-              <Th>Marca</Th>
-              <Th>Proveedor</Th>
-              <Th>Categoria</Th>
+              <Th>Producto</Th>
+              <Th>Auditoria mensual</Th>
               <Th>Max mes</Th>
               <Th>Inventario</Th>
               <Th>Dias disponibles</Th>
@@ -59,45 +55,74 @@ export default function InventoryCoverageTable({
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-5 py-8 text-slate-500" colSpan={12}>
+                <td className="px-5 py-8 text-slate-500" colSpan={8}>
                   Cargando informacion...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-5 py-8 text-slate-500" colSpan={12}>
+                <td className="px-5 py-8 text-slate-500" colSpan={8}>
                   No hay datos para mostrar.
                 </td>
               </tr>
             ) : (
-              rows.map((item) => (
-                <tr
-                  key={`${item.store_id ?? "all"}-${item.product_id}`}
-                  className="group"
-                >
-                  <Td sticky>{item.store_name ?? item.store_code ?? "-"}</Td>
-                  <Td strong stickyOffset="left-[180px]">{item.product_code}</Td>
-                  <Td className="min-w-[360px] whitespace-normal leading-6">{item.description ?? "-"}</Td>
-                  <Td className="min-w-[170px] whitespace-normal leading-6">{item.brand ?? "-"}</Td>
-                  <Td className="min-w-[190px] whitespace-normal leading-6">{item.supplier ?? item.proveedor ?? "-"}</Td>
-                  <Td className="min-w-[180px] whitespace-normal leading-6">{item.classification_desc ?? "-"}</Td>
-                  <Td>{formatNumber(item.maximo_mes)}</Td>
-                  <Td>{formatNumber(item.stock_actual)}</Td>
-                  <Td>{formatNumber(item.dias_disponibles)}</Td>
-                  <Td strong>{formatNumber(item.suggested_purchase)}</Td>
-                  <Td>{item.last_inventory_date ?? "-"}</Td>
-                  <Td>
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        badgeStyles[item.stock_alert_level ?? "sin_rotacion"] ??
-                        "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {item.stock_alert_label ?? "Sin rotacion"}
-                    </span>
-                  </Td>
-                </tr>
-              ))
+              rows.map((item) => {
+                const monthEntries = getMonthEntries(item.month_columns);
+
+                return (
+                  <tr
+                    key={`${item.store_id ?? "all"}-${item.product_id}`}
+                    className="group"
+                  >
+                    <Td className="w-[30%] min-w-[280px] whitespace-normal">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                            {item.store_code ?? item.store_name ?? "-"}
+                          </span>
+                          <span className="font-semibold text-slate-900">{item.product_code}</span>
+                        </div>
+                        <div className="leading-5 text-slate-700">{item.description ?? "-"}</div>
+                        <div className="flex flex-wrap gap-1.5 text-xs text-slate-500">
+                          {item.brand && <InfoPill>{item.brand}</InfoPill>}
+                          {(item.supplier ?? item.proveedor) && <InfoPill>{item.supplier ?? item.proveedor}</InfoPill>}
+                          {item.classification_desc && <InfoPill>{item.classification_desc}</InfoPill>}
+                        </div>
+                      </div>
+                    </Td>
+                    <Td className="w-[26%] min-w-[240px] whitespace-normal">
+                      <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
+                    </Td>
+                    <Td strong>
+                      <div>{formatNumber(item.maximo_mes)}</div>
+                      <div className="mt-1 text-xs font-normal text-slate-400">
+                        {item.maximo_mes_key ?? "-"}
+                      </div>
+                    </Td>
+                    <Td>{formatNumber(item.stock_actual)}</Td>
+                    <Td>
+                      <div>{formatNumber(item.dias_disponibles)}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {formatNumber(item.rotacion_diaria_mes)} / dia
+                      </div>
+                    </Td>
+                    <Td strong className="bg-sky-50/70 text-sky-900 group-hover:bg-sky-100/80">
+                      {formatNumber(item.suggested_purchase)}
+                    </Td>
+                    <Td>{item.last_inventory_date ?? "-"}</Td>
+                    <Td>
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                          badgeStyles[item.stock_alert_level ?? "sin_rotacion"] ??
+                          "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {item.stock_alert_label ?? "Sin rotacion"}
+                      </span>
+                    </Td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -108,18 +133,12 @@ export default function InventoryCoverageTable({
 
 function Th({
   children,
-  sticky,
-  stickyOffset,
 }: {
   children: React.ReactNode;
-  sticky?: boolean;
-  stickyOffset?: string;
 }) {
   return (
     <th
-      className={`whitespace-nowrap border-b border-slate-200 px-4 py-4 font-medium ${
-      sticky ? `sticky ${stickyOffset ?? "left-0"} z-20 bg-slate-50` : ""
-      }`}
+      className="whitespace-nowrap border-b border-slate-200 px-4 py-4 font-medium"
     >
       {children}
     </th>
@@ -130,24 +149,76 @@ function Td({
   children,
   strong,
   className,
-  sticky,
-  stickyOffset,
 }: {
   children: React.ReactNode;
   strong?: boolean;
   className?: string;
-  sticky?: boolean;
-  stickyOffset?: string;
 }) {
   return (
     <td
       className={`whitespace-nowrap border-b border-slate-100 px-4 py-4 align-top ${
         strong ? "font-semibold text-slate-900" : "text-slate-600"
-      } ${sticky ? `sticky ${stickyOffset ?? "left-0"} z-[5] bg-white group-hover:bg-sky-50/50` : "group-hover:bg-sky-50/50"} ${className ?? ""}`}
+      } group-hover:bg-sky-50/50 ${className ?? ""}`}
     >
       {children}
     </td>
   );
+}
+
+function InfoPill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-1">
+      {children}
+    </span>
+  );
+}
+
+function MonthAudit({
+  entries,
+  maxKey,
+}: {
+  entries: Array<[string, number]>;
+  maxKey?: string | null;
+}) {
+  if (entries.length === 0) {
+    return <span className="text-slate-400">Sin ventas mensuales</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {entries.map(([monthKey, value]) => {
+        const active = monthKey === maxKey;
+        return (
+          <span
+            key={monthKey}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
+              active
+                ? "bg-slate-900 font-semibold text-white"
+                : "bg-slate-100 text-slate-600"
+            }`}
+            title={`${monthKey}: ${formatNumber(value)}`}
+          >
+            <span>{monthKey}</span>
+            <span>{formatNumber(value)}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function getMonthEntries(months: Record<string, number> | null | undefined): Array<[string, number]> {
+  return Object.entries(months ?? {})
+    .map(([key, value]) => [key, Number(value)] as [string, number])
+    .sort(([left], [right]) => monthKeyValue(left) - monthKeyValue(right));
+}
+
+function monthKeyValue(monthKey: string): number {
+  const [monthText, yearText] = monthKey.split(".");
+  const month = Math.max(1, Math.min(12, Number(monthText) || 1));
+  const year = Number(yearText) < 100 ? 2000 + (Number(yearText) || 0) : Number(yearText) || 0;
+
+  return year * 100 + month;
 }
 
 function formatNumber(value: number | null | undefined): string {

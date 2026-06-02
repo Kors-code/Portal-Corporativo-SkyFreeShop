@@ -163,6 +163,12 @@ const [daysWorked, setDaysWorked] = useState<{
   const totalCommissionUsd =
     Number(totals?.total_commission_cop || 0) / Number(totals?.avg_trm || 1);
 
+  const advisorCompliancePct = userBudgetUsd > 0
+    ? (totalSalesUsd / userBudgetUsd) * 100
+    : 0;
+
+  const advisorComplianceDiff = totalSalesUsd - userBudgetUsd;
+
   /* ================= CATEGORY DATA ================= */
   const categoryCards = categories.map((c: any) => {
     const sales = Number(c.sales_sum_usd || 0);
@@ -386,6 +392,14 @@ const ticketsPorDia = useMemo(() => {
         ) : (
 
           <>
+            <AdvisorComplianceCard
+              pct={advisorCompliancePct}
+              salesUsd={totalSalesUsd}
+              budgetUsd={userBudgetUsd}
+              diffUsd={advisorComplianceDiff}
+              moneyUSD={moneyUSD}
+            />
+
             {/* KPI CARDS */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-10">
               <KpiCard label="Ventas USD" value={moneyUSD(totalSalesUsd)} icon="💰" />
@@ -584,6 +598,68 @@ const ticketsPorDia = useMemo(() => {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AdvisorComplianceCard({
+  pct,
+  salesUsd,
+  budgetUsd,
+  diffUsd,
+  moneyUSD,
+}: {
+  pct: number;
+  salesUsd: number;
+  budgetUsd: number;
+  diffUsd: number;
+  moneyUSD: (value: number) => string;
+}) {
+  const pctClamped = Math.max(0, Math.min(100, pct));
+  const status =
+    pct >= 100
+      ? { label: 'Meta cumplida', bar: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' }
+      : pct >= 80
+        ? { label: 'En rango de comision', bar: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' }
+        : { label: 'Por debajo del minimo', bar: 'bg-rose-500', text: 'text-rose-700', bg: 'bg-rose-50' };
+
+  return (
+    <div className="bg-white rounded-2xl shadow border p-5 mb-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <div className="text-sm font-semibold text-gray-600">Cumplimiento general del asesor</div>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${status.bg} ${status.text}`}>
+              {status.label}
+            </span>
+          </div>
+
+          <div className="flex items-end gap-3 mb-3">
+            <div className="text-3xl font-bold text-gray-900">{pct.toFixed(1)}%</div>
+            <div className={`text-sm font-semibold pb-1 ${diffUsd >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {diffUsd >= 0 ? '+' : ''}{moneyUSD(diffUsd)}
+            </div>
+          </div>
+
+          <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+            <div
+              className={`h-full rounded-full ${status.bar} transition-all`}
+              style={{ width: `${pctClamped}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[22rem]">
+          <div className="rounded-xl bg-gray-50 p-3">
+            <div className="text-xs text-gray-500">Ventas</div>
+            <div className="font-bold text-gray-900">{moneyUSD(salesUsd)}</div>
+          </div>
+          <div className="rounded-xl bg-gray-50 p-3">
+            <div className="text-xs text-gray-500">Presupuesto</div>
+            <div className="font-bold text-gray-900">{moneyUSD(budgetUsd)}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
