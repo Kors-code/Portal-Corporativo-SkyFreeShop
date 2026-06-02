@@ -9,10 +9,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Throwable;
 
 class ImportSalesController extends Controller
@@ -1021,6 +1023,309 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
     }
 
+    public function startChunked(Request $request)
+    {
+        if (!$request->hasFile('file')) {
+            return response()->json(['message' => 'Archivo requerido'], 422);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'store_id' => ['required', 'integer'],
+        ]);
+
+        if ($request->boolean('replace_existing')) {
+            $this->deletePreviousBatch($request->file('file'));
+        }
+
+        $file = $request->file('file');
+        $selectedStoreId = (int) $request->store_id;
+        $checksum = hash('sha256', file_get_contents($file->getRealPath()));
+
+        $existingBatch = DB::connection('budget')->table('import_batches')->where('checksum', $checksum)->first();
+        if ($existingBatch) {
+            return response()->json([
+                'message' => 'Archivo ya importado',
+                'batch_id' => $existingBatch->id,
+            ], 409);
+        }
+
+        $token = uniqid('sales_', true);
+        $extension = $file->getClientOriginalExtension() ?: 'xlsx';
+        $path = $file->storeAs('sales-imports', "{$token}.{$extension}");
+        $fullPath = Storage::path($path);
+
+        try {
+            $reader = IOFactory::createReaderForFile($fullPath);
+            $reader->setReadDataOnly(true);
+            $spreadsheet = $reader->load($fullPath);
+            $sheet = $spreadsheet->getActiveSheet();
+            $highestRow = (int) $sheet->getHighestRow();
+            $spreadsheet->disconnectWorksheets();
+        } catch (Throwable $e) {
+            Storage::delete($path);
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+
+        $batchId = DB::connection('budget')->table('import_batches')->insertGetId([
+            'filename' => $file->getClientOriginalName(),
+            'checksum' => $checksum,
+            'import_date' => now()->toDateString(),
+            'rows' => 0,
+            'status' => 'processing',
+            'note' => 'Importacion por bloques',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'path' => $path,
+            'batch_id' => $batchId,
+            'store_id' => $selectedStoreId,
+            'total_rows' => max(0, $highestRow - 1),
+            'next_row' => 2,
+            'chunk_size' => 300,
+        ]);
+    }
+
+    public function chunk(Request $request)
+    {
+        $data = $request->validate([
+            'path' => ['required', 'string'],
+            'batch_id' => ['required', 'integer'],
+            'store_id' => ['required', 'integer'],
+            'next_row' => ['required', 'integer', 'min:2'],
+            'chunk_size' => ['nullable', 'integer', 'min:50', 'max:500'],
+            'total_rows' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        abort_unless(str_starts_with($data['path'], 'sales-imports/'), 422, 'Ruta de importacion invalida.');
+        abort_unless(Storage::exists($data['path']), 404, 'Archivo de importacion no encontrado.');
+
+        $batchId = (int) $data['batch_id'];
+        $selectedStoreId = (int) $data['store_id'];
+        $startRow = (int) $data['next_row'];
+        $chunkSize = (int) ($data['chunk_size'] ?? 300);
+        $endRow = $startRow + $chunkSize - 1;
+        $absoluteHighestRow = isset($data['total_rows'])
+            ? ((int) $data['total_rows']) + 1
+            : null;
+        $fullPath = Storage::path($data['path']);
+
+        if ($absoluteHighestRow === null) {
+            $probeReader = IOFactory::createReaderForFile($fullPath);
+            $probeReader->setReadDataOnly(true);
+            $probeSpreadsheet = $probeReader->load($fullPath);
+            $absoluteHighestRow = (int) $probeSpreadsheet->getActiveSheet()->getHighestRow();
+            $probeSpreadsheet->disconnectWorksheets();
+        }
+
+        $reader = IOFactory::createReaderForFile($fullPath);
+        $reader->setReadDataOnly(true);
+        $reader->setReadFilter(new class($startRow, $endRow) implements IReadFilter {
+            public function __construct(private int $startRow, private int $endRow) {}
+            public function readCell($columnAddress, $row, $worksheetName = ''): bool
+            {
+                return $row === 1 || ($row >= $this->startRow && $row <= $this->endRow);
+            }
+        });
+
+        try {
+            $spreadsheet = $reader->load($fullPath);
+            $sheet = $spreadsheet->getActiveSheet();
+            $highestColumn = $sheet->getHighestColumn();
+            $lastRow = min($endRow, $absoluteHighestRow);
+            $headerRange = $sheet->rangeToArray("A1:{$highestColumn}1", null, true, true, true);
+            $headerRaw = $headerRange ? reset($headerRange) : false;
+            $headers = [];
+            foreach (($headerRaw ?: []) as $col => $value) {
+                $headers[$col] = $this->normalizeHeader((string) $value);
+            }
+
+            $result = $this->processSalesRange($sheet, $headers, $startRow, $lastRow, $highestColumn, $batchId, $selectedStoreId);
+            $spreadsheet->disconnectWorksheets();
+        } catch (Throwable $e) {
+            DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                'status' => 'failed',
+                'note' => $e->getMessage(),
+                'updated_at' => now(),
+            ]);
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+
+        $nextRow = $lastRow + 1;
+        $done = $nextRow > $absoluteHighestRow;
+        $inserted = (int) ($result['created']['sales'] ?? 0);
+        DB::connection('budget')->table('import_batches')->where('id', $batchId)->increment('rows', $inserted, ['updated_at' => now()]);
+
+        if ($done) {
+            DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                'status' => 'done',
+                'note' => 'Importacion completada por bloques',
+                'updated_at' => now(),
+            ]);
+            Storage::delete($data['path']);
+        }
+
+        return response()->json([
+            'done' => $done,
+            'next_row' => $nextRow,
+            'batch_id' => $batchId,
+            'processed_rows' => max(0, $lastRow - $startRow + 1),
+            'total_rows' => max(0, $absoluteHighestRow - 1),
+            'summary' => $result,
+        ]);
+    }
+
+    private function processSalesRange($sheet, array $headers, int $start, int $end, string $highestColumn, int $batchId, int $selectedStoreId): array
+    {
+        $selectedStore = DB::connection('budget')->table('stores')->select('id', 'code', 'name')->where('id', $selectedStoreId)->first();
+        $defaultSeller = User::on('budget')->find(40) ?: User::on('budget')->orderBy('id')->first();
+        if (!$defaultSeller) {
+            throw new \RuntimeException('No existe un usuario vendedor por defecto.');
+        }
+
+        $processed = 0;
+        $skipped = 0;
+        $created = ['products' => 0, 'users' => 0, 'sales' => 0];
+        $errors = [];
+        $productsCache = [];
+        $usersCache = [];
+        $salesBuffer = [];
+        $hasCashierId = Schema::connection('budget')->hasColumn('sales', 'cashier_id');
+
+        DB::connection('budget')->beginTransaction();
+        try {
+            for ($row = $start; $row <= $end; $row++) {
+                try {
+                    $range = $sheet->rangeToArray("A{$row}:{$highestColumn}{$row}", null, true, true, true);
+                    $rowData = $range ? reset($range) : false;
+                    if (!$rowData || !$this->rowHasValues($rowData)) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $assoc = [];
+                    foreach ($rowData as $c => $v) {
+                        if (isset($headers[$c])) {
+                            $assoc[$headers[$c]] = trim((string) $v);
+                        }
+                    }
+
+                    $saleDate = $this->parseDate($this->firstNotEmpty($assoc, ['date', 'fecha'])) ?? now()->toDateString();
+                    $hora = $this->normalizeHora($this->firstNotEmpty($assoc, ['time', 'hora'])) ?? '00:00:00';
+                    $storeCodeExcel = $this->normalizeStoreCode($this->firstNotEmpty($assoc, ['store', 'pdv', 'store_code']));
+                    $storeIdFinal = $this->resolveStoreIdFromPDV($storeCodeExcel, $selectedStoreId);
+                    $sellerId = $this->resolveSellerId($assoc, $usersCache, (int) $defaultSeller->id, $created);
+                    $cashierName = $this->firstNotEmpty($assoc, ['cashier', 'cajero']) ?: '';
+                    $cashierId = null;
+
+                    if ($cashierName !== '') {
+                        $cashierEmail = strtolower(Str::slug($cashierName) . '@local');
+                        if (!isset($usersCache[$cashierEmail])) {
+                            $usersCache[$cashierEmail] = User::on('budget')->firstOrCreate(['email' => $cashierEmail], ['name' => $cashierName]);
+                            if ($usersCache[$cashierEmail]->wasRecentlyCreated) {
+                                $created['users']++;
+                            }
+                        }
+                        $cashierId = $usersCache[$cashierEmail]->id;
+                    }
+
+                    $product = $this->resolveProduct($assoc, $productsCache, $created);
+                    if (!$product) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $amountPes = $this->parseNumber($this->firstNotEmpty($assoc, ['amount_pes', 'amount', 'valor_en_pesos', 'value_pesos', 'total', 'precio_total']));
+                    $amountUsd = $this->parseNumber($this->firstNotEmpty($assoc, ['amount_usd', 'valor_dolares', 'value_usd']));
+                    $exchangeRateSale = $this->parseNumber($this->firstNotEmpty($assoc, ['exchange_rate_sale', 'tipo_de_cambio', 'tipo_cambio', 'exchange_rate']));
+                    $exchangeRateCogs = $this->parseNumber($this->firstNotEmpty($assoc, ['exchange_rate_cogs', 't_cambio_costo', 'tipo_de_cambio_costo'])) ?? $exchangeRateSale;
+                    $total = $this->parseNumber($this->firstNotEmpty($assoc, ['total']));
+
+                    if ($amountPes === null && $amountUsd !== null && $exchangeRateSale !== null) {
+                        $amountPes = round($amountUsd * $exchangeRateSale, 2);
+                    }
+                    if ($amountPes === null && $total !== null) {
+                        $amountPes = $total;
+                    }
+                    if ($amountUsd === null && $amountPes !== null && $exchangeRateSale !== null && $exchangeRateSale > 0) {
+                        $amountUsd = round($amountPes / $exchangeRateSale, 2);
+                    }
+                    if ($amountPes === null && $amountUsd === null) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $payload = [
+                        'import_batch_id' => $batchId,
+                        'store_id' => $storeIdFinal,
+                        'seller_id' => $sellerId,
+                        'product_id' => $product->id,
+                        'sale_date' => $saleDate,
+                        'sale_datetime' => $saleDate . ' ' . $hora,
+                        'hora' => $hora,
+                        'folio' => $this->firstNotEmpty($assoc, ['folio']),
+                        'pdv' => $storeCodeExcel ?: ($selectedStore->code ?? null),
+                        'quantity' => $this->parseNumber($this->firstNotEmpty($assoc, ['quantity', 'cantidad', 'qty'])) ?? 1,
+                        'amount' => $amountPes,
+                        'discount' => $this->parseNumber($this->firstNotEmpty($assoc, ['discount', 'descuento'])) ?? 0,
+                        'total' => $total ?? $amountPes,
+                        'value_pesos' => $amountPes,
+                        'value_usd' => $amountUsd,
+                        'cost' => $this->parseNumber($this->firstNotEmpty($assoc, ['cogs_pes', 'costo_de_venta', 'cost', 'costo', 'costo_venta'])),
+                        'cogs_usd' => $this->parseNumber($this->firstNotEmpty($assoc, ['cogs_usd', 'costo_de_venta_usd', 'cost_usd'])),
+                        'currency' => $this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD',
+                        'exchange_rate' => $exchangeRateSale ?? $exchangeRateCogs,
+                        'exchange_rate_cogs' => $exchangeRateCogs,
+                        'regular_price' => $this->parseNumber($this->firstNotEmpty($assoc, ['precio_regular', 'regular_price'])),
+                        'amount_cop' => $amountPes,
+                        'status' => $this->firstNotEmpty($assoc, ['status', 'estatus']) ?? 'ACTIVO',
+                        'applied_promotion' => $this->firstNotEmpty($assoc, ['applied_promotion', 'promociones_aplicadas']),
+                        'cancellation_date' => $this->parseDateTime($this->firstNotEmpty($assoc, ['cancellation_date', 'fecha_cancelacion'])),
+                        'line_code' => $this->firstNotEmpty($assoc, ['line', 'linea']),
+                        'flight_cruise' => $this->firstNotEmpty($assoc, ['flight_cruise', 'vuelo', 'flight']),
+                        'seat' => $this->firstNotEmpty($assoc, ['seat', 'asiento']),
+                        'origin' => $this->firstNotEmpty($assoc, ['origin', 'origen']),
+                        'destination' => $this->firstNotEmpty($assoc, ['destination', 'destino']),
+                        'nationality' => $this->firstNotEmpty($assoc, ['nationality', 'nacionalidad']),
+                        'passport_number' => $this->firstNotEmpty($assoc, ['passport_number', 'pasaporte', 'passport']),
+                        'passenger_name' => $this->firstNotEmpty($assoc, ['passenger_name', 'pasajero', 'passenger']),
+                        'date_birth' => $this->parseDate($this->firstNotEmpty($assoc, ['date_birth', 'fecha_nacimiento'])),
+                        'gender' => $this->firstNotEmpty($assoc, ['gender', 'genero']),
+                        'customer_code' => $this->firstNotEmpty($assoc, ['customer_code', 'codcliente', 'cod_cliente']),
+                        'raw_payload' => json_encode($assoc, JSON_UNESCAPED_UNICODE),
+                        'cashier' => $cashierName,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+
+                    if ($hasCashierId) {
+                        $payload['cashier_id'] = $cashierId;
+                    }
+
+                    $salesBuffer[] = $payload;
+                    $processed++;
+                } catch (Throwable $rowEx) {
+                    $skipped++;
+                    $errors[] = ['row' => $row, 'error' => $rowEx->getMessage()];
+                }
+            }
+
+            if (!empty($salesBuffer)) {
+                DB::connection('budget')->table('sales')->insert($salesBuffer);
+                $created['sales'] += count($salesBuffer);
+            }
+
+            DB::connection('budget')->commit();
+        } catch (Throwable $e) {
+            DB::connection('budget')->rollBack();
+            throw $e;
+        }
+
+        return compact('processed', 'skipped', 'created', 'errors');
+    }
+
     public function bulkDestroy(Request $request)
     {
         $request->validate([
@@ -1057,21 +1362,78 @@ protected function parseDate($value, string $context = 'sale'): ?string
         }
     }
     public function importAutomation(Request $request)
-{
-    $token = $request->header('X-Automation-Token');
+    {
+        $token = $request->header('X-Automation-Token');
 
-    if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+        if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+            return response()->json([
+                'message' => 'No autorizado',
+            ], 403);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'store_id' => ['nullable'],
+            'replace_existing' => ['nullable', 'boolean'],
+        ]);
+
+        $storeId = $request->input('store_id');
+
+        $request->merge([
+            'store_id' => is_numeric($storeId) ? (int) $storeId : 0,
+            'replace_existing' => $request->boolean('replace_existing'),
+        ]);
+
+        $startResponse = $this->startChunked($request);
+        $startData = $startResponse->getData(true);
+
+        if ($startResponse->getStatusCode() >= 400) {
+            return $startResponse;
+        }
+
+        $path = $startData['path'];
+        $batchId = (int) $startData['batch_id'];
+        $storeId = (int) $startData['store_id'];
+        $totalRows = (int) $startData['total_rows'];
+        $chunkSize = (int) ($startData['chunk_size'] ?? 300);
+        $nextRow = (int) $startData['next_row'];
+        $done = $totalRows === 0;
+        $processedRows = 0;
+        $insertedRows = 0;
+        $errors = [];
+
+        while (!$done) {
+            $chunkRequest = Request::create('/api/automation/import-sales/chunk', 'POST', [
+                'path' => $path,
+                'batch_id' => $batchId,
+                'store_id' => $storeId,
+                'next_row' => $nextRow,
+                'total_rows' => $totalRows,
+                'chunk_size' => $chunkSize,
+            ]);
+
+            $chunkResponse = $this->chunk($chunkRequest);
+            $chunkData = $chunkResponse->getData(true);
+
+            if ($chunkResponse->getStatusCode() >= 400) {
+                return $chunkResponse;
+            }
+
+            $processedRows += (int) ($chunkData['processed_rows'] ?? 0);
+            $insertedRows += (int) ($chunkData['summary']['created']['sales'] ?? 0);
+            $errors = array_merge($errors, $chunkData['summary']['errors'] ?? []);
+            $nextRow = (int) ($chunkData['next_row'] ?? ($nextRow + $chunkSize));
+            $done = (bool) ($chunkData['done'] ?? false);
+        }
+
         return response()->json([
-            'message' => 'No autorizado',
-        ], 403);
-    }
-
-    $request->validate([
-        'file' => ['required', 'file'],
-        'store_id' => ['nullable'],
-        'replace_existing' => ['nullable', 'boolean']
-    ]);
-
-    return $this->import($request);
-}  
+            'message' => 'Importacion automatica completada por bloques',
+            'batch_id' => $batchId,
+            'processed' => $processedRows,
+            'created' => [
+                'sales' => $insertedRows,
+            ],
+            'errors' => $errors,
+        ]);
+    }  
 }

@@ -10,3 +10,20 @@ export const importCatalogFile = (file: File) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 };
+
+export const startCatalogImport = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+
+  return axios.post(`${API}/catalog/import/start`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const processCatalogChunk = (payload: {
+  path: string;
+  next_row: number;
+  chunk_size?: number;
+}) => {
+  return axios.post(`${API}/catalog/import/chunk`, payload);
+};

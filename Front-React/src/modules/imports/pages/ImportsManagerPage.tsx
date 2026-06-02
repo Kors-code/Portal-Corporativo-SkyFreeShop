@@ -41,6 +41,7 @@ export default function ImportsManagerPage() {
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string>("");
+  const [importProgress, setImportProgress] = useState(0);
 
   const [filterFilename, setFilterFilename] = useState("");
   const [filterFromDate, setFilterFromDate] = useState("");
@@ -124,12 +125,49 @@ export default function ImportsManagerPage() {
     setUploading(true);
     setError(null);
     setMsg("");
+    setImportProgress(0);
 
     try {
-      const res =
-        type === "sales"
-          ? await api.importFn(file, Number(selectedStore))
-          : await api.importFn(file);
+      if (type === "sales") {
+        const start = await salesApi.startSalesImport(file, Number(selectedStore));
+        const path = start.data.path;
+        const batchId = Number(start.data.batch_id ?? 0) || null;
+        const storeId = Number(start.data.store_id ?? selectedStore);
+        const totalRows = Number(start.data.total_rows ?? 0);
+        const chunkSize = Number(start.data.chunk_size ?? 300);
+        let nextRow = Number(start.data.next_row ?? 2);
+        let done = totalRows === 0;
+        let insertedRows = 0;
+
+        while (!done) {
+          const chunk = await salesApi.processSalesImportChunk({
+            path,
+            batch_id: Number(batchId),
+            store_id: storeId,
+            next_row: nextRow,
+            total_rows: totalRows,
+            chunk_size: chunkSize,
+          });
+
+          insertedRows += Number(chunk.data?.summary?.created?.sales ?? 0);
+          nextRow = Number(chunk.data.next_row ?? nextRow + chunkSize);
+          done = Boolean(chunk.data.done);
+          const processedRows = Math.min(totalRows, Math.max(0, nextRow - 2));
+          setImportProgress(totalRows ? Math.round((processedRows / totalRows) * 100) : 100);
+        }
+
+        setMsg(
+          `Importacion exitosa${insertedRows ? `: ${insertedRows} filas` : ""}${
+            batchId ? ` (batch ${batchId})` : ""
+          }`
+        );
+        setFile(null);
+        setImportProgress(100);
+        await load();
+        return;
+      }
+
+      const res = await api.importFn(file);
 
       const rows =
         res?.data?.rows ??
@@ -364,6 +402,18 @@ export default function ImportsManagerPage() {
           </button>
         </div>
       </div>
+
+      {uploading && type === "sales" && (
+        <div className="bg-white p-4 rounded shadow max-w-xl space-y-1">
+          <div className="h-2 overflow-hidden rounded bg-gray-200">
+            <div
+              className="h-full bg-[#840028] transition-all"
+              style={{ width: `${importProgress}%` }}
+            />
+          </div>
+          <div className="text-sm text-gray-600">{importProgress}% procesado</div>
+        </div>
+      )}
 
       <div className="bg-white p-4 rounded shadow space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">

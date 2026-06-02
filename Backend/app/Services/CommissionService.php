@@ -17,6 +17,9 @@ class CommissionService
     // fragancias handling
     const FRAG_KEY = 'fragancias';
     const FRAG_CODES = [10, 11, 12];
+    const PRODUCT_CATEGORY_OVERRIDES = [
+        '195583' => '19',
+    ];
     protected int $MIN_PCT_TO_QUALIFY = 80;
 
     /**
@@ -641,7 +644,16 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
         $wordRegexp = "(^|[^a-zA-Z0-9])(frag|perf|perfume|perfumeria)([^a-zA-Z0-9]|$)";
 
         // NOTA: la CASE devuelve el valor tal cual; luego normalizeClassification lo convertirá a 'fragancias' si aplica.
+        $productCodeExpr = "COALESCE(products.product_code, products.upc, products.sku_mia, products.upc2, products.upc3)";
+        $overrideCases = '';
+        foreach (self::PRODUCT_CATEGORY_OVERRIDES as $sku => $classification) {
+            $safeSku = str_replace("'", "''", $sku);
+            $safeClassification = str_replace("'", "''", $classification);
+            $overrideCases .= "WHEN CAST({$productCodeExpr} AS CHAR) = '{$safeSku}' THEN '{$safeClassification}'\n            ";
+        }
+
         return "CASE
+            {$overrideCases}WHEN TRIM(COALESCE(products.classification, '')) = '' THEN 'sin_categoria'
             WHEN CAST(products.classification AS CHAR) REGEXP '{$numRegexp}' THEN '" . self::FRAG_KEY . "'
             WHEN LOWER(CAST(products.classification AS CHAR)) REGEXP '{$wordRegexp}' THEN '" . self::FRAG_KEY . "'
             ELSE TRIM(COALESCE(products.classification, 'sin_categoria'))

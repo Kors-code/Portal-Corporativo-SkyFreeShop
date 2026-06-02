@@ -74,7 +74,11 @@ Route::prefix('api/v1')->group(function () {
     Route::get('/stores', [InventoryImportController::class, 'stores']);
     Route::post('/inventory/import', [InventoryImportController::class, 'import']);
     Route::get('/inventory', [InventoryController::class, 'index']);
+    Route::post('/import-sales/start', [ImportSalesController::class, 'startChunked']);
+    Route::post('/import-sales/chunk', [ImportSalesController::class, 'chunk']);
     Route::post('/catalog/import', [ProductCatalogImportController::class, 'import']);
+    Route::post('/catalog/import/start', [ProductCatalogImportController::class, 'start']);
+    Route::post('/catalog/import/chunk', [ProductCatalogImportController::class, 'chunk']);
     Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run']);
     Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index']);
 });

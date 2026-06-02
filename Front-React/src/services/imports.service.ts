@@ -24,6 +24,26 @@ export const importSalesFile = (file: File , storeId: number) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 };
+
+export const startSalesImport = (file: File, storeId: number) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('store_id', String(storeId));
+  return axios.post(`${API}/import-sales/start`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const processSalesImportChunk = (payload: {
+  path: string;
+  batch_id: number;
+  store_id: number;
+  next_row: number;
+  total_rows: number;
+  chunk_size?: number;
+}) => {
+  return axios.post(`${API}/import-sales/chunk`, payload);
+};
 export interface StoreOption {
   id: number;
   name: string;

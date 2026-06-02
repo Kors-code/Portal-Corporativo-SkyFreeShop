@@ -26,6 +26,22 @@ class CommissionReportController extends Controller
     // fragancias handling
     const FRAG_KEY = 'fragancias';
     const FRAG_CODES = [10, 11, 12];
+    const PRODUCT_CATEGORY_OVERRIDES = [
+        '195583' => '19',
+    ];
+    const HIDDEN_CLASSIFICATION_CODES = ['98', 'sin_categoria'];
+    const REPORT_CLASSIFICATION_CODES = [
+        '13',
+        '14',
+        '15',
+        '16',
+        '17',
+        '18',
+        '19',
+        '21',
+        '22',
+        self::FRAG_KEY,
+    ];
     protected int $MIN_PCT_TO_QUALIFY = 80;
 
     // -------------------------
@@ -78,6 +94,28 @@ class CommissionReportController extends Controller
         $clean = preg_replace('/\s+/', ' ', $clean);
 
         return trim($clean);
+    }
+
+    private function resolveSaleCategoryCode($sale): string
+    {
+        foreach (['product_code', 'upc', 'sku_mia', 'upc2', 'upc3'] as $field) {
+            $value = trim((string) ($sale->{$field} ?? ''));
+            if ($value !== '' && isset(self::PRODUCT_CATEGORY_OVERRIDES[$value])) {
+                return self::PRODUCT_CATEGORY_OVERRIDES[$value];
+            }
+        }
+
+        return (string) ($sale->category_code ?? '');
+    }
+
+    private function isHiddenClassification(string $code): bool
+    {
+        return in_array($this->normalizeClassification($code), self::HIDDEN_CLASSIFICATION_CODES, true);
+    }
+
+    private function isReportClassification(string $code): bool
+    {
+        return in_array($this->normalizeClassification($code), self::REPORT_CLASSIFICATION_CODES, true);
     }
 
     private function categoryName(string $code): string
@@ -800,6 +838,11 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 'products.classification_desc as category_desc',
                 'products.brand as brand',
                 'products.provider_name as provider',
+                'products.product_code',
+                'products.upc',
+                'products.sku_mia',
+                'products.upc2',
+                'products.upc3',
                 'sales.amount_cop',
                 'sales.value_usd',
                 'sales.exchange_rate',
@@ -815,6 +858,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         }
 
         $sales = $salesQuery->orderBy('sales.sale_date')->get();
+        $sales->each(function ($sale) {
+            $sale->category_code = $this->resolveSaleCategoryCode($sale);
+        });
         $saleDates = $sales->pluck('sale_date')->unique()->values()->all();
 
         // user tickets (group by folio) from the already-loaded sales rows.
@@ -908,6 +954,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         }
 
         $userCategoryRows = $sales
+            ->reject(fn ($s) => $this->isHiddenClassification((string) ($s->category_code ?? '')))
             ->groupBy(fn ($s) => $s->category_code)
             ->map(function ($rows, $categoryGroup) {
                 return (object) [
@@ -991,6 +1038,10 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         }
 
         foreach ($commissionByNorm as $classificationNorm => $commissionData) {
+            if ($this->isHiddenClassification($classificationNorm) || !$this->isReportClassification($classificationNorm)) {
+                continue;
+            }
+
             if (!isset($aggByNorm[$classificationNorm])) {
                 $aggByNorm[$classificationNorm] = [
                     'classification_codes' => [$classificationNorm],
@@ -1007,6 +1058,10 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
         $categoriesSummary = [];
         foreach ($aggByNorm as $classificationNorm => $data) {
+            if ($this->isHiddenClassification($classificationNorm) || !$this->isReportClassification($classificationNorm)) {
+                continue;
+            }
+
             $salesUsd = $data['sales_usd'];
             $salesCop = $data['sales_cop'];
             $commissionCop = $data['commission_cop'];
