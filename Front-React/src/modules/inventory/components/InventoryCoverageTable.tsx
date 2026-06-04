@@ -38,130 +38,93 @@ export default function InventoryCoverageTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto px-2 pb-2 xl:overflow-visible">
-        <table className="min-w-[980px] w-full border-separate border-spacing-0 text-left text-sm xl:min-w-0">
-          <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600">
-            <tr>
-              <Th>Producto</Th>
-              <Th>Auditoria mensual</Th>
-              <Th>Max mes</Th>
-              <Th>Inventario</Th>
-              <Th>Dias disponibles</Th>
-              <Th>Sugerido compra</Th>
-              <Th>Fecha inventario</Th>
-              <Th>Alerta</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td className="px-5 py-8 text-slate-500" colSpan={8}>
-                  Cargando informacion...
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td className="px-5 py-8 text-slate-500" colSpan={8}>
-                  No hay datos para mostrar.
-                </td>
-              </tr>
-            ) : (
-              rows.map((item) => {
-                const monthEntries = getMonthEntries(item.month_columns);
+      <div className="px-3 pb-3">
+        <div className="hidden rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid lg:grid-cols-[minmax(260px,2fr)_minmax(230px,1.35fr)_minmax(110px,.7fr)_minmax(110px,.7fr)_minmax(110px,.7fr)_minmax(140px,.8fr)] lg:gap-3">
+          <div>Producto</div>
+          <div>Auditoria mensual</div>
+          <div>Maximo</div>
+          <div>Stock</div>
+          <div>Sugerido</div>
+          <div>Estado</div>
+        </div>
 
-                return (
-                  <tr
-                    key={`${item.store_id ?? "all"}-${item.product_id}`}
-                    className="group"
-                  >
-                    <Td className="w-[30%] min-w-[280px] whitespace-normal">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
-                            {item.store_code ?? item.store_name ?? "-"}
-                          </span>
-                          <span className="font-semibold text-slate-900">{item.product_code}</span>
-                        </div>
-                        <div className="leading-5 text-slate-700">{item.description ?? "-"}</div>
-                        <div className="flex flex-wrap gap-1.5 text-xs text-slate-500">
-                          {item.brand && <InfoPill>{item.brand}</InfoPill>}
-                          {(item.supplier ?? item.proveedor) && <InfoPill>{item.supplier ?? item.proveedor}</InfoPill>}
-                          {item.classification_desc && <InfoPill>{item.classification_desc}</InfoPill>}
-                        </div>
-                      </div>
-                    </Td>
-                    <Td className="w-[26%] min-w-[240px] whitespace-normal">
-                      <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
-                    </Td>
-                    <Td strong>
-                      <div>{formatNumber(item.maximo_mes)}</div>
-                      <div className="mt-1 text-xs font-normal text-slate-400">
-                        {item.maximo_mes_key ?? "-"}
-                      </div>
-                    </Td>
-                    <Td>{formatNumber(item.stock_actual)}</Td>
-                    <Td>
-                      <div>{formatNumber(item.dias_disponibles)}</div>
-                      <div className="mt-1 text-xs text-slate-400">
-                        {formatNumber(item.rotacion_diaria_mes)} / dia
-                      </div>
-                    </Td>
-                    <Td strong className="bg-sky-50/70 text-sky-900 group-hover:bg-sky-100/80">
-                      {formatNumber(item.suggested_purchase)}
-                    </Td>
-                    <Td>{item.last_inventory_date ?? "-"}</Td>
-                    <Td>
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          badgeStyles[item.stock_alert_level ?? "sin_rotacion"] ??
-                          "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        {item.stock_alert_label ?? "Sin rotacion"}
+        <div className="mt-2 space-y-2">
+          {loading ? (
+            <div className="rounded-2xl border border-slate-100 px-5 py-8 text-slate-500">
+              Cargando informacion...
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="rounded-2xl border border-slate-100 px-5 py-8 text-slate-500">
+              No hay datos para mostrar.
+            </div>
+          ) : (
+            rows.map((item) => {
+              const monthEntries = getMonthEntries(item.month_columns);
+
+              return (
+                <div
+                  key={`${item.store_id ?? "all"}-${item.product_id}`}
+                  className="grid gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm transition hover:border-sky-200 hover:bg-sky-50/40 lg:grid-cols-[minmax(260px,2fr)_minmax(230px,1.35fr)_minmax(110px,.7fr)_minmax(110px,.7fr)_minmax(110px,.7fr)_minmax(140px,.8fr)] lg:items-start"
+                >
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                        {item.store_code ?? item.store_name ?? "-"}
                       </span>
-                    </Td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      <span className="font-semibold text-slate-900">{item.product_code}</span>
+                    </div>
+                    <div className="max-h-12 overflow-hidden break-words text-sm leading-6 text-slate-700">
+                      {item.description ?? "-"}
+                    </div>
+                    <div className="mt-2 flex max-h-14 flex-wrap gap-1.5 overflow-hidden text-xs text-slate-500">
+                      {item.brand && <InfoPill>{item.brand}</InfoPill>}
+                      {(item.supplier ?? item.proveedor) && <InfoPill>{item.supplier ?? item.proveedor}</InfoPill>}
+                      {item.classification_desc && <InfoPill>{item.classification_desc}</InfoPill>}
+                    </div>
+                  </div>
+
+                  <MetricBlock label="Auditoria mensual" className="lg:hidden">
+                    <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
+                  </MetricBlock>
+                  <div className="hidden min-w-0 lg:block">
+                    <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
+                  </div>
+
+                  <MetricBlock label="Max mes">
+                    <div className="text-base font-semibold text-slate-900">{formatNumber(item.maximo_mes)}</div>
+                    <div className="text-xs text-slate-400">{item.maximo_mes_key ?? "-"}</div>
+                    <div className="text-xs text-slate-400">{formatNumber(item.rotacion_diaria_mes)} / dia</div>
+                  </MetricBlock>
+
+                  <MetricBlock label="Stock">
+                    <div className="text-base font-semibold text-slate-900">{formatNumber(item.stock_actual)}</div>
+                    <div className="text-xs text-slate-400">{formatNumber(item.dias_disponibles)} dias</div>
+                  </MetricBlock>
+
+                  <MetricBlock label="Sugerido">
+                    <div className="inline-flex rounded-xl bg-sky-100 px-3 py-2 text-lg font-bold text-sky-900">
+                      {formatNumber(item.suggested_purchase)}
+                    </div>
+                  </MetricBlock>
+
+                  <MetricBlock label="Estado">
+                    <div className="text-xs text-slate-400">{item.last_inventory_date ?? "-"}</div>
+                    <span
+                      className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                        badgeStyles[item.stock_alert_level ?? "sin_rotacion"] ??
+                        "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {item.stock_alert_label ?? "Sin rotacion"}
+                    </span>
+                  </MetricBlock>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
-  );
-}
-
-function Th({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <th
-      className="whitespace-nowrap border-b border-slate-200 px-4 py-4 font-medium"
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  strong,
-  className,
-}: {
-  children: React.ReactNode;
-  strong?: boolean;
-  className?: string;
-}) {
-  return (
-    <td
-      className={`whitespace-nowrap border-b border-slate-100 px-4 py-4 align-top ${
-        strong ? "font-semibold text-slate-900" : "text-slate-600"
-      } group-hover:bg-sky-50/50 ${className ?? ""}`}
-    >
-      {children}
-    </td>
   );
 }
 
@@ -170,6 +133,25 @@ function InfoPill({ children }: { children: React.ReactNode }) {
     <span className="rounded-full bg-slate-100 px-2 py-1">
       {children}
     </span>
+  );
+}
+
+function MetricBlock({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`min-w-0 rounded-xl bg-slate-50 px-3 py-3 lg:bg-transparent lg:px-0 lg:py-0 ${className ?? ""}`}>
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+        {label}
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -185,7 +167,8 @@ function MonthAudit({
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="max-h-20 overflow-y-auto pr-1">
+      <div className="flex flex-wrap gap-1.5">
       {entries.map(([monthKey, value]) => {
         const active = monthKey === maxKey;
         return (
@@ -203,6 +186,7 @@ function MonthAudit({
           </span>
         );
       })}
+      </div>
     </div>
   );
 }

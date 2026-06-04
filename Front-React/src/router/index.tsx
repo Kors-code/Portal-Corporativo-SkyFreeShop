@@ -31,6 +31,7 @@ import CrearEntregaPage from "../modules/entregas/pages/CrearEntregaPage";
 import DetalleEntregaPage from "../modules/entregas/pages/DetalleEntregaPage";
 import EntregasDashboardPage from "../modules/entregas/pages/EntregasDashboardPage";
 import ListadoEntregasPage from "../modules/entregas/pages/ListadoEntregasPage";
+import CashClosureDashboard from "../modules/visualizaciones/pages/CashClosureDashboard";
 
 
 
@@ -54,6 +55,7 @@ export default function AppRouter() {
           <Route path="/CatalogMatchPage" element={<CatalogMatchPage />} />
           <Route path="/AdminWishList" element={<AdminWishList />} />
           <Route path="/inventarios/rotacion" element={<InventoryRotationDashboard />} />
+          <Route path="/visualizaciones/cierre-caja" element={<CashClosureDashboard />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
           <Route path="/commissions/SpecialistCommissionsPanel" element={<SpecialistCommissionsPanel  />} />
         <Route element={<MainLayout />}>

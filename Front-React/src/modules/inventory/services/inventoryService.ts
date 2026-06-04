@@ -66,6 +66,9 @@ export interface InventoryItem {
   store_id?: number | null;
   store_code?: string | null;
   store_name?: string | null;
+  sales_store_id?: number | null;
+  sales_store_code?: string | null;
+  sales_store_name?: string | null;
 }
 
 export interface InventoryMetricItem extends InventoryItem {

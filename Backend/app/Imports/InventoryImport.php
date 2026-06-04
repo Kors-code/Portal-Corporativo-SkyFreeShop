@@ -17,6 +17,7 @@ class InventoryImport implements ToCollection, WithHeadingRow
 {
     protected Store $store;
     protected int $batchId;
+    protected int $rowsImported = 0;
 
     public function __construct(int $storeId, int $batchId)
     {
@@ -94,7 +95,6 @@ class InventoryImport implements ToCollection, WithHeadingRow
                     [
                         'product_id' => $product->id,
                         'store_id' => $this->store->id,
-                        'toDate' => $toDate,
                     ],
                     [
                         'batch_id' => $this->batchId,
@@ -134,8 +134,15 @@ class InventoryImport implements ToCollection, WithHeadingRow
                         'toDate' => $toDate,
                     ]
                 );
+
+                $this->rowsImported++;
             }
         });
+    }
+
+    public function getRowsImported(): int
+    {
+        return $this->rowsImported;
     }
 
     private function pick(Collection|array $row, array $keys): mixed

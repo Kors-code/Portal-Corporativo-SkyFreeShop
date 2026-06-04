@@ -73,14 +73,19 @@ class InventoryReportService
 
         $basePairs = $metricKeys->union($inventoryKeys);
 
+        $salesStoreCodeSql = $this->salesStoreCodeSql('st.code');
+
         $query = DB::connection('budget')
             ->query()
             ->fromSub($basePairs, 'base')
             ->join('products as p', 'p.id', '=', 'base.product_id')
             ->leftJoin('stores as st', 'st.id', '=', 'base.store_id')
+            ->leftJoin('stores as sales_st', function ($join) use ($salesStoreCodeSql) {
+                $join->on(DB::raw('UPPER(REPLACE(sales_st.code, " ", ""))'), '=', DB::raw($salesStoreCodeSql));
+            })
             ->leftJoin('product_metrics as pm', function ($join) {
                 $join->on('pm.product_id', '=', 'base.product_id')
-                    ->on('pm.store_id', '=', 'base.store_id');
+                    ->on('pm.store_id', '=', DB::raw('COALESCE(sales_st.id, base.store_id)'));
             })
             ->leftJoinSub($latestInventory, 'inv', function ($join) {
                 $join->on('inv.product_id', '=', 'base.product_id')
@@ -91,6 +96,9 @@ class InventoryReportService
                 'base.store_id',
                 'st.code as store_code',
                 'st.name as store_name',
+                'sales_st.id as sales_store_id',
+                'sales_st.code as sales_store_code',
+                'sales_st.name as sales_store_name',
                 'p.product_code',
                 'p.description',
                 'p.classification_desc',
@@ -131,7 +139,7 @@ class InventoryReportService
             ->orderByDesc('pm.maximo_mes')
             ->get();
 
-        return $query->map(function ($row) {
+        return $this->mergeLinkedLocations($query)->map(function ($row) {
             $monthColumns = json_decode($row->monthly_sales_json ?? '{}', true);
             if (!is_array($monthColumns)) {
                 $monthColumns = [];
@@ -165,6 +173,9 @@ class InventoryReportService
                 'store_id' => (int) $row->store_id,
                 'store_code' => $row->store_code,
                 'store_name' => $row->store_name,
+                'sales_store_id' => $row->sales_store_id ? (int) $row->sales_store_id : null,
+                'sales_store_code' => $row->sales_store_code,
+                'sales_store_name' => $row->sales_store_name,
                 'product_code' => $row->product_code,
                 'description' => $row->description,
                 'classification_desc' => $row->classification_desc,
@@ -197,6 +208,80 @@ class InventoryReportService
                 'month_columns' => $monthColumns,
             ];
         })->values()->all();
+    }
+
+    private function mergeLinkedLocations($rows)
+    {
+        return collect($rows)
+            ->groupBy(function ($row) {
+                return $row->product_id . ':' . $this->inventoryGroupCode((string) ($row->store_code ?? ''));
+            })
+            ->map(function ($group) {
+                if ($group->count() === 1) {
+                    return $group->first();
+                }
+
+                $primary = $group->first(function ($row) {
+                    return $this->normalizeStoreCode((string) ($row->store_code ?? '')) ===
+                        $this->normalizeStoreCode((string) ($row->sales_store_code ?? ''));
+                }) ?? $group->first();
+
+                $stock = $group->sum(fn ($row) => (float) ($row->stock_actual ?? 0));
+
+                $primary->stock_actual = $stock;
+                $primary->store_id = $primary->sales_store_id ?? $primary->store_id;
+                $primary->store_code = $primary->sales_store_code ?? $primary->store_code;
+                $primary->store_name = $primary->sales_store_name ?? $primary->store_name;
+
+                $inventoryDates = $group
+                    ->pluck('last_inventory_date')
+                    ->filter()
+                    ->sort()
+                    ->values();
+
+                if ($inventoryDates->isNotEmpty()) {
+                    $primary->last_inventory_date = $inventoryDates->last();
+                }
+
+                return $primary;
+            })
+            ->values();
+    }
+
+    private function inventoryGroupCode(string $storeCode): string
+    {
+        return $this->salesStoreCodeFor($storeCode) ?? $this->normalizeStoreCode($storeCode);
+    }
+
+    private function salesStoreCodeFor(string $storeCode): ?string
+    {
+        $code = $this->normalizeStoreCode($storeCode);
+
+        if (preg_match('/^COLB(\d+)$/', $code, $matches)) {
+            return 'COLS' . $matches[1];
+        }
+
+        return match ($code) {
+            'DEPARTURES' => 'COLS1',
+            'ARRIVALS' => 'COLS2',
+            default => $code ?: null,
+        };
+    }
+
+    private function normalizeStoreCode(string $storeCode): string
+    {
+        return strtoupper(str_replace(' ', '', trim($storeCode)));
+    }
+
+    private function salesStoreCodeSql(string $column): string
+    {
+        $normalized = 'UPPER(REPLACE(' . $column . ', " ", ""))';
+
+        return 'CASE ' .
+            'WHEN ' . $normalized . ' REGEXP "^COLB[0-9]+$" THEN CONCAT("COLS", SUBSTRING(' . $normalized . ', 5)) ' .
+            'WHEN ' . $normalized . ' = "DEPARTURES" THEN "COLS1" ' .
+            'WHEN ' . $normalized . ' = "ARRIVALS" THEN "COLS2" ' .
+            'ELSE ' . $normalized . ' END';
     }
 
     private function resolveStockAlert(?float $diasDisponibles, float $stockActual, float $maximoDia): array

@@ -15,6 +15,7 @@ class CalculateInventoryMetrics extends Command
     {
         $storeId = $this->option('store_id');
         $storeId = $storeId !== null && $storeId !== '' ? (int) $storeId : null;
+        $salesStoreId = $storeId ? $this->resolveSalesStoreId($storeId) : null;
 
         $dailySalesQuery = DB::connection('budget')->table('sales as s')
             ->selectRaw('
@@ -24,7 +25,7 @@ class CalculateInventoryMetrics extends Command
                 SUM(COALESCE(s.quantity, 0)) as daily_sales
             ')
             ->whereNotNull('s.sale_date')
-            ->when($storeId, fn ($q) => $q->where('s.store_id', $storeId))
+            ->when($salesStoreId, fn ($q) => $q->where('s.store_id', $salesStoreId))
             ->groupBy('s.product_id', 's.store_id', 's.sale_date');
 
         $monthlySalesRows = DB::connection('budget')->query()
@@ -101,5 +102,45 @@ class CalculateInventoryMetrics extends Command
         $this->info('Inventory metrics calculated successfully.');
 
         return self::SUCCESS;
+    }
+
+    private function resolveSalesStoreId(int $storeId): int
+    {
+        $store = DB::connection('budget')
+            ->table('stores')
+            ->select(['id', 'code'])
+            ->where('id', $storeId)
+            ->first();
+
+        if (!$store) {
+            return $storeId;
+        }
+
+        $salesCode = $this->salesStoreCodeFor((string) $store->code);
+        if (!$salesCode) {
+            return $storeId;
+        }
+
+        $salesStoreId = DB::connection('budget')
+            ->table('stores')
+            ->whereRaw('UPPER(REPLACE(code, " ", "")) = ?', [$salesCode])
+            ->value('id');
+
+        return $salesStoreId ? (int) $salesStoreId : $storeId;
+    }
+
+    private function salesStoreCodeFor(string $storeCode): ?string
+    {
+        $code = strtoupper(str_replace(' ', '', trim($storeCode)));
+
+        if (preg_match('/^COLB(\d+)$/', $code, $matches)) {
+            return 'COLS' . $matches[1];
+        }
+
+        return match ($code) {
+            'DEPARTURES' => 'COLS1',
+            'ARRIVALS' => 'COLS2',
+            default => $code ?: null,
+        };
     }
 }

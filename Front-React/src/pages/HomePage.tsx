@@ -29,6 +29,24 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12">
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wide text-primary">Visualizaciones ejecutivas</p>
+            <h2 className="mt-1 text-2xl font-bold text-gray-900">Tableros para seguimiento diario</h2>
+            <p className="mt-2 max-w-2xl text-sm text-gray-500">
+              Consulta cierres, cumplimiento diario, indicadores por tienda y lectura tipo Power BI sin entrar a configuraciones.
+            </p>
+          </div>
+          <a
+            href="/panel/visualizaciones/cierre-caja"
+            className="inline-flex items-center justify-center rounded-lg bg-gray-900 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-primary"
+          >
+            Abrir cierre de caja
+          </a>
+        </div>
+      </section>
+
       {/* GRID DE MÓDULOS */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">Módulos</h2>

@@ -25,7 +25,7 @@ class InventoryImportController extends Controller
         }
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => $this->spreadsheetFileRules(),
             'store_id' => ['required', 'integer', 'exists:budget.stores,id'],
         ]);
 
@@ -39,7 +39,7 @@ class InventoryImportController extends Controller
     public function import(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => $this->spreadsheetFileRules(),
             'store_id' => ['required', 'integer', 'exists:budget.stores,id'],
         ]);
 
@@ -80,25 +80,63 @@ class InventoryImportController extends Controller
         $now = now();
         $checksum = @hash_file('sha256', $file->getRealPath()) ?: null;
         $filename = $file->getClientOriginalName();
-
-        $batchId = DB::connection('budget')->table('inventory_import_batches')->insertGetId([
-            'filename' => $filename,
-            'store_id' => $storeId,
-            'to_date' => $now->toDateString(),
-            'rows_imported' => 0,
-            'status' => 'processing',
-            'checksum' => $checksum,
-            'notes' => $automation ? 'Importación automática' : 'Importación manual',
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        $lockName = 'inventory_import_store_' . $storeId;
+        $lockAcquired = false;
 
         try {
-            Excel::import(new InventoryImport($storeId, $batchId), $file);
+            $lock = DB::connection('budget')->selectOne('SELECT GET_LOCK(?, 1) as acquired', [$lockName]);
+            $lockAcquired = (int) ($lock->acquired ?? 0) === 1;
+
+            if (!$lockAcquired) {
+                return response()->json([
+                    'message' => 'Ya hay una importacion de inventario en proceso para esta tienda.',
+                    'store_id' => $storeId,
+                ], 409);
+            }
+
+            $batchId = DB::connection('budget')->table('inventory_import_batches')->insertGetId([
+                'filename' => $filename,
+                'store_id' => $storeId,
+                'to_date' => $now->toDateString(),
+                'rows_imported' => 0,
+                'status' => 'processing',
+                'checksum' => $checksum,
+                'notes' => $automation
+                    ? 'Importacion automatica - reemplaza inventario actual'
+                    : 'Importacion manual - reemplaza inventario actual',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            $import = new InventoryImport($storeId, $batchId);
+            Excel::import($import, $file);
+
+            $rowsImported = method_exists($import, 'getRowsImported')
+                ? $import->getRowsImported()
+                : DB::connection('budget')->table('inventory')
+                    ->where('batch_id', $batchId)
+                    ->count();
+
+            DB::connection('budget')->table('inventory')
+                ->where('store_id', $storeId)
+                ->where(function ($query) use ($batchId) {
+                    $query->where('batch_id', '!=', $batchId)
+                        ->orWhereNull('batch_id');
+                })
+                ->delete();
+
+            DB::connection('budget')->table('inventory_import_batches')
+                ->where('store_id', $storeId)
+                ->where('id', '!=', $batchId)
+                ->update([
+                    'status' => 'superseded',
+                    'updated_at' => now(),
+                ]);
 
             DB::connection('budget')->table('inventory_import_batches')
                 ->where('id', $batchId)
                 ->update([
+                    'rows_imported' => $rowsImported,
                     'status' => 'completed',
                     'updated_at' => now(),
                 ]);
@@ -110,17 +148,21 @@ class InventoryImportController extends Controller
                 'filename' => $filename,
             ]);
         } catch (Throwable $e) {
-            DB::connection('budget')->table('inventory_import_batches')
-                ->where('id', $batchId)
-                ->update([
-                    'status' => 'failed',
-                    'notes' => $e->getMessage(),
-                    'updated_at' => now(),
-                ]);
+            if (isset($batchId)) {
+                try {
+                    DB::connection('budget')->table('inventory_import_batches')
+                        ->where('id', $batchId)
+                        ->update([
+                            'status' => 'failed',
+                            'notes' => $e->getMessage(),
+                            'updated_at' => now(),
+                        ]);
+                } catch (Throwable) {
+                }
+            }
 
             Log::error('Error importando inventario', [
                 'store_id' => $storeId,
-                'batch_id' => $batchId,
                 'filename' => $filename,
                 'error' => $e->getMessage(),
             ]);
@@ -128,8 +170,29 @@ class InventoryImportController extends Controller
             return response()->json([
                 'message' => 'Error importando inventario',
                 'error' => $e->getMessage(),
-                'batch_id' => $batchId,
             ], 500);
+        } finally {
+            if ($lockAcquired) {
+                try {
+                    DB::connection('budget')->selectOne('SELECT RELEASE_LOCK(?) as released', [$lockName]);
+                } catch (Throwable) {
+                }
+            }
         }
+    }
+
+    private function spreadsheetFileRules(): array
+    {
+        return [
+            'required',
+            'file',
+            function (string $attribute, $value, \Closure $fail): void {
+                $extension = strtolower($value->getClientOriginalExtension() ?: '');
+
+                if (!in_array($extension, ['xlsx', 'xls', 'csv'], true)) {
+                    $fail('El archivo debe ser de tipo: xlsx, xls o csv.');
+                }
+            },
+        ];
     }
 }
