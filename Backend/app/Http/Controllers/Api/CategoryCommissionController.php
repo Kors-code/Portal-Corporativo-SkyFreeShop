@@ -28,6 +28,39 @@ class CategoryCommissionController extends Controller
         abort(423, 'El presupuesto está cerrado. No se pueden modificar categorías.');
     }
 }
+
+    private function normalizeParticipationValue($value): int
+    {
+        return is_numeric($value) ? (int) round((float) $value) : 0;
+    }
+
+    private function resolveParticipationValue(array $data, int $roleId, $budgetId): int
+    {
+        if (array_key_exists('participation_value', $data) && $data['participation_value'] !== null) {
+            return $this->normalizeParticipationValue($data['participation_value']);
+        }
+
+        $pct = isset($data['participation_pct']) && is_numeric($data['participation_pct'])
+            ? (float) $data['participation_pct']
+            : 0.0;
+
+        if (!$budgetId || $pct <= 0) {
+            return 0;
+        }
+
+        $advisorBudget = in_array($roleId, [4, 5], true)
+            ? (float) (DB::connection('budget')->table('advisor_budgets')
+                ->where('budget_id', $budgetId)
+                ->where('role_id', $roleId)
+                ->value('budget_usd') ?? 0)
+            : 0.0;
+
+        $budgetTotal = (float) (Budget::on('budget')->where('id', $budgetId)->value('target_amount') ?? 0);
+        $baseBudget = $advisorBudget > 0 ? $advisorBudget : $budgetTotal;
+
+        return $baseBudget > 0 ? $this->normalizeParticipationValue(($pct / 100) * $baseBudget) : 0;
+    }
+
     // List categories with commission (optionally filter by role_id)
     public function index(Request $request)
     {
@@ -100,6 +133,7 @@ class CategoryCommissionController extends Controller
 
     ]);
         $this->ensureBudgetOpen($data['budget_id'] ?? null);
+        $participationValue = $this->resolveParticipationValue($data, (int) $data['role_id'], $data['budget_id'] ?? null);
 
         DB::beginTransaction();
         try {
@@ -114,7 +148,7 @@ class CategoryCommissionController extends Controller
                 'commission_percentage100' => $data['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $data['commission_percentage120'] ?? 0,
                 'participation_pct' => $data['participation_pct'] ?? 10,
-                'participation_value' => $data['participation_value'] ?? 0,
+                'participation_value' => $participationValue,
             ]
         );
 
@@ -161,6 +195,8 @@ public function bulkUpdate(Request $request)
     DB::beginTransaction();
 
     foreach ($payload['items'] as $it) {
+        $participationValue = $this->resolveParticipationValue($it, (int) $payload['role_id'], $it['budget_id'] ?? null);
+
         CategoryCommission::on('budget')->updateOrCreate(
         [
             'category_id' => $it['category_id'],
@@ -172,7 +208,7 @@ public function bulkUpdate(Request $request)
             'commission_percentage100' => $it['commission_percentage100'] ?? 0,
             'commission_percentage120' => $it['commission_percentage120'] ?? 0,
             'participation_pct' => $it['participation_pct'] ?? 10,
-            'participation_value' => $it['participation_value'] ?? 0,
+            'participation_value' => $participationValue,
         ]
     );
 

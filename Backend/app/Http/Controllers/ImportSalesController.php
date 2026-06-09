@@ -106,6 +106,51 @@ private function deletePreviousBatch($file)
         ]);
     }
 
+    protected function rememberDailyTrm(array &$dailyTrms, ?string $saleDate, ?float $exchangeRate): void
+    {
+        if (!$saleDate || $exchangeRate === null || $exchangeRate <= 0 || isset($dailyTrms[$saleDate])) {
+            return;
+        }
+
+        $dailyTrms[$saleDate] = $exchangeRate;
+    }
+
+    protected function persistDailyTrms(array $dailyTrms): void
+    {
+        if (empty($dailyTrms) || !Schema::connection('budget')->hasTable('trms')) {
+            return;
+        }
+
+        $hasCreatedAt = Schema::connection('budget')->hasColumn('trms', 'created_at');
+        $hasUpdatedAt = Schema::connection('budget')->hasColumn('trms', 'updated_at');
+
+        foreach ($dailyTrms as $date => $value) {
+            $query = DB::connection('budget')->table('trms')->where('date', $date);
+            $payload = ['value' => $value];
+
+            if ($query->exists()) {
+                if ($hasUpdatedAt) {
+                    $payload['updated_at'] = now();
+                }
+
+                $query->update($payload);
+                continue;
+            }
+
+            $payload['date'] = $date;
+
+            if ($hasCreatedAt) {
+                $payload['created_at'] = now();
+            }
+
+            if ($hasUpdatedAt) {
+                $payload['updated_at'] = now();
+            }
+
+            DB::connection('budget')->table('trms')->insert($payload);
+        }
+    }
+
     protected function resolveStoreIdFromPDV(?string $pdv, int $fallbackStoreId): int
 {
     if (!$pdv) {
@@ -659,6 +704,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
         $chunkSize = 500;
         $salesBuffer = [];
+        $dailyTrms = [];
         $totalRowsExcel = max(0, $highestRow - 1);
 
         $defaultSeller = User::on('budget')->find(40) ?: User::on('budget')->orderBy('id')->first();
@@ -863,6 +909,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                             continue;
                         }
 
+                        $this->rememberDailyTrm($dailyTrms, $saleDate, $exchangeRateSale ?? $exchangeRateCogs);
+
                         $passengerId = null;
                         if ($passportNumber || $passengerName || $customerCode) {
                             $passengerKey = $passportNumber ?: md5(($passengerName ?? '') . '|' . ($customerCode ?? ''));
@@ -977,6 +1025,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                     $created['sales'] += count($salesBuffer);
                     $salesBuffer = [];
                 }
+
+                $this->persistDailyTrms($dailyTrms);
 
                 DB::connection('budget')->commit();
             } catch (Throwable $e) {
@@ -1192,6 +1242,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
         $productsCache = [];
         $usersCache = [];
         $salesBuffer = [];
+        $dailyTrms = [];
         $hasCashierId = Schema::connection('budget')->hasColumn('sales', 'cashier_id');
 
         DB::connection('budget')->beginTransaction();
@@ -1252,10 +1303,13 @@ protected function parseDate($value, string $context = 'sale'): ?string
                     if ($amountUsd === null && $amountPes !== null && $exchangeRateSale !== null && $exchangeRateSale > 0) {
                         $amountUsd = round($amountPes / $exchangeRateSale, 2);
                     }
+
                     if ($amountPes === null && $amountUsd === null) {
                         $skipped++;
                         continue;
                     }
+
+                    $this->rememberDailyTrm($dailyTrms, $saleDate, $exchangeRateSale ?? $exchangeRateCogs);
 
                     $payload = [
                         'import_batch_id' => $batchId,
@@ -1316,6 +1370,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 DB::connection('budget')->table('sales')->insert($salesBuffer);
                 $created['sales'] += count($salesBuffer);
             }
+
+            $this->persistDailyTrms($dailyTrms);
 
             DB::connection('budget')->commit();
         } catch (Throwable $e) {

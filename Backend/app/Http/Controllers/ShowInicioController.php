@@ -48,7 +48,15 @@ class ShowInicioController extends Controller
                         'route' => '/panel/EntregasDashboardPage',
                         'class' => 'btn btn-primary',
                         'icon'  => 'fa-solid fa-clipboard-check',
-                        'text'  => 'Minuta Entrega'
+                        'text'  => 'Minuta Entrega',
+                        'permissions' => ['entregas.view']
+                    ],
+                    [
+                        'route' => '/panel/visualizaciones',
+                        'class' => 'btn btn-primary',
+                        'icon'  => 'fa-solid fa-chart-simple',
+                        'text'  => 'Visualizaciones',
+                        'roles' => ['super_admin', 'lider']
                     ],
                     [
                         'route' => 'Disciplina.show',
@@ -99,7 +107,15 @@ class ShowInicioController extends Controller
                         'icon' => 'fa-solid fa-clipboard-check',
                         'title' => 'Minuta Entrega',
                         'text' => 'Crea, revisa y recibe actas de entrega entre lideres.',
-                        'route' => '/panel/EntregasDashboardPage'
+                        'route' => '/panel/EntregasDashboardPage',
+                        'permissions' => ['entregas.view']
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-chart-simple',
+                        'title' => 'Visualizaciones',
+                        'text' => 'Tableros ejecutivos para cierres, tiendas e indicadores diarios.',
+                        'route' => '/panel/visualizaciones',
+                        'roles' => ['super_admin', 'lider']
                     ],
                 ],
             ],
@@ -164,6 +180,20 @@ class ShowInicioController extends Controller
 
         ];
 
-        return $portals[$type] ?? $portals['main'];
+        $config = $portals[$type] ?? $portals['main'];
+        $user = auth()->user();
+        $userRole = $user?->role;
+
+        foreach (['buttons', 'cards'] as $section) {
+            $config[$section] = array_values(array_filter($config[$section], function ($item) use ($user, $userRole) {
+                $roleAllowed = empty($item['roles']) || in_array($userRole, $item['roles'], true);
+                $permissionAllowed = empty($item['permissions'])
+                    || collect($item['permissions'])->contains(fn ($permission) => $user?->hasPermission($permission));
+
+                return $roleAllowed && $permissionAllowed;
+            }));
+        }
+
+        return $config;
     }
 }

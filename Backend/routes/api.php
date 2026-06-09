@@ -13,8 +13,8 @@ use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\SalesByUserController;
 use App\Http\Controllers\Api\BudgetProgressController;
 use App\Http\Controllers\Api\CommissionActionController;
+use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\TurnsImportController;
-use App\Http\Controllers\Api\VisualizationController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
@@ -36,6 +36,16 @@ Route::get('/v1/ping', function () {
         });
         
         Route::prefix('v1')->group(function () {
+
+    Route::prefix('mobile')->group(function () {
+        Route::post('login', [MobileAuthController::class, 'login'])
+            ->middleware('throttle:5,1');
+
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::get('me', [MobileAuthController::class, 'me']);
+            Route::post('logout', [MobileAuthController::class, 'logout']);
+        });
+    });
 
 
             Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
@@ -108,9 +118,6 @@ Route::get('/v1/ping', function () {
     Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards']);
     Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories']);    
     Route::post('/cashier-adjustments', [ReportController::class,'storeCashierAdjustment']);
-
-    // VISUALIZACIONES
-    Route::get('visualizaciones/cierre-caja', [VisualizationController::class, 'cashRegisterClosure']);
 
     // COMMISSION CONFIG
     Route::get('commissions/categories', [CategoryCommissionController::class, 'index']);

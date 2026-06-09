@@ -132,8 +132,8 @@ class EntregaController extends Controller
 
     private static function buscarEmpleadoPorDatos(string $email = '', string $cedula = '', string $nombre = ''): ?Empleado
     {
-        $email = trim($email);
-        $cedula = trim($cedula);
+        $email = strtolower(trim($email));
+        $cedula = strtolower(trim($cedula));
         $nombre = trim($nombre);
 
         if ($email === '' && $cedula === '' && $nombre === '') {
@@ -143,10 +143,10 @@ class EntregaController extends Controller
         $empleado = Empleado::query()
             ->where(function ($query) use ($email, $cedula, $nombre) {
                 if ($email !== '') {
-                    $query->orWhere('email', $email);
+                    $query->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
                 }
                 if ($cedula !== '') {
-                    $query->orWhere('cedula', $cedula);
+                    $query->orWhereRaw('LOWER(TRIM(cedula)) = ?', [$cedula]);
                 }
                 if ($nombre !== '') {
                     $query->orWhere('colaborador', $nombre);
@@ -160,13 +160,29 @@ class EntregaController extends Controller
 
         $nombreNormalizado = self::normalizarTexto($nombre);
 
-        return Empleado::query()
-            ->where('colaborador', 'LIKE', "%{$nombre}%")
+        $coincidenciaExacta = Empleado::query()
             ->get()
-            ->first(fn ($empleado) => self::normalizarTexto($empleado->colaborador) === $nombreNormalizado)
-            ?: Empleado::query()
-                ->get()
-                ->first(fn ($empleado) => self::normalizarTexto($empleado->colaborador) === $nombreNormalizado);
+            ->first(fn ($empleado) => self::normalizarTexto($empleado->colaborador) === $nombreNormalizado);
+
+        if ($coincidenciaExacta) {
+            return $coincidenciaExacta;
+        }
+
+        $tokens = collect(explode(' ', $nombreNormalizado))
+            ->filter(fn ($token) => strlen($token) >= 3)
+            ->values();
+
+        if ($tokens->isEmpty()) {
+            return null;
+        }
+
+        return Empleado::query()
+            ->get()
+            ->first(function ($empleado) use ($tokens) {
+                $empleadoNombre = self::normalizarTexto($empleado->colaborador);
+
+                return $tokens->every(fn ($token) => str_contains($empleadoNombre, $token));
+            });
     }
 
     private static function buscarUsuarioBudget(string $email = '', string $nombre = '')

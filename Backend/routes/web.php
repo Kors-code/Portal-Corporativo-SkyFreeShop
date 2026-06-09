@@ -38,6 +38,8 @@ use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
 use App\Http\Controllers\ProductCatalogImportController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\Api\AdvisorBudgetController;
+use App\Http\Controllers\Api\VisualizationController;
+use App\Http\Controllers\EntregaController;
 
 
 /*
@@ -354,6 +356,36 @@ Route::middleware('auth')->group(function () {
         Route::get('reports/advisors-split', [CommissionReportController::class, 'advisorsSplit'])
             ->middleware('permission:reports.view');
 
+        Route::get('visualizaciones/cierre-caja', [VisualizationController::class, 'cashRegisterClosure'])
+            ->middleware('permission:visualizations.view');
+
+        /* ------------------------------ Entregas --------------------------- */
+        Route::middleware(['permission:entregas.view'])->group(function () {
+            Route::get('entregas/categorias', [EntregaController::class, 'categorias']);
+            Route::get('entregas/lideres', [EntregaController::class, 'lideres']);
+            Route::get('entregas/empleados', [EntregaController::class, 'empleados']);
+            Route::get('entregas/dashboard', [EntregaController::class, 'dashboard']);
+            Route::get('entregas/me', [EntregaController::class, 'empleadoActual']);
+            Route::get('entregas', [EntregaController::class, 'index']);
+            Route::get('entregas/{id}', [EntregaController::class, 'show']);
+            Route::post('entregas/{id}/firmar', [EntregaController::class, 'firmar']);
+            Route::post('entregas/{id}/cerrar', [EntregaController::class, 'cerrarActa']);
+            Route::post('entregas/{id}/rechazar', [EntregaController::class, 'rechazar']);
+            Route::post('entregas/{id}/novedades/{novedadId}/observacion', [EntregaController::class, 'agregarObservacionNovedad']);
+            Route::patch('entregas/{id}/novedades/{novedadId}/resuelto', [EntregaController::class, 'actualizarEstadoNovedad']);
+            Route::get('entregas/{id}/pdf', [EntregaController::class, 'descargarPdf']);
+            Route::get('entregas/{id}/pdf-view', [EntregaController::class, 'verPdf']);
+            Route::get('empleados/{id}/firma', [EntregaController::class, 'obtenerFirmaEmpleado']);
+            Route::post('empleados/{id}/firma', [EntregaController::class, 'guardarFirmaEmpleado']);
+        });
+
+        Route::middleware(['permission:entregas.manage'])->group(function () {
+            Route::post('entregas', [EntregaController::class, 'store']);
+            Route::put('entregas/{id}', [EntregaController::class, 'update']);
+            Route::delete('entregas/{id}', [EntregaController::class, 'destroy']);
+            Route::patch('entregas/{id}/novedades/{novedadId}', [EntregaController::class, 'actualizarNovedad']);
+        });
+
         Route::post('/cashier-adjustments', [ReportController::class, 'storeCashierAdjustment'])
             ->middleware('permission:budget.cashier.manage');
 
@@ -617,6 +649,28 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/panel/inventarios/cobertura', fn () => view('panel'))
         ->middleware(['permission:panel.view']);
+
+    Route::get('/panel/visualizaciones', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/visualizaciones/cierre-caja', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/entregas/{any?}', fn () => view('panel'))
+        ->where('any', '.*')
+        ->middleware(['permission:entregas.view']);
+
+    Route::get('/panel/EntregasDashboardPage', fn () => view('panel'))
+        ->middleware(['permission:entregas.view']);
+
+    Route::get('/panel/CrearEntregaPage', fn () => view('panel'))
+        ->middleware(['permission:entregas.manage']);
+
+    Route::get('/panel/DetalleEntregaPage', fn () => view('panel'))
+        ->middleware(['permission:entregas.view']);
+
+    Route::get('/panel/ListadoEntregasPage', fn () => view('panel'))
+        ->middleware(['permission:entregas.view']);
 
     Route::get('/panel/CommisionsUser', fn () => view('panel'))
         ->middleware(['permission:commissions.user.view']);

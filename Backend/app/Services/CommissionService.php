@@ -107,6 +107,8 @@ class CommissionService
             $totalTurns = $this->TOTAL_TURNS;
         }
 
+        $sellerUserIds = $this->latestSellerUserIdsAtDate($budget->end_date);
+
         // check column existence in budget connection
         $hasBudgetIdCol = false;
         try {
@@ -129,6 +131,9 @@ class CommissionService
             $totalUsdQuery->where('sales.budget_id', $budgetId);
             $totalCopQuery->where('sales.budget_id', $budgetId);
         }
+
+        $totalUsdQuery->whereIn('sales.seller_id', $sellerUserIds);
+        $totalCopQuery->whereIn('sales.seller_id', $sellerUserIds);
 
         $totalUsd = (float) $totalUsdQuery->sum(new Expression('COALESCE(value_usd,0)'));
         $totalCop = (float) $totalCopQuery->sum(new Expression('COALESCE(amount_cop,0)'));
@@ -167,6 +172,8 @@ class CommissionService
             if ($hasBudgetIdCol) {
                 $salesByUserGroupQuery->where('sales.budget_id', $budgetId);
             }
+
+            $salesByUserGroupQuery->whereIn('sales.seller_id', $sellerUserIds);
 
             if (is_array($onlyUserIds) && !empty($onlyUserIds)) {
                 $salesByUserGroupQuery->whereIn('sales.seller_id', $onlyUserIds);
@@ -584,6 +591,38 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
             ->value('id');
 
         return $id ? (int) $id : null;
+    }
+
+    private function latestSellerUserIdsAtDate($date): array
+    {
+        return $this->budgetDB()->table('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->where('r.name', 'Vendedor')
+            ->where('ur.start_date', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('ur.end_date')->orWhere('ur.end_date', '>=', $date);
+            })
+            ->whereNotExists(function ($later) use ($date) {
+                $later->select(DB::raw(1))
+                    ->from('user_roles as ur2')
+                    ->whereColumn('ur2.user_id', 'ur.user_id')
+                    ->where('ur2.start_date', '<=', $date)
+                    ->where(function ($q2) use ($date) {
+                        $q2->whereNull('ur2.end_date')->orWhere('ur2.end_date', '>=', $date);
+                    })
+                    ->where(function ($cmp) {
+                        $cmp->whereColumn('ur2.start_date', '>', 'ur.start_date')
+                            ->orWhere(function ($sameDay) {
+                                $sameDay->whereColumn('ur2.start_date', 'ur.start_date')
+                                    ->whereColumn('ur2.id', '>', 'ur.id');
+                            });
+                        });
+            })
+            ->pluck('ur.user_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
