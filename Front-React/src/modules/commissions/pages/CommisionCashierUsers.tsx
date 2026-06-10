@@ -185,7 +185,7 @@ export default function CommisionCashierUsers() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <button
-            onClick={() => window.location.href = 'https://skyfreeshopdutyfree.com/welcome'}
+            onClick={() => window.location.href = '/welcome'}
             className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm font-medium"
           >
             ← Volver

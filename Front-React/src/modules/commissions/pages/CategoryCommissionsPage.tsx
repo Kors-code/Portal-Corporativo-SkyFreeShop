@@ -35,16 +35,21 @@ const computeParticipationPct = (participationValue: number, baseBudget: number)
   return roundTo((participationValue / baseBudget) * 100, PARTICIPATION_PCT_DECIMALS);
 };
 
+const normalizeParticipationValue = (value: number) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+};
+
 const formatUSD = (value: number) =>
   new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
 
 const formatCompactUSD = (value: number) =>
   new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
 
 export default function CategoryCommissionsPage() {
@@ -130,7 +135,7 @@ export default function CategoryCommissionsPage() {
 
   const getRowsBaseBudget = (rows: CategoryWithCommission[], fallbackBase = 0) => {
     const current = rows.reduce((acc, item) => acc + Number((item as any).participation_value ?? 0), 0);
-    return fallbackBase > 0 ? fallbackBase : Number(current.toFixed(2));
+    return fallbackBase > 0 ? normalizeParticipationValue(fallbackBase) : normalizeParticipationValue(current);
   };
 
   /* =========================================================
@@ -161,7 +166,7 @@ export default function CategoryCommissionsPage() {
 
       return {
         ...row,
-        participation_value: valNum === null ? undefined : roundTo(valNum, 2),
+        participation_value: valNum === null ? undefined : normalizeParticipationValue(valNum),
         participation_pct: pctComputed,
       };
     });
@@ -219,7 +224,7 @@ export default function CategoryCommissionsPage() {
 
       const globalBudget = getBudgetTotal(bId);
       const specialistBase = isSpecialistRole
-        ? getRowsBaseBudget(filtered, Number(advisorBudgetOverride ?? 0))
+        ? getRowsBaseBudget(filtered, Number(advisorBudgetOverride ?? 0) || globalBudget)
         : globalBudget;
 
       const withValues = normalizeRowsWithBase(filtered, specialistBase);
@@ -295,9 +300,9 @@ export default function CategoryCommissionsPage() {
     if (advisorBudgetUsd > 0) return;
     if (!items.length) return;
 
-    const fallback = getRowsBaseBudget(items, 0);
-    if (fallback > 0) {
-      setAdvisorBudgetUsd(Number(fallback.toFixed(2)));
+      const fallback = getRowsBaseBudget(items, 0);
+      if (fallback > 0) {
+      setAdvisorBudgetUsd(normalizeParticipationValue(fallback));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, isSpecialistRole]);
@@ -356,7 +361,7 @@ export default function CategoryCommissionsPage() {
   const getActiveBaseBudget = () => {
     if (isSpecialistRole) {
       const fallback = advisorBudgetUsd > 0 ? advisorBudgetUsd : getRowsBaseBudget(items, 0);
-      return Number(fallback.toFixed(2));
+      return normalizeParticipationValue(fallback);
     }
     return getBudgetTotal(budgetId);
   };
@@ -368,7 +373,7 @@ export default function CategoryCommissionsPage() {
 
     if (field === 'participation_value') {
       const baseBudget = getActiveBaseBudget();
-      const valueNum = val ?? 0;
+      const valueNum = normalizeParticipationValue(val ?? 0);
       const pct = computeParticipationPct(valueNum, baseBudget);
 
       setItems((prev) =>
@@ -376,7 +381,7 @@ export default function CategoryCommissionsPage() {
           it.category_id === categoryId
             ? {
                 ...it,
-                participation_value: roundTo(valueNum, 2),
+                participation_value: valueNum,
                 participation_pct: pct,
               }
             : it
@@ -423,7 +428,7 @@ export default function CategoryCommissionsPage() {
 
     try {
       const baseBudget = getActiveBaseBudget();
-      const valNum = Number((it as any).participation_value ?? 0);
+      const valNum = normalizeParticipationValue(Number((it as any).participation_value ?? 0));
       const computedPct = computeParticipationPct(valNum, baseBudget);
 
       const payload = {
@@ -433,7 +438,7 @@ export default function CategoryCommissionsPage() {
         commission_percentage: Number(it.commission_percentage ?? 0),
         commission_percentage100: Number(it.commission_percentage100 ?? 0),
         commission_percentage120: Number(it.commission_percentage120 ?? 0),
-        participation_value: roundTo(valNum, 2),
+        participation_value: valNum,
         participation_pct: computedPct,
       };
 
@@ -469,7 +474,7 @@ export default function CategoryCommissionsPage() {
       const baseBudget = getActiveBaseBudget();
 
       const payload = items.map((i) => {
-        const valNum = Number((i as any).participation_value ?? 0);
+        const valNum = normalizeParticipationValue(Number((i as any).participation_value ?? 0));
         const computedPct = computeParticipationPct(valNum, baseBudget);
 
         return {
@@ -479,7 +484,7 @@ export default function CategoryCommissionsPage() {
           commission_percentage: Number(i.commission_percentage ?? 0),
           commission_percentage100: Number(i.commission_percentage100 ?? 0),
           commission_percentage120: Number(i.commission_percentage120 ?? 0),
-          participation_value: roundTo(valNum, 2),
+          participation_value: valNum,
           participation_pct: computedPct,
         };
       });
@@ -555,7 +560,7 @@ export default function CategoryCommissionsPage() {
         commission_percentage: Math.max(existing.commission_percentage ?? 0, it.commission_percentage ?? 0),
         commission_percentage100: Math.max(existing.commission_percentage100 ?? 0, it.commission_percentage100 ?? 0),
         commission_percentage120: Math.max(existing.commission_percentage120 ?? 0, it.commission_percentage120 ?? 0),
-        participation_value: mergedVal === null ? undefined : roundTo(mergedVal, 2),
+        participation_value: mergedVal === null ? undefined : normalizeParticipationValue(mergedVal),
         participation_pct: mergedPct === null ? undefined : roundTo(mergedPct, PARTICIPATION_PCT_DECIMALS),
       });
     });
@@ -570,7 +575,7 @@ export default function CategoryCommissionsPage() {
 
   const totalParticipationValue = useMemo(() => {
     const total = normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_value ?? 0), 0);
-    return roundTo(total, 2);
+    return normalizeParticipationValue(total);
   }, [normalizedItems]);
 
   const visibleBaseBudget = isSpecialistRole ? advisorBudgetUsd : getBudgetTotal(budgetId);
@@ -786,7 +791,7 @@ export default function CategoryCommissionsPage() {
                           <td className="px-4 py-4 align-top">
                             <input
                               type="number"
-                              step="0.01"
+                              step="1"
                               min={0}
                               value={
                                 (it as any).participation_value !== undefined &&

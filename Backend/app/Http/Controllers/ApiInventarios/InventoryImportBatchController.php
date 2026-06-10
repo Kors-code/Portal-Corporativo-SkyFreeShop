@@ -349,22 +349,48 @@ class InventoryImportBatchController extends Controller
 
     private function resolveProductId(array $row): ?int
     {
-        // Buscar por UPCs o SKU en la tabla products
-        $upcs = array_filter([$row['upc1'] ?? null, $row['upc2'] ?? null, $row['upc3'] ?? null]);
+        $sku = $this->normalizeLookupValue($row['sku'] ?? null);
+        $upcs = array_values(array_filter(array_map(
+            fn ($value) => $this->normalizeLookupValue($value),
+            [$row['upc1'] ?? null, $row['upc2'] ?? null, $row['upc3'] ?? null]
+        )));
 
         $q = DB::connection('budget')->table('products');
-        if (!empty($row['sku'] ?? null)) {
-            $found = (clone $q)->where('sku', $row['sku'])->value('id');
+        if ($sku !== '') {
+            $found = (clone $q)
+                ->where(function ($w) use ($sku) {
+                    $w->where('product_code', $sku)
+                        ->orWhere('sku_mia', $sku)
+                        ->orWhere('upc', $sku)
+                        ->orWhere('upc2', $sku)
+                        ->orWhere('upc3', $sku);
+                })
+                ->value('id');
+
             if ($found) return (int) $found;
         }
+
         if (!empty($upcs)) {
-            $found = $q->where(function ($w) use ($upcs) {
-                foreach ($upcs as $u) {
-                    $w->orWhere('upc1', $u)->orWhere('upc2', $u)->orWhere('upc3', $u);
-                }
-            })->value('id');
+            $found = (clone $q)
+                ->where(function ($w) use ($upcs) {
+                    foreach ($upcs as $u) {
+                        $w->orWhere('upc', $u)
+                            ->orWhere('upc2', $u)
+                            ->orWhere('upc3', $u)
+                            ->orWhere('product_code', $u)
+                            ->orWhere('sku_mia', $u);
+                    }
+                })
+                ->value('id');
+
             if ($found) return (int) $found;
         }
+
         return null;
+    }
+
+    private function normalizeLookupValue(mixed $value): string
+    {
+        return trim((string) ($value ?? ''));
     }
 }

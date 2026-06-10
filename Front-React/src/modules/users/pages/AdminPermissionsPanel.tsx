@@ -87,6 +87,18 @@ const MODULES: ModuleDef[] = [
     match: (name) => name.toLowerCase().startsWith('wishlist.') || name.toLowerCase().startsWith('wish-items.'),
   },
   {
+    key: 'entregas',
+    label: 'Minuta Entrega',
+    description: 'Actas de entrega, firmas, recepción y novedades',
+    match: (name) => name.toLowerCase().startsWith('entregas.'),
+  },
+  {
+    key: 'visualizations',
+    label: 'Visualizaciones',
+    description: 'Hub de tableros, cierre de caja e indicadores ejecutivos',
+    match: (name) => name.toLowerCase().startsWith('visualizations.'),
+  },
+  {
     key: 'vacancies',
     label: 'Vacantes',
     description: 'Publicación y administración de vacantes',
@@ -106,13 +118,16 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
     ],
   },
   lider: {
-    label: 'Líder (panel + disciplinas + imports + wishlist)',
+    label: 'Líder (panel + disciplinas + imports + wishlist + minuta + visualizaciones)',
     match: [
       'panel.view',
       'portal.view',
       'disciplines.view',
       'imports.create',
       'wishlist.view',
+      'entregas.view',
+      'entregas.manage',
+      'visualizations.view',
     ],
   },
   seller: {
@@ -205,6 +220,17 @@ function getSubgroupLabel(moduleKey: string, permissionName: string) {
     if (n.includes('create')) return 'Carga';
     if (n.includes('manage')) return 'Gestión';
     if (n.includes('view')) return 'Consulta';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'visualizations') {
+    if (n.includes('view')) return 'Acceso';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'entregas') {
+    if (n.includes('view')) return 'Consulta';
+    if (n.includes('manage')) return 'Gestión';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
   }
 

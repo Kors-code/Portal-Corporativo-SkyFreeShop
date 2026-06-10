@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Bar,
   BarChart,
   CartesianGrid,
   ComposedChart,
+  LabelList,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -13,16 +13,13 @@ import {
   YAxis,
 } from "recharts";
 import {
-  ArrowLeft,
   Building2,
   CalendarDays,
   Download,
-  Home,
   Store,
   Target,
   TrendingUp,
 } from "lucide-react";
-import logo from "../../../assets/logo3.png";
 import {
   getCashRegisterClosure,
   type CashClosureResponse,
@@ -100,8 +97,19 @@ function addDays(start: string, offset: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function daysInMonthFromDate(date: string) {
+  if (!date) return 0;
+  const [year, month] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function progressColor(value: number) {
+  if (value < 80) return "bg-red-600";
+  if (value < 100) return "bg-blue-600";
+  return "bg-emerald-600";
+}
+
 export default function CashClosureDashboard() {
-  const navigate = useNavigate();
   const [data, setData] = useState<CashClosureResponse | null>(null);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | "">("");
   const [selectedPdvs, setSelectedPdvs] = useState<string[]>([]);
@@ -170,9 +178,10 @@ export default function CashClosureDashboard() {
     : 0;
   const totalUnits = dailyRows.reduce((sum, item) => sum + item.units, 0);
   const totalTrx = dailyRows.reduce((sum, item) => sum + item.trx, 0);
-  const projectedSales = avgDaily * (data?.budget.days_in_month ?? 0);
+  const forecastMonthDays = daysInMonthFromDate(rangeStart || data?.budget.period.start || "");
+  const projectedSales = avgDaily * forecastMonthDays;
   const avgTicket = totalTrx > 0 ? (data?.budget.month_sales_usd ?? 0) / totalTrx : 0;
-  const avgUnits = daysWithSales.length ? totalUnits / daysWithSales.length : 0;
+  const avgTrx = daysWithSales.length ? totalTrx / daysWithSales.length : 0;
   const unitsPerTicket = totalTrx > 0 ? totalUnits / totalTrx : 0;
   const yearOptions = useMemo(
     () => Array.from(new Set((data?.budgets ?? []).map((budget) => budget.start_date.slice(0, 4)))),
@@ -192,6 +201,7 @@ export default function CashClosureDashboard() {
   const dailyChart = dailyRows.map((item) => ({
     ...item,
     label: String(item.day),
+    budget_80_usd: item.budget_daily_usd * 0.8,
   }));
 
   const categoryChart = (data?.categories ?? []).map((item) => ({
@@ -284,45 +294,26 @@ export default function CashClosureDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/")}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700"
-              title="Volver a modulos"
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <img src={logo} alt="Sky Free Shop" className="h-10 w-auto object-contain" />
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizaciones</p>
-              <h1 className="text-lg font-black leading-tight sm:text-xl">Cierre de caja diario</h1>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => navigate("/")}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"
-            >
-              <Home size={16} />
-              Modulos
-            </button>
-            <button
-              onClick={exportCsv}
-              disabled={!data}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
-            >
-              <Download size={16} />
-              CSV
-            </button>
-          </div>
+    <div className="space-y-5 text-slate-950">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizaciones</p>
+          <h1 className="mt-1 text-2xl font-black leading-tight text-slate-950">Cierre de caja diario</h1>
+          <p className="mt-2 text-sm font-medium text-slate-500">
+            Seguimiento por presupuesto, rango, tiendas, cumplimiento diario y exportacion CSV.
+          </p>
         </div>
-      </header>
+        <button
+          onClick={exportCsv}
+          disabled={!data}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+        >
+          <Download size={16} />
+          CSV
+        </button>
+      </div>
 
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-5 sm:px-6">
+      <main className="space-y-5">
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-[minmax(240px,360px)_1fr]">
             <Field label="Presupuesto / periodo" icon={<CalendarDays size={15} />}>
@@ -487,14 +478,21 @@ export default function CashClosureDashboard() {
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Kpi icon={<Target size={19} />} label="Budget daily" value={usd2.format(data?.budget.budget_daily_usd ?? 0)} />
-          <Kpi icon={<TrendingUp size={19} />} label="Ventas reales rango" value={usd.format(data?.budget.month_sales_usd ?? 0)} detail={`${num.format(data?.budget.month_compliance_pct ?? 0)}% del esperado`} />
+          <Kpi
+            icon={<TrendingUp size={19} />}
+            label="Ventas reales rango"
+            value={usd.format(data?.budget.month_sales_usd ?? 0)}
+            detail={`${num.format(data?.budget.month_compliance_pct ?? 0)}% del esperado`}
+          />
           <Kpi icon={<Store size={19} />} label="Diff budget" value={usd.format(data?.budget.month_diff_usd ?? 0)} valueClass={moneyClass(data?.budget.month_diff_usd ?? 0)} />
           <Kpi icon={<CalendarDays size={19} />} label="Promedio diario" value={usd.format(avgDaily)} detail={`${totalTrx} transacciones`} />
-          <Kpi icon={<TrendingUp size={19} />} label="Sales forecast" value={usd.format(projectedSales)} detail="Promedio diario por dias del presupuesto" />
+          <Kpi icon={<TrendingUp size={19} />} label="Sales forecast" value={usd.format(projectedSales)} detail={`Promedio diario por ${forecastMonthDays} dias del mes`} />
           <Kpi icon={<Target size={19} />} label="Ticket promedio" value={usd2.format(avgTicket)} detail="Ventas rango / transacciones" />
-          <Kpi icon={<Store size={19} />} label="Unidades promedio" value={num.format(avgUnits)} detail="Unidades promedio por dia vendido" />
+          <Kpi icon={<Store size={19} />} label="Transacciones promedio" value={num.format(avgTrx)} detail="Transacciones / dias vendidos" />
           <Kpi icon={<Target size={19} />} label="Unidades por ticket" value={num.format(unitsPerTicket)} detail="Unidades totales / tickets" />
         </section>
+
+        <ProjectBar value={data?.budget.month_compliance_pct ?? 0} />
 
         <Card title="Detalle diario" subtitle="Project es el cumplimiento contra Budget daily">
           <div className="space-y-3 md:hidden">
@@ -597,13 +595,26 @@ export default function CashClosureDashboard() {
           <Card title="Cumplimiento diario" subtitle="Ventas vs Budget daily">
             <div className="h-72 sm:h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={dailyChart}>
+                <ComposedChart data={dailyChart} margin={{ top: 24, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value) => usd2.format(Number(value))} />
-                  <Bar dataKey="sales_usd" name="Sales" fill="#0f766e" radius={[4, 4, 0, 0]} />
-                  <Line type="monotone" dataKey="budget_daily_usd" name="Budget daily" stroke="#840028" strokeWidth={3} dot={false} />
+                  <Tooltip
+                    formatter={(value, name) => [
+                      usd2.format(Number(value)),
+                      name === "budget_80_usd" ? "80% budget" : name === "budget_daily_usd" ? "100% budget" : name,
+                    ]}
+                  />
+                  <Bar dataKey="sales_usd" name="Sales" fill="#0f766e" radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="compliance_pct"
+                      position="top"
+                      formatter={(value) => `${num.format(Number(value) || 0)}%`}
+                      className="fill-slate-900 text-[11px] font-black"
+                    />
+                  </Bar>
+                  <Line type="monotone" dataKey="budget_80_usd" name="80% budget" stroke="#facc15" strokeWidth={3} dot={false} />
+                  <Line type="monotone" dataKey="budget_daily_usd" name="100% budget" stroke="#16a34a" strokeWidth={3} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -612,11 +623,21 @@ export default function CashClosureDashboard() {
           <Card title="Categorias" subtitle="Mix del periodo seleccionado">
             <div className="h-72 sm:h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={categoryChart} layout="vertical" margin={{ left: 12, right: 20 }}>
+                <BarChart data={categoryChart} layout="vertical" margin={{ left: 12, right: 72 }}>
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" width={112} tick={{ fontSize: 11, fontWeight: 700 }} />
-                  <Tooltip formatter={(value) => usd2.format(Number(value))} />
-                  <Bar dataKey="sales_usd" fill="#2563eb" radius={[0, 4, 4, 0]} />
+                  <Tooltip
+                    formatter={(value) => usd2.format(Number(value))}
+                    labelFormatter={(label) => `Categoria: ${label}`}
+                  />
+                  <Bar dataKey="sales_usd" fill="#2563eb" radius={[0, 4, 4, 0]}>
+                    <LabelList
+                      dataKey="sales_usd"
+                      position="right"
+                      formatter={(value) => usd.format(Number(value) || 0)}
+                      className="fill-slate-900 text-[11px] font-black"
+                    />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -661,6 +682,28 @@ function Kpi({
       <div className={`mt-1 text-2xl font-black ${valueClass}`}>{value}</div>
       {detail && <div className="mt-1 text-sm font-semibold text-slate-500">{detail}</div>}
     </div>
+  );
+}
+
+function ProjectBar({ value }: { value: number }) {
+  const normalizedProgress = Math.max(0, Math.min(value, 100));
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black uppercase tracking-wide text-slate-500">Project</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Cumplimiento proyectado contra presupuesto</div>
+        </div>
+        <div className="text-2xl font-black text-slate-950">{num.format(value)}%</div>
+      </div>
+      <div className="h-4 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full transition-all ${progressColor(value)}`}
+          style={{ width: `${normalizedProgress}%` }}
+        />
+      </div>
+    </section>
   );
 }
 

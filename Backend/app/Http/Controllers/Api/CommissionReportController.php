@@ -243,19 +243,14 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
      * Build category totals aggregated from budget_user_category_totals
      * Returns map normalized_key => [sales_usd, sales_cop, commission_cop, classification_raws...]
      */
-    private function buildCategoryTotals(array $budgetIds, array $sellerUserIds = []): array
+    private function buildCategoryTotals(array $budgetIds): array
     {
-        $query = DB::connection('budget')
-            ->table('budget_user_category_totals as buct')
+        $rows = DB::connection('budget')
+            ->table('budget_user_category_totals')
             ->selectRaw("category_group as classification, SUM(sales_usd) as sales_usd, SUM(sales_cop) as sales_cop, SUM(commission_cop) as commission_cop")
-            ->whereIn('buct.budget_id', $budgetIds)
-            ->groupBy('category_group');
-
-        if (!empty($sellerUserIds)) {
-            $query->whereIn('buct.user_id', $sellerUserIds);
-        }
-
-        $rows = $query->get();
+            ->whereIn('budget_id', $budgetIds)
+            ->groupBy('category_group')
+            ->get();
 
         $out = [];
         foreach ($rows as $r) {
@@ -277,36 +272,24 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         return $out;
     }
 
-    private function latestSellerUserIdsAtDate($date): array
+    private function excludedCommissionSellerNames(): array
     {
-        return DB::connection('budget')->table('user_roles as ur')
-            ->join('roles as r', 'r.id', '=', 'ur.role_id')
-            ->where('r.name', 'Vendedor')
-            ->where('ur.start_date', '<=', $date)
-            ->where(function ($q) use ($date) {
-                $q->whereNull('ur.end_date')->orWhere('ur.end_date', '>=', $date);
-            })
-            ->whereNotExists(function ($later) use ($date) {
-                $later->select(DB::raw(1))
-                    ->from('user_roles as ur2')
-                    ->whereColumn('ur2.user_id', 'ur.user_id')
-                    ->where('ur2.start_date', '<=', $date)
-                    ->where(function ($q2) use ($date) {
-                        $q2->whereNull('ur2.end_date')->orWhere('ur2.end_date', '>=', $date);
-                    })
-                    ->where(function ($cmp) {
-                        $cmp->whereColumn('ur2.start_date', '>', 'ur.start_date')
-                            ->orWhere(function ($sameDay) {
-                                $sameDay->whereColumn('ur2.start_date', 'ur.start_date')
-                                    ->whereColumn('ur2.id', '>', 'ur.id');
-                            });
-                    });
-            })
-            ->pluck('ur.user_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
+        return [
+            'LEIDY VANESA ARIAS SANCHEZ',
+            'LEIDY VANESA ARIAS SANCHES',
+            'JEISON DAVID TEJADA GOMEZ',
+        ];
+    }
+
+    private function normalizedPersonName($name): string
+    {
+        $name = trim((string) ($name ?? ''));
+        $normalized = iconv('UTF-8', 'ASCII//TRANSLIT', $name);
+        if ($normalized === false) {
+            $normalized = $name;
+        }
+
+        return preg_replace('/\s+/', ' ', mb_strtoupper($normalized));
     }
 
     // -------------------------
@@ -366,7 +349,6 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     $startDate = $budgets->min('start_date');
     $endDate   = $budgets->max('end_date');
-    $sellerUserIds = $this->latestSellerUserIdsAtDate($endDate);
 
     $roleName = $request->query('role_name');
     $roleId = $request->query('role_id') ? (int) $request->query('role_id') : null;
@@ -376,7 +358,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     // participation map and category totals (normalized)
     $participationByCode = $this->buildParticipationMap($budgetIds, $roleId);
-    $categoryTotalsRaw = $this->buildCategoryTotals($budgetIds, $sellerUserIds);
+    $categoryTotalsRaw = $this->buildCategoryTotals($budgetIds);
 
     // aggregated subqueries for sellers
     $salesTotalsSub = DB::connection('budget')->table('sales as s')
@@ -392,18 +374,15 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $salesTotalsSub->whereIn('s.budget_id', $budgetIds);
     }
 
-    $salesTotalsSub->whereIn('s.seller_id', $sellerUserIds);
-
     $salesTotalsSub->groupBy('s.seller_id');
 
-    $commissionTotalsSub = DB::connection('budget')->table('budget_user_totals as but')
+    $commissionTotalsSub = DB::connection('budget')->table('budget_user_totals')
         ->selectRaw('
-            but.user_id,
-            COALESCE(SUM(but.total_commission_cop),0) as total_commission_cop
+            user_id,
+            COALESCE(SUM(total_commission_cop),0) as total_commission_cop
         ')
-        ->whereIn('but.budget_id', $budgetIds)
-        ->whereIn('but.user_id', $sellerUserIds)
-        ->groupBy('but.user_id');
+        ->whereIn('budget_id', $budgetIds)
+        ->groupBy('user_id');
 
     $butTurnsSub  = DB::connection('budget')->table('budget_user_turns')
         ->selectRaw('user_id, COALESCE(SUM(assigned_turns),0) as assignedTurns')
@@ -429,7 +408,18 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         })
         ->orderByDesc('butSales.total_sales_cop');
 
-    $query->whereIn('users.id', $sellerUserIds);
+    // Only users who had role "Vendedor" during period
+    $query->whereExists(function ($q) use ($startDate, $endDate) {
+        $q->select(DB::raw(1))
+            ->from('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->whereColumn('ur.user_id', 'users.id')
+            ->where('r.name', 'Vendedor')
+            ->where('ur.start_date', '<=', $endDate)
+            ->where(function ($q2) use ($startDate) {
+                $q2->whereNull('ur.end_date')->orWhere('ur.end_date', '>=', $startDate);
+            });
+    });
 
     // sellers with sales
     $query->where(function ($q) {
@@ -457,7 +447,17 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereBetween('sales.sale_date', [$startDate, $endDate])
         ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
-    $ticketRowsQuery->whereIn('sales.seller_id', $sellerUserIds);
+    $ticketRowsQuery->whereExists(function ($q) {
+        $q->select(DB::raw(1))
+            ->from('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->whereColumn('ur.user_id', 'sales.seller_id')
+            ->where('r.name', 'Vendedor')
+            ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
+            ->where(function ($q2) {
+                $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
+            });
+    });
 
     if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
@@ -470,7 +470,18 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
         ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
-    $globalTicketRowsQuery->whereIn('sales.seller_id', $sellerUserIds);
+    $globalTicketRowsQuery->whereExists(function ($q) {
+        $q->select(DB::raw(1))
+            ->from('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->whereColumn('ur.user_id', 'sales.seller_id')
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+            ->where('r.name', 'Vendedor')
+            ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
+            ->where(function ($q2) {
+                $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
+            });
+    });
 
     if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
@@ -566,6 +577,14 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     // --- SELLERS: use sales totals + users table (fast) ---
     $rows = $query->get();
+
+    $excludedNames = collect($this->excludedCommissionSellerNames())
+        ->map(fn ($name) => $this->normalizedPersonName($name))
+        ->all();
+
+    $rows = $rows
+        ->reject(fn ($row) => in_array($this->normalizedPersonName($row->seller ?? ''), $excludedNames, true))
+        ->values();
 
     // Attach ticket metrics
     $rows = $rows->map(function ($r) use ($ticketsBySeller) {
@@ -667,8 +686,6 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $totalUsdQuery->whereIn('sales.budget_id', $budgetIds);
     }
 
-    $totalUsdQuery->whereIn('sales.seller_id', $sellerUserIds);
-
     $totalUsd = (float) $totalUsdQuery->sum(DB::raw('COALESCE(value_usd,0)'));
 
     // For global pct computations use aggregated target amount (multi) or single budget target
@@ -686,11 +703,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
     $remainingTurns = max(0, $totalTurns - $totalAssigned);
 
     // totals from aggregated table
-    $totalCommissionCopQuery = DB::connection('budget')->table('budget_user_totals as but')
-        ->whereIn('but.budget_id', $budgetIds)
-        ->whereIn('but.user_id', $sellerUserIds);
-
-    $totalCommissionCop = (float) $totalCommissionCopQuery->sum('but.total_commission_cop');
+    $totalCommissionCop = (float) DB::connection('budget')->table('budget_user_totals')
+        ->whereIn('budget_id', $budgetIds)
+        ->sum('total_commission_cop');
 
     // compute totalCopGlobal and totalUsdGlobal from categoryTotalsRaw (used for TRM fallback)
     $totalCopFromCategoryTotals = 0.0;
@@ -721,17 +736,13 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         // derive global TRM from totals of sales_cop and sales_usd (category totals preferred)
         $trmGlobal = ($totalUsdFromCategoryTotals > 0) ? ($totalCopFromCategoryTotals / $totalUsdFromCategoryTotals) : null;
         if (empty($trmGlobal) && $totalUsd > 0 && $totalUsdFromCategoryTotals == 0) {
-            $totalCopGlobalFromSalesQuery = DB::connection('budget')->table('budget_user_totals as but')
-                ->whereIn('but.budget_id', $budgetIds)
-                ->whereIn('but.user_id', $sellerUserIds);
+            $totalCopGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')
+                ->whereIn('budget_id', $budgetIds)
+                ->sum('total_sales_cop');
 
-            $totalCopGlobalFromSales = (float) $totalCopGlobalFromSalesQuery->sum('but.total_sales_cop');
-
-            $totalUsdGlobalFromSalesQuery = DB::connection('budget')->table('budget_user_totals as but')
-                ->whereIn('but.budget_id', $budgetIds)
-                ->whereIn('but.user_id', $sellerUserIds);
-
-            $totalUsdGlobalFromSales = (float) $totalUsdGlobalFromSalesQuery->sum('but.total_sales_usd');
+            $totalUsdGlobalFromSales = (float) DB::connection('budget')->table('budget_user_totals')
+                ->whereIn('budget_id', $budgetIds)
+                ->sum('total_sales_usd');
 
             $trmGlobal = ($totalUsdGlobalFromSales > 0) ? ($totalCopGlobalFromSales / $totalUsdGlobalFromSales) : null;
         }

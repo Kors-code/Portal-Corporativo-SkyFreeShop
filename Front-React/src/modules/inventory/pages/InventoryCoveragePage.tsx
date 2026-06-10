@@ -48,6 +48,7 @@ export default function InventoryCoveragePage() {
   const [targetDays, setTargetDays] = useState(60);
   const [leadTimeDays, setLeadTimeDays] = useState(15);
   const [viewMode, setViewMode] = useState<ViewMode>("all");
+  const [joinSelectedStores, setJoinSelectedStores] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStores, setLoadingStores] = useState(false);
@@ -61,9 +62,16 @@ export default function InventoryCoveragePage() {
   }, []);
 
   useEffect(() => {
-    void loadMetrics();
+    const timeoutId = window.setTimeout(
+      () => {
+        void loadMetrics();
+      },
+      search.trim() ? 350 : 0
+    );
+
+    return () => window.clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreIds, asOfDate]);
+  }, [selectedStoreIds, asOfDate, search]);
 
   const loadStores = async () => {
     try {
@@ -180,30 +188,42 @@ export default function InventoryCoveragePage() {
     [data]
   );
 
-  const enrichedRows = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const planningDays = Math.max(0, targetDays) + Math.max(0, leadTimeDays);
     const rows = data?.rows ?? [];
 
-    return rows
-      .filter((row) => {
-        const matchesSearch =
-          !q ||
-          (row.product_code ?? "").toLowerCase().includes(q) ||
-          (row.description ?? "").toLowerCase().includes(q) ||
-          (row.brand ?? "").toLowerCase().includes(q) ||
-          (row.supplier ?? "").toLowerCase().includes(q) ||
-          (row.proveedor ?? "").toLowerCase().includes(q) ||
-          (row.classification_desc ?? "").toLowerCase().includes(q);
+    return rows.filter((row) => {
+      const matchesSearch =
+        !q ||
+        (row.product_code ?? "").toLowerCase().includes(q) ||
+        (row.description ?? "").toLowerCase().includes(q) ||
+        (row.brand ?? "").toLowerCase().includes(q) ||
+        (row.supplier ?? "").toLowerCase().includes(q) ||
+        (row.proveedor ?? "").toLowerCase().includes(q) ||
+        (row.classification_desc ?? "").toLowerCase().includes(q);
 
-        const matchesBrand = !selectedBrand || (row.brand ?? "") === selectedBrand;
-        const matchesProvider =
-          !selectedProvider || (row.supplier ?? row.proveedor ?? "") === selectedProvider;
-        const matchesCategory =
-          !selectedCategory || (row.classification_desc ?? "") === selectedCategory;
+      const matchesBrand = !selectedBrand || (row.brand ?? "") === selectedBrand;
+      const matchesProvider =
+        !selectedProvider || (row.supplier ?? row.proveedor ?? "") === selectedProvider;
+      const matchesCategory =
+        !selectedCategory || (row.classification_desc ?? "") === selectedCategory;
 
-        return matchesSearch && matchesBrand && matchesProvider && matchesCategory;
-      })
+      return matchesSearch && matchesBrand && matchesProvider && matchesCategory;
+    });
+  }, [data, search, selectedBrand, selectedProvider, selectedCategory]);
+
+  const planningRows = useMemo(() => {
+    if (!joinSelectedStores || selectedStoreIds.length < 2) {
+      return filteredRows;
+    }
+
+    return groupRowsByProduct(filteredRows);
+  }, [filteredRows, joinSelectedStores, selectedStoreIds.length]);
+
+  const enrichedRows = useMemo(() => {
+    const planningDays = Math.max(0, targetDays) + Math.max(0, leadTimeDays);
+
+    return planningRows
       .map((row) => {
         const monthlyRate = Number(row.rotacion_diaria_mes ?? 0);
         const fallbackRate = Number(row.maximo_mes ?? 0) > 0 ? Number(row.maximo_mes ?? 0) / 30 : 0;
@@ -229,16 +249,7 @@ export default function InventoryCoveragePage() {
         }
         return true;
       });
-  }, [
-    data,
-    search,
-    selectedBrand,
-    selectedProvider,
-    selectedCategory,
-    targetDays,
-    leadTimeDays,
-    viewMode,
-  ]);
+  }, [planningRows, targetDays, leadTimeDays, viewMode]);
 
   const summary = useMemo(() => {
     const rows = enrichedRows;
@@ -430,6 +441,12 @@ export default function InventoryCoveragePage() {
                 <ModeChip label="Críticos" active={viewMode === "critical"} onClick={() => setViewMode("critical")} />
                 <ModeChip label="Atención" active={viewMode === "attention"} onClick={() => setViewMode("attention")} />
                 <ModeChip label="Estables" active={viewMode === "healthy"} onClick={() => setViewMode("healthy")} />
+                <ModeChip
+                  label="Juntar tiendas"
+                  active={joinSelectedStores && selectedStoreIds.length >= 2}
+                  disabled={selectedStoreIds.length < 2}
+                  onClick={() => setJoinSelectedStores((current) => !current)}
+                />
               </div>
             </div>
 
@@ -608,7 +625,7 @@ export default function InventoryCoveragePage() {
           <InventoryCoverageTable
             rows={enrichedRows}
             loading={loading}
-            title="Tabla principal de cobertura"
+            title={joinSelectedStores && selectedStoreIds.length >= 2 ? "Tabla principal de cobertura unificada" : "Tabla principal de cobertura"}
             subtitle="Más espacio, columnas respirando mejor y sugerido de compra visible para navegar por muchos SKUs sin sentir la vista apretada."
           />
         </div>
@@ -745,25 +762,111 @@ function NumberStepper({
 function ModeChip({
   label,
   active,
+  disabled = false,
   onClick,
 }: {
   label: string;
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`rounded-full px-4 py-2 text-sm font-medium transition ${
         active
           ? "bg-slate-900 text-white shadow-sm"
           : "bg-white text-slate-700 hover:bg-slate-100"
-      }`}
+      } disabled:cursor-not-allowed disabled:opacity-50`}
     >
       {label}
     </button>
   );
+}
+
+function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] {
+  const grouped = new Map<number, InventoryMetricItem[]>();
+
+  rows.forEach((row) => {
+    const current = grouped.get(row.product_id) ?? [];
+    current.push(row);
+    grouped.set(row.product_id, current);
+  });
+
+  return Array.from(grouped.values()).map((group) => {
+    const first = group[0];
+    const monthColumns = mergeMonthColumns(group.map((row) => row.month_columns));
+    const monthValues = Object.values(monthColumns);
+    const maximoMes = monthValues.length > 0
+      ? Math.max(...monthValues)
+      : sumNumbers(group, (row) => row.maximo_mes);
+    const maximoMesKey = Object.entries(monthColumns).find(([, value]) => value === maximoMes)?.[0] ?? null;
+    const stockActual = sumNumbers(group, (row) => row.stock_actual);
+    const rotacionDiariaMes = maximoMes > 0 ? maximoMes / 30 : 0;
+    const diasDisponibles = rotacionDiariaMes > 0 ? stockActual / rotacionDiariaMes : 0;
+    const alert = resolveStockAlert(diasDisponibles, stockActual, rotacionDiariaMes);
+    const storeCodes = uniqueText(group.map((row) => row.store_code ?? row.store_name));
+
+    return {
+      ...first,
+      store_id: null,
+      store_code: storeCodes.length > 0 ? storeCodes.join(" + ") : "Tiendas",
+      store_name: storeCodes.length > 0 ? storeCodes.join(" + ") : "Tiendas seleccionadas",
+      sales_store_id: null,
+      sales_store_code: null,
+      sales_store_name: null,
+      stock_actual: stockActual,
+      total_ventas: sumNumbers(group, (row) => row.total_ventas),
+      total_general: sumNumbers(group, (row) => row.total_general),
+      maximo_mes: maximoMes,
+      maximo_mes_key: maximoMesKey,
+      maximo_dia: sumNumbers(group, (row) => row.maximo_dia),
+      promedio_diario: sumNumbers(group, (row) => row.promedio_diario),
+      rotacion_diaria_mes: rotacionDiariaMes,
+      ind_rot_stock: 0,
+      ind_rot_promedio: 0,
+      month_columns: monthColumns,
+      dias_disponibles: diasDisponibles,
+      stock_alert_level: alert.level,
+      stock_alert_label: alert.label,
+      stock_alert_color: alert.color,
+      last_inventory_date: latestTextDate(group.map((row) => row.last_inventory_date)),
+      batch_id: null,
+    };
+  });
+}
+
+function mergeMonthColumns(monthGroups: Array<Record<string, number> | null | undefined>): Record<string, number> {
+  return monthGroups.reduce<Record<string, number>>((acc, months) => {
+    Object.entries(months ?? {}).forEach(([key, value]) => {
+      acc[key] = (acc[key] ?? 0) + Number(value ?? 0);
+    });
+    return acc;
+  }, {});
+}
+
+function sumNumbers(rows: InventoryMetricItem[], picker: (row: InventoryMetricItem) => number | null | undefined): number {
+  return rows.reduce((total, row) => total + Number(picker(row) ?? 0), 0);
+}
+
+function uniqueText(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => (value ?? "").trim()).filter(Boolean)));
+}
+
+function latestTextDate(values: Array<string | null | undefined>): string | null {
+  const dates = values.map((value) => (value ?? "").trim()).filter(Boolean).sort();
+  return dates.at(-1) ?? null;
+}
+
+function resolveStockAlert(diasDisponibles: number, stockActual: number, rotacionDiariaMes: number) {
+  if (stockActual <= 0) return { level: "sin_stock", label: "Sin stock", color: "slate" };
+  if (rotacionDiariaMes <= 0) return { level: "sin_rotacion", label: "Sin rotacion", color: "sky" };
+  if (diasDisponibles < 7) return { level: "critico", label: "Critico", color: "rose" };
+  if (diasDisponibles < 15) return { level: "alto", label: "Alto", color: "amber" };
+  if (diasDisponibles < 30) return { level: "medio", label: "Medio", color: "yellow" };
+  return { level: "estable", label: "Estable", color: "emerald" };
 }
 
 function uniqueValues(

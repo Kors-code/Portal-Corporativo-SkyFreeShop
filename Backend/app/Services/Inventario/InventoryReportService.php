@@ -73,6 +73,29 @@ class InventoryReportService
 
         $basePairs = $metricKeys->union($inventoryKeys);
 
+        if ($search && trim($search) !== '') {
+            $term = '%' . trim($search) . '%';
+
+            $catalogKeys = DB::connection('budget')
+                ->table('products as p_search')
+                ->crossJoin('stores as st_search')
+                ->select('p_search.id as product_id', 'st_search.id as store_id')
+                ->when(!empty($storeIds), fn ($q) => $q->whereIn('st_search.id', $storeIds))
+                ->where(function ($q) use ($term) {
+                    $q->where('p_search.product_code', 'like', $term)
+                        ->orWhere('p_search.sku_mia', 'like', $term)
+                        ->orWhere('p_search.upc', 'like', $term)
+                        ->orWhere('p_search.upc2', 'like', $term)
+                        ->orWhere('p_search.upc3', 'like', $term)
+                        ->orWhere('p_search.description', 'like', $term)
+                        ->orWhere('p_search.classification_desc', 'like', $term)
+                        ->orWhere('p_search.brand', 'like', $term)
+                        ->orWhere('p_search.provider_name', 'like', $term);
+                });
+
+            $basePairs = $basePairs->union($catalogKeys);
+        }
+
         $salesStoreCodeSql = $this->salesStoreCodeSql('st.code');
 
         $query = DB::connection('budget')
@@ -108,10 +131,10 @@ class InventoryReportService
                 DB::raw('COALESCE(pm.maximo_mes, 0) as maximo_mes'),
                 DB::raw('COALESCE(pm.maximo_dia, 0) as maximo_dia'),
                 DB::raw('COALESCE(pm.promedio_diario, 0) as promedio_diario'),
-                DB::raw('COALESCE(inv.proveedor, NULL) as proveedor'),
-                DB::raw('COALESCE(inv.supplier, NULL) as supplier'),
-                DB::raw('COALESCE(inv.brand, NULL) as brand'),
-                DB::raw('COALESCE(inv.retail, 0) as retail'),
+                DB::raw('COALESCE(inv.proveedor, p.provider_name) as proveedor'),
+                DB::raw('COALESCE(inv.supplier, p.provider_name) as supplier'),
+                DB::raw('COALESCE(inv.brand, p.brand) as brand'),
+                DB::raw('COALESCE(inv.retail, p.regular_price, 0) as retail'),
                 DB::raw('COALESCE(inv.pct_costo, 0) as pct_costo'),
                 DB::raw('COALESCE(inv.pct_margen, 0) as pct_margen'),
                 DB::raw('COALESCE(inv.last_inventory_date, NULL) as last_inventory_date'),
@@ -128,6 +151,12 @@ class InventoryReportService
                     $sub->where('p.product_code', 'like', $term)
                         ->orWhere('p.description', 'like', $term)
                         ->orWhere('p.classification_desc', 'like', $term)
+                        ->orWhere('p.sku_mia', 'like', $term)
+                        ->orWhere('p.upc', 'like', $term)
+                        ->orWhere('p.upc2', 'like', $term)
+                        ->orWhere('p.upc3', 'like', $term)
+                        ->orWhere('p.brand', 'like', $term)
+                        ->orWhere('p.provider_name', 'like', $term)
                         ->orWhere('st.name', 'like', $term)
                         ->orWhere('st.code', 'like', $term)
                         ->orWhere('inv.brand', 'like', $term)

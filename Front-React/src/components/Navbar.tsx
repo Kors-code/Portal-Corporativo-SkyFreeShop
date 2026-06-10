@@ -67,7 +67,7 @@ export default function Navbar() {
 
             {/* CTA / user placeholder */}
             <a
-              href="https://skyfreeshopdutyfree.com/welcome"
+              href="/welcome"
               className="ml-4 inline-flex items-center gap-2 px-3 py-2 rounded-md border border-gray-200 text-sm font-medium hover:bg-primary/5 transition"
             >
               Inicio
@@ -111,7 +111,13 @@ export default function Navbar() {
             </NavLink>
           ))}
 
-          
+          <a
+            href="/welcome"
+            onClick={() => setOpen(false)}
+            className="block rounded px-3 py-2 text-base font-medium text-gray-700 hover:text-primary"
+          >
+            Inicio
+          </a>
         </div>
       </div>
     </header>
