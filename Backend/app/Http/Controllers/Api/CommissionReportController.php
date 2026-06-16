@@ -1155,18 +1155,20 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             return $this->categoryOrder($a['classification_code']) <=> $this->categoryOrder($b['classification_code']);
         });
 
-        // user totals from budget_user_totals (aggregate for selected budgets)
-        $userTotals = (object)[
-                'total_sales_usd' => round((float)$sales->sum('value_usd'), 2),
-                'total_sales_cop' => round((float)$sales->sum('amount_cop'), 2),
-
-                // La comisión sigue viniendo de agregados
-                'total_commission_cop' => (float) DB::connection('budget')
-                    ->table('budget_user_totals')
-                    ->whereIn('budget_id', $budgetIds)
-                    ->where('user_id', $userId)
-                    ->sum('total_commission_cop')
-            ];
+        $userTotals = DB::connection('budget')
+            ->table('budget_user_totals')
+            ->selectRaw('
+                COALESCE(SUM(total_sales_usd),0) AS total_sales_usd,
+                COALESCE(SUM(total_sales_cop),0) AS total_sales_cop
+            ')
+            ->whereIn('budget_id', $budgetIds)
+            ->where('user_id', $userId)
+            ->first();
+        $userTotals->total_commission_cop = (float) DB::connection('budget')
+            ->table('budget_user_category_totals')
+            ->whereIn('budget_id', $budgetIds)
+            ->where('user_id', $userId)
+            ->sum('commission_cop');
 
         if (empty($avgTrmForUser) && $userTotals->total_sales_usd > 0 && $userTotals->total_sales_cop > 0) {
             $avgTrmForUser = round($userTotals->total_sales_cop / $userTotals->total_sales_usd, 2);

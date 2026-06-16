@@ -28,6 +28,7 @@ Route::get('/test-api', function () {
     ]);
 });
 Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
+Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk']);
 Route::get('/v1/ping', function () {
     return response()->json([
         'status' => 'ok',

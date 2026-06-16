@@ -52,6 +52,10 @@ export default function CommissionCardsPage() {
   const [rows, setRows] = useState<SellerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSellerId, setSelectedSellerId] = useState<number | null>(null);
+  const selectedSeller = useMemo(
+    () => rows.find(r => Number(r.user_id) === Number(selectedSellerId)) ?? null,
+    [rows, selectedSellerId]
+  );
 
 
   // viewMode admite 'cards' | 'table' | 'tickets'
@@ -613,6 +617,10 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               <CommissionDetailModal
               userId={selectedSellerId}
               budgetIds={budgetIds} 
+              summaryTotals={selectedSeller ? {
+                total_sales_usd: selectedSeller.total_sales_usd,
+                total_sales_cop: selectedSeller.total_sales_cop,
+              } : undefined}
               onClose={() => { setSelectedSellerId(null); load(); }}
             />
 

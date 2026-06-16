@@ -30,10 +30,15 @@ type SaleRow = {
 export default function CommissionDetailModal({
   userId,
   budgetIds,
+  summaryTotals,
   onClose
 }: {
   userId: number;
   budgetIds: number[]; // ahora recibe un array de presupuestos
+  summaryTotals?: {
+    total_sales_usd?: number | null;
+    total_sales_cop?: number | null;
+  };
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -156,9 +161,12 @@ const [daysWorked, setDaysWorked] = useState<{
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
 
   /* ================= KPIs ================= */
-  const totalSalesUsd = Array.isArray(categories)
+  const categorySalesUsd = Array.isArray(categories)
     ? categories.reduce((s, c) => s + Number(c.sales_sum_usd || 0), 0)
     : 0;
+  const totalSalesUsd = Number(
+    summaryTotals?.total_sales_usd ?? totals?.total_sales_usd ?? categorySalesUsd
+  );
 
   const totalCommissionUsd =
     Number(totals?.total_commission_cop || 0) / Number(totals?.avg_trm || 1);

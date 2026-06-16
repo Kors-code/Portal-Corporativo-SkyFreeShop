@@ -25,9 +25,17 @@ class ImportBatchController extends Controller
     // GET /api/v1/imports/{id}
     public function show($id)
     {
-        $batch = ImportBatch::with(['sales' => function($q) {
-            $q->select('id','sale_date','folio','pdv','product_id','quantity','amount','value_pesos','value_usd','currency','cashier','import_batch_id');
-        }])->findOrFail($id);
+        $batch = ImportBatch::findOrFail($id);
+        $salesQuery = Sale::where('import_batch_id', $batch->id);
+
+        $batch->sales_count = (clone $salesQuery)->count();
+        $batch->first_sale_date = (clone $salesQuery)->min('sale_date');
+        $batch->last_sale_date = (clone $salesQuery)->max('sale_date');
+        $batch->sales_sample = (clone $salesQuery)
+            ->select('id','sale_date','folio','pdv','product_id','quantity','amount','value_pesos','value_usd','currency','cashier','import_batch_id')
+            ->orderBy('id')
+            ->limit(100)
+            ->get();
 
         return response()->json($batch);
     }
@@ -39,6 +47,15 @@ class ImportBatchController extends Controller
 
         try {
             $batch = ImportBatch::findOrFail($id);
+
+            if ($batch->status === 'processing' && (int) $batch->rows > 0) {
+                DB::connection('budget')->rollBack();
+                return response()->json([
+                    'message' => 'No se puede eliminar un import mientras esta procesando filas.',
+                    'batch_id' => $batch->id,
+                    'rows' => (int) $batch->rows,
+                ], 409);
+            }
 
             // 1) Borrar ventas asociadas explícitamente
             Sale::where('import_batch_id', $batch->id)->delete();
@@ -88,8 +105,16 @@ public function bulkDestroy(Request $request)
 
     try {
         $batches = ImportBatch::whereIn('id', $ids)->get();
+        $processingIds = $batches
+            ->filter(fn ($batch) => $batch->status === 'processing' && (int) $batch->rows > 0)
+            ->pluck('id')
+            ->values()
+            ->all();
 
         foreach ($batches as $batch) {
+            if ($batch->status === 'processing' && (int) $batch->rows > 0) {
+                continue;
+            }
 
             // 1) borrar ventas
             Sale::where('import_batch_id', $batch->id)->delete();
@@ -112,7 +137,8 @@ public function bulkDestroy(Request $request)
 
         return response()->json([
             'message' => 'Batches eliminados correctamente',
-            'deleted' => count($ids)
+            'deleted' => count($ids) - count($processingIds),
+            'skipped_processing' => $processingIds,
         ]);
 
     } catch (\Throwable $e) {

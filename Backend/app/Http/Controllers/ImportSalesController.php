@@ -41,51 +41,30 @@ private function deletePreviousBatch($file)
             return;
         }
 
-        $months = [
-            'Enero' => 1,
-            'Febrero' => 2,
-            'Marzo' => 3,
-            'Abril' => 4,
-            'Mayo' => 5,
-            'Junio' => 6,
-            'Julio' => 7,
-            'Agosto' => 8,
-            'Septiembre' => 9,
-            'Octubre' => 10,
-            'Noviembre' => 11,
-            'Diciembre' => 12,
-        ];
-
-        $month = $months[$monthName];
-
-        $company = str_contains($originalName, 'DFP')
+        $company = stripos($originalName, 'DFP') !== false
             ? 'DFP'
             : 'LDC';
 
-        $type = str_contains($originalName, 'SALES')
+        $type = stripos($originalName, 'SALES') !== false
             ? 'SALES'
             : 'INVENTORY';
 
-        $batch = ImportBatch::query()
-            ->whereYear('created_at', $year)
-            ->whereMonth('created_at', $month)
+        $batches = ImportBatch::query()
             ->where('filename', 'LIKE', "%{$company}%")
             ->where('filename', 'LIKE', "%{$type}%")
-            ->latest()
-            ->first();
+            ->where('filename', 'LIKE', "%{$monthName}%")
+            ->where('filename', 'LIKE', "%{$year}%")
+            ->get();
 
-        if (!$batch) {
+        if ($batches->isEmpty()) {
             return;
         }
 
-        DB::connection('budget')->transaction(function () use ($batch) {
-
-            Sale::where(
-                'import_batch_id',
-                $batch->id
-            )->delete();
-
-            $batch->delete();
+        DB::connection('budget')->transaction(function () use ($batches) {
+            foreach ($batches as $batch) {
+                Sale::where('import_batch_id', $batch->id)->delete();
+                $batch->delete();
+            }
         });
     }
     protected function logSkip(int $row, string $reason, array $context = []): void
@@ -388,6 +367,21 @@ protected function parseDate($value, string $context = 'sale'): ?string
         return $value;
     }
 
+    protected function limitText($value, int $max): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+
+        if ($text === '' || strtolower($text) === 'null') {
+            return null;
+        }
+
+        return mb_substr($text, 0, $max);
+    }
+
     protected function resolveSellerId(array $assoc, array &$usersCache, int $defaultSellerId, array &$created): int
     {
         $sellerName = $this->firstNotEmpty($assoc, ['seller', 'vendedor', 'vendor']);
@@ -421,9 +415,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
             }
 
             $usersCache[$email] = User::on('budget')->updateOrCreate(
-                ['email' => $email],
+                ['email' => $this->limitText($email, 255)],
                 [
-                    'name' => $sellerName,
+                    'name' => $this->limitText($sellerName, 255),
                     'codigo_vendedor' => $sellerCode,
                 ]
             );
@@ -460,11 +454,11 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 DB::connection('budget')->table('passengers')
                     ->where('id', $existing->id)
                     ->update([
-                        'passenger_name' => $passengerName ?: $existing->passenger_name,
-                        'customer_code' => $customerCode ?: $existing->customer_code,
-                        'nationality' => $nationality ?: $existing->nationality,
+                        'passenger_name' => $this->limitText($passengerName ?: $existing->passenger_name, 255),
+                        'customer_code' => $this->limitText($customerCode ?: $existing->customer_code, 100),
+                        'nationality' => $this->limitText($nationality ?: $existing->nationality, 100),
                         'date_birth' => $dateBirth ?: $existing->date_birth,
-                        'gender' => $gender ?: $existing->gender,
+                        'gender' => $this->limitText($gender ?: $existing->gender, 20),
                         'updated_at' => now(),
                     ]);
 
@@ -473,12 +467,12 @@ protected function parseDate($value, string $context = 'sale'): ?string
         }
 
         $payload = [
-            'passport_number' => $passportNumber ?: ('NO-PASS-' . Str::uuid()),
-            'passenger_name' => $passengerName ?: 'SIN NOMBRE',
-            'customer_code' => $customerCode,
-            'nationality' => $nationality,
+            'passport_number' => $this->limitText($passportNumber ?: ('NO-PASS-' . Str::uuid()), 255),
+            'passenger_name' => $this->limitText($passengerName ?: 'SIN NOMBRE', 255),
+            'customer_code' => $this->limitText($customerCode, 100),
+            'nationality' => $this->limitText($nationality, 100),
             'date_birth' => $dateBirth,
-            'gender' => $gender,
+            'gender' => $this->limitText($gender, 20),
             'created_at' => now(),
             'updated_at' => now(),
         ];
@@ -509,10 +503,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
         }
 
         return (int) DB::connection('budget')->table('travel_itineraries')->insertGetId([
-            'line_code' => $lineCode,
-            'flight_cruise' => $flightCruise,
-            'origin' => $origin,
-            'destination' => $destination,
+            'line_code' => $this->limitText($lineCode, 50),
+            'flight_cruise' => $this->limitText($flightCruise, 50),
+            'origin' => $this->limitText($origin, 50),
+            'destination' => $this->limitText($destination, 50),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -566,15 +560,15 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ]));
 
             $productsCache[$sku] = Product::on('budget')->create([
-                'product_code' => $sku,
+                'product_code' => $this->limitText($sku, 255),
                 'description' => $description ?: 'Producto importado sin catalogo',
-                'classification' => $classification,
-                'classification_desc' => $classificationDesc,
-                'brand' => $brand,
+                'classification' => $this->limitText($classification, 255),
+                'classification_desc' => $this->limitText($classificationDesc, 255),
+                'brand' => $this->limitText($brand, 255),
                 'regular_price' => $regularPrice,
                 'cost_usd' => $costUsd,
                 'avg_cost_usd' => $costUsd,
-                'currency' => $this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD',
+                'currency' => $this->limitText($this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD', 255),
             ]);
 
             $created['products']++;
@@ -585,6 +579,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     public function import(Request $request)
     {
+        if ($request->boolean('chunked', true)) {
+            return $this->startChunked($request);
+        }
+
         if (!$request->hasFile('file')) {
             return response()->json([
                 'message' => 'Archivo requerido'
@@ -644,7 +642,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 ->where('id', $batchId)
                 ->update([
                     'status' => 'failed',
-                    'note' => $e->getMessage(),
+                    'note' => $this->formatImportFailureNote($e),
                     'updated_at' => now(),
                 ]);
 
@@ -960,8 +958,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                             'sale_datetime' => $saleDatetime,
                             'hora' => $hora,
 
-                            'folio' => $this->firstNotEmpty($assoc, ['folio']),
-                            'pdv' => $storeCodeExcel ?: ($selectedStore->code ?? null),
+                            'folio' => $this->limitText($this->firstNotEmpty($assoc, ['folio']), 255),
+                            'pdv' => $this->limitText($storeCodeExcel ?: ($selectedStore->code ?? null), 255),
 
                             'quantity' => $qty,
                             'amount' => $amountPes,
@@ -970,23 +968,23 @@ protected function parseDate($value, string $context = 'sale'): ?string
                             'value_pesos' => $amountPes,
                             'value_usd' => $amountUsd,
                             'cost' => $cogsPes,
-                            'currency' => $currency,
+                            'currency' => $this->limitText($currency, 255),
                             'exchange_rate' => $exchangeRateSale ?? $exchangeRateCogs,
                             'amount_cop' => $amountPes,
-                            'status' => $status,
-                            'applied_promotion' => $appliedPromotion,
+                            'status' => $this->limitText($status, 255),
+                            'applied_promotion' => $this->limitText($appliedPromotion, 255),
                             'cancellation_date' => $cancellationDate,
 
-                            'line_code' => $lineCode,
-                            'seat' => $seat,
-                            'passport_number' => $passportNumber,
-                            'passenger_name' => $passengerName,
+                            'line_code' => $this->limitText($lineCode, 50),
+                            'seat' => $this->limitText($seat, 20),
+                            'passport_number' => $this->limitText($passportNumber, 50),
+                            'passenger_name' => $this->limitText($passengerName, 255),
                             'date_birth' => $dateBirth,
-                            'gender' => $gender,
-                            'customer_code' => $customerCode,
+                            'gender' => $this->limitText($gender, 20),
+                            'customer_code' => $this->limitText($customerCode, 100),
 
                             'raw_payload' => json_encode($assoc, JSON_UNESCAPED_UNICODE),
-                            'cashier' => $cashierName,
+                            'cashier' => $this->limitText($cashierName, 255) ?? '',
                             'created_at' => now(),
                             'updated_at' => now(),
                         ];
@@ -1079,10 +1077,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
             return response()->json(['message' => 'Archivo requerido'], 422);
         }
 
-        $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
-            'store_id' => ['required', 'integer'],
-        ]);
+        if ($validationResponse = $this->validateSalesImportInput($request, true)) {
+            return $validationResponse;
+        }
 
         if ($request->boolean('replace_existing')) {
             $this->deletePreviousBatch($request->file('file'));
@@ -1090,41 +1087,96 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
         $file = $request->file('file');
         $selectedStoreId = (int) $request->store_id;
-        $checksum = hash('sha256', file_get_contents($file->getRealPath()));
-
-        $existingBatch = DB::connection('budget')->table('import_batches')->where('checksum', $checksum)->first();
-        if ($existingBatch) {
-            return response()->json([
-                'message' => 'Archivo ya importado',
-                'batch_id' => $existingBatch->id,
-            ], 409);
-        }
-
-        $token = uniqid('sales_', true);
-        $extension = $file->getClientOriginalExtension() ?: 'xlsx';
-        $path = $file->storeAs('sales-imports', "{$token}.{$extension}");
-        $fullPath = Storage::path($path);
-
-        try {
-            $reader = IOFactory::createReaderForFile($fullPath);
-            $reader->setReadDataOnly(true);
-            $spreadsheet = $reader->load($fullPath);
-            $sheet = $spreadsheet->getActiveSheet();
-            $highestRow = (int) $sheet->getHighestRow();
-            $spreadsheet->disconnectWorksheets();
-        } catch (Throwable $e) {
-            Storage::delete($path);
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
+        $pendingChecksum = 'pending:' . Str::uuid()->toString();
 
         $batchId = DB::connection('budget')->table('import_batches')->insertGetId([
             'filename' => $file->getClientOriginalName(),
-            'checksum' => $checksum,
+            'checksum' => $pendingChecksum,
             'import_date' => now()->toDateString(),
             'rows' => 0,
             'status' => 'processing',
-            'note' => 'Importacion por bloques',
+            'note' => 'Preparando archivo de ventas',
             'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        try {
+            Log::info('IMPORT SALES CHUNKED START PREPARE', [
+                'batch_id' => $batchId,
+                'store_id' => $selectedStoreId,
+                'filename' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ]);
+
+            $token = uniqid('sales_', true);
+            $extension = $file->getClientOriginalExtension() ?: 'xlsx';
+            $path = $file->storeAs('sales-imports', "{$token}.{$extension}");
+            $fullPath = Storage::path($path);
+
+            $checksum = hash_file('sha256', $fullPath);
+            $existingBatch = DB::connection('budget')->table('import_batches')
+                ->where('checksum', $checksum)
+                ->where('id', '<>', $batchId)
+                ->first();
+
+            if ($existingBatch) {
+                Storage::delete($path);
+
+                DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                    'status' => 'failed',
+                    'checksum' => $pendingChecksum,
+                    'note' => 'Archivo ya importado en batch ' . $existingBatch->id,
+                    'updated_at' => now(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Archivo ya importado',
+                    'batch_id' => $existingBatch->id,
+                ], 409);
+            }
+
+            try {
+                DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                    'checksum' => $checksum,
+                    'updated_at' => now(),
+                ]);
+            } catch (Throwable $duplicateChecksumEx) {
+                Storage::delete($path);
+
+                $existingBatch = DB::connection('budget')->table('import_batches')
+                    ->where('checksum', $checksum)
+                    ->where('id', '<>', $batchId)
+                    ->first();
+
+                DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                    'status' => 'failed',
+                    'note' => 'Archivo ya importado' . ($existingBatch ? ' en batch ' . $existingBatch->id : ''),
+                    'updated_at' => now(),
+                ]);
+
+                return response()->json([
+                    'message' => 'Archivo ya importado',
+                    'batch_id' => $existingBatch->id ?? null,
+                ], 409);
+            }
+
+            $highestRow = $this->detectHighestSalesImportRow($fullPath);
+        } catch (Throwable $e) {
+            if (isset($path)) {
+                Storage::delete($path);
+            }
+
+            DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                'status' => 'failed',
+                'note' => $this->formatImportFailureNote($e),
+                'updated_at' => now(),
+            ]);
+
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+
+        DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+            'note' => 'Importacion por bloques',
             'updated_at' => now(),
         ]);
 
@@ -1134,7 +1186,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'store_id' => $selectedStoreId,
             'total_rows' => max(0, $highestRow - 1),
             'next_row' => 2,
-            'chunk_size' => 300,
+            'chunk_size' => 100,
         ]);
     }
 
@@ -1162,6 +1214,30 @@ protected function parseDate($value, string $context = 'sale'): ?string
             : null;
         $fullPath = Storage::path($data['path']);
 
+        $batch = DB::connection('budget')->table('import_batches')->where('id', $batchId)->first();
+
+        if (!$batch) {
+            return response()->json([
+                'message' => 'El lote de importacion ya no existe.',
+                'batch_id' => $batchId,
+                'path' => $data['path'],
+                'next_row' => $startRow,
+            ], 404);
+        }
+
+        if (($batch->status ?? null) === 'failed') {
+            return response()->json([
+                'message' => 'El lote de importacion esta marcado como fallido.',
+                'batch_id' => $batchId,
+                'note' => $batch->note ?? null,
+            ], 409);
+        }
+
+        DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+            'note' => "Procesando filas {$startRow}-{$endRow}",
+            'updated_at' => now(),
+        ]);
+
         if ($absoluteHighestRow === null) {
             $probeReader = IOFactory::createReaderForFile($fullPath);
             $probeReader->setReadDataOnly(true);
@@ -1181,7 +1257,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
         });
 
         try {
+            $chunkStartedAt = microtime(true);
             $spreadsheet = $reader->load($fullPath);
+            $loadedAt = microtime(true);
             $sheet = $spreadsheet->getActiveSheet();
             $highestColumn = $sheet->getHighestColumn();
             $lastRow = min($endRow, $absoluteHighestRow);
@@ -1193,11 +1271,12 @@ protected function parseDate($value, string $context = 'sale'): ?string
             }
 
             $result = $this->processSalesRange($sheet, $headers, $startRow, $lastRow, $highestColumn, $batchId, $selectedStoreId);
+            $processedAt = microtime(true);
             $spreadsheet->disconnectWorksheets();
         } catch (Throwable $e) {
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
                 'status' => 'failed',
-                'note' => $e->getMessage(),
+                'note' => $this->formatImportFailureNote($e),
                 'updated_at' => now(),
             ]);
             return response()->json(['message' => $e->getMessage()], 500);
@@ -1207,6 +1286,20 @@ protected function parseDate($value, string $context = 'sale'): ?string
         $done = $nextRow > $absoluteHighestRow;
         $inserted = (int) ($result['created']['sales'] ?? 0);
         DB::connection('budget')->table('import_batches')->where('id', $batchId)->increment('rows', $inserted, ['updated_at' => now()]);
+        $timing = [
+            'load_ms' => isset($loadedAt) ? (int) round(($loadedAt - $chunkStartedAt) * 1000) : null,
+            'process_ms' => isset($processedAt, $loadedAt) ? (int) round(($processedAt - $loadedAt) * 1000) : null,
+            'total_ms' => isset($processedAt, $chunkStartedAt) ? (int) round(($processedAt - $chunkStartedAt) * 1000) : null,
+        ];
+
+        Log::info('IMPORT SALES CHUNK PROCESSED', [
+            'batch_id' => $batchId,
+            'start_row' => $startRow,
+            'end_row' => $lastRow,
+            'inserted' => $inserted,
+            'skipped' => $result['skipped'] ?? 0,
+            'timing' => $timing,
+        ]);
 
         if ($done) {
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
@@ -1215,6 +1308,11 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'updated_at' => now(),
             ]);
             Storage::delete($data['path']);
+        } else {
+            DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                'note' => "Ultimo chunk OK {$startRow}-{$lastRow}; siguiente fila {$nextRow}; {$timing['total_ms']} ms",
+                'updated_at' => now(),
+            ]);
         }
 
         return response()->json([
@@ -1224,6 +1322,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'processed_rows' => max(0, $lastRow - $startRow + 1),
             'total_rows' => max(0, $absoluteHighestRow - 1),
             'summary' => $result,
+            'timing' => $timing,
         ]);
     }
 
@@ -1319,8 +1418,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                         'sale_date' => $saleDate,
                         'sale_datetime' => $saleDate . ' ' . $hora,
                         'hora' => $hora,
-                        'folio' => $this->firstNotEmpty($assoc, ['folio']),
-                        'pdv' => $storeCodeExcel ?: ($selectedStore->code ?? null),
+                        'folio' => $this->limitText($this->firstNotEmpty($assoc, ['folio']), 255),
+                        'pdv' => $this->limitText($storeCodeExcel ?: ($selectedStore->code ?? null), 255),
                         'quantity' => $this->parseNumber($this->firstNotEmpty($assoc, ['quantity', 'cantidad', 'qty'])) ?? 1,
                         'amount' => $amountPes,
                         'discount' => $this->parseNumber($this->firstNotEmpty($assoc, ['discount', 'descuento'])) ?? 0,
@@ -1329,27 +1428,27 @@ protected function parseDate($value, string $context = 'sale'): ?string
                         'value_usd' => $amountUsd,
                         'cost' => $this->parseNumber($this->firstNotEmpty($assoc, ['cogs_pes', 'costo_de_venta', 'cost', 'costo', 'costo_venta'])),
                         'cogs_usd' => $this->parseNumber($this->firstNotEmpty($assoc, ['cogs_usd', 'costo_de_venta_usd', 'cost_usd'])),
-                        'currency' => $this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD',
+                        'currency' => $this->limitText($this->firstNotEmpty($assoc, ['currency', 'moneda']) ?? 'USD', 255),
                         'exchange_rate' => $exchangeRateSale ?? $exchangeRateCogs,
                         'exchange_rate_cogs' => $exchangeRateCogs,
                         'regular_price' => $this->parseNumber($this->firstNotEmpty($assoc, ['precio_regular', 'regular_price'])),
                         'amount_cop' => $amountPes,
-                        'status' => $this->firstNotEmpty($assoc, ['status', 'estatus']) ?? 'ACTIVO',
-                        'applied_promotion' => $this->firstNotEmpty($assoc, ['applied_promotion', 'promociones_aplicadas']),
+                        'status' => $this->limitText($this->firstNotEmpty($assoc, ['status', 'estatus']) ?? 'ACTIVO', 255),
+                        'applied_promotion' => $this->limitText($this->firstNotEmpty($assoc, ['applied_promotion', 'promociones_aplicadas']), 255),
                         'cancellation_date' => $this->parseDateTime($this->firstNotEmpty($assoc, ['cancellation_date', 'fecha_cancelacion'])),
-                        'line_code' => $this->firstNotEmpty($assoc, ['line', 'linea']),
-                        'flight_cruise' => $this->firstNotEmpty($assoc, ['flight_cruise', 'vuelo', 'flight']),
-                        'seat' => $this->firstNotEmpty($assoc, ['seat', 'asiento']),
-                        'origin' => $this->firstNotEmpty($assoc, ['origin', 'origen']),
-                        'destination' => $this->firstNotEmpty($assoc, ['destination', 'destino']),
-                        'nationality' => $this->firstNotEmpty($assoc, ['nationality', 'nacionalidad']),
-                        'passport_number' => $this->firstNotEmpty($assoc, ['passport_number', 'pasaporte', 'passport']),
-                        'passenger_name' => $this->firstNotEmpty($assoc, ['passenger_name', 'pasajero', 'passenger']),
+                        'line_code' => $this->limitText($this->firstNotEmpty($assoc, ['line', 'linea']), 50),
+                        'flight_cruise' => $this->limitText($this->firstNotEmpty($assoc, ['flight_cruise', 'vuelo', 'flight']), 50),
+                        'seat' => $this->limitText($this->firstNotEmpty($assoc, ['seat', 'asiento']), 20),
+                        'origin' => $this->limitText($this->firstNotEmpty($assoc, ['origin', 'origen']), 50),
+                        'destination' => $this->limitText($this->firstNotEmpty($assoc, ['destination', 'destino']), 50),
+                        'nationality' => $this->limitText($this->firstNotEmpty($assoc, ['nationality', 'nacionalidad']), 100),
+                        'passport_number' => $this->limitText($this->firstNotEmpty($assoc, ['passport_number', 'pasaporte', 'passport']), 50),
+                        'passenger_name' => $this->limitText($this->firstNotEmpty($assoc, ['passenger_name', 'pasajero', 'passenger']), 255),
                         'date_birth' => $this->parseDate($this->firstNotEmpty($assoc, ['date_birth', 'fecha_nacimiento'])),
-                        'gender' => $this->firstNotEmpty($assoc, ['gender', 'genero']),
-                        'customer_code' => $this->firstNotEmpty($assoc, ['customer_code', 'codcliente', 'cod_cliente']),
+                        'gender' => $this->limitText($this->firstNotEmpty($assoc, ['gender', 'genero']), 20),
+                        'customer_code' => $this->limitText($this->firstNotEmpty($assoc, ['customer_code', 'codcliente', 'cod_cliente']), 100),
                         'raw_payload' => json_encode($assoc, JSON_UNESCAPED_UNICODE),
-                        'cashier' => $cashierName,
+                        'cashier' => $this->limitText($cashierName, 255) ?? '',
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
@@ -1382,11 +1481,70 @@ protected function parseDate($value, string $context = 'sale'): ?string
         return compact('processed', 'skipped', 'created', 'errors');
     }
 
+    private function formatImportFailureNote(Throwable $e): string
+    {
+        $message = $e->getMessage();
+        $previous = $e->getPrevious();
+
+        if ($previous instanceof Throwable && $previous->getMessage() !== '') {
+            $message = $previous->getMessage() . "\n\nDetalle Laravel: " . $message;
+        }
+
+        return Str::limit($message, 60000, '... [truncated]');
+    }
+
+    private function validateSalesImportInput(Request $request, bool $requireStore)
+    {
+        $rules = [
+            'file' => ['required', 'file'],
+            'replace_existing' => ['nullable', 'boolean'],
+        ];
+
+        $rules['store_id'] = $requireStore ? ['required', 'integer'] : ['nullable'];
+
+        $request->validate($rules);
+
+        $extension = strtolower((string) $request->file('file')->getClientOriginalExtension());
+        $allowed = ['xlsx', 'xls', 'xlsm', 'csv'];
+
+        if (!in_array($extension, $allowed, true)) {
+            return response()->json([
+                'message' => 'El archivo debe ser de tipo: xlsx, xls, xlsm o csv.',
+                'errors' => [
+                    'file' => ['El archivo debe ser de tipo: xlsx, xls, xlsm o csv.'],
+                ],
+            ], 422);
+        }
+
+        return null;
+    }
+
+    private function detectHighestSalesImportRow(string $fullPath): int
+    {
+        $reader = IOFactory::createReaderForFile($fullPath);
+        $reader->setReadDataOnly(true);
+
+        if (method_exists($reader, 'listWorksheetInfo')) {
+            $worksheets = $reader->listWorksheetInfo($fullPath);
+            $firstSheet = $worksheets[0] ?? null;
+
+            if (isset($firstSheet['totalRows'])) {
+                return (int) $firstSheet['totalRows'];
+            }
+        }
+
+        $spreadsheet = $reader->load($fullPath);
+        $highestRow = (int) $spreadsheet->getActiveSheet()->getHighestRow();
+        $spreadsheet->disconnectWorksheets();
+
+        return $highestRow;
+    }
+
     public function bulkDestroy(Request $request)
     {
         $request->validate([
             'ids' => 'required|array|min:1',
-            'ids.*' => 'integer|distinct|exists:import_batches,id',
+            'ids.*' => 'integer|distinct|exists:budget.import_batches,id',
         ]);
 
         $ids = $request->input('ids');
@@ -1394,19 +1552,29 @@ protected function parseDate($value, string $context = 'sale'): ?string
         DB::connection('budget')->beginTransaction();
 
         try {
+            $processingIds = DB::connection('budget')->table('import_batches')
+                ->whereIn('id', $ids)
+                ->where('status', 'processing')
+                ->where('rows', '>', 0)
+                ->pluck('id')
+                ->all();
+
+            $deleteIds = array_values(array_diff($ids, $processingIds));
+
             DB::connection('budget')->table('sales')
-                ->whereIn('import_batch_id', $ids)
+                ->whereIn('import_batch_id', $deleteIds)
                 ->delete();
 
             DB::connection('budget')->table('import_batches')
-                ->whereIn('id', $ids)
+                ->whereIn('id', $deleteIds)
                 ->delete();
 
             DB::connection('budget')->commit();
 
             return response()->json([
                 'message' => 'Batches eliminados',
-                'deleted' => count($ids),
+                'deleted' => count($deleteIds),
+                'skipped_processing' => $processingIds,
             ]);
         } catch (Throwable $e) {
             DB::connection('budget')->rollBack();
@@ -1427,11 +1595,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ], 403);
         }
 
-        $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
-            'store_id' => ['nullable'],
-            'replace_existing' => ['nullable', 'boolean'],
-        ]);
+        if ($validationResponse = $this->validateSalesImportInput($request, false)) {
+            return $validationResponse;
+        }
 
         $storeId = $request->input('store_id');
 
@@ -1447,49 +1613,28 @@ protected function parseDate($value, string $context = 'sale'): ?string
             return $startResponse;
         }
 
-        $path = $startData['path'];
-        $batchId = (int) $startData['batch_id'];
-        $storeId = (int) $startData['store_id'];
-        $totalRows = (int) $startData['total_rows'];
-        $chunkSize = (int) ($startData['chunk_size'] ?? 300);
-        $nextRow = (int) $startData['next_row'];
-        $done = $totalRows === 0;
-        $processedRows = 0;
-        $insertedRows = 0;
-        $errors = [];
+        return response()->json([
+            'message' => 'Importacion automatica iniciada por bloques',
+            'done' => ((int) ($startData['total_rows'] ?? 0)) === 0,
+            'path' => $startData['path'] ?? null,
+            'batch_id' => $startData['batch_id'] ?? null,
+            'store_id' => $startData['store_id'] ?? null,
+            'total_rows' => $startData['total_rows'] ?? 0,
+            'next_row' => $startData['next_row'] ?? 2,
+            'chunk_size' => $startData['chunk_size'] ?? 100,
+        ], 202);
+    }
 
-        while (!$done) {
-            $chunkRequest = Request::create('/api/automation/import-sales/chunk', 'POST', [
-                'path' => $path,
-                'batch_id' => $batchId,
-                'store_id' => $storeId,
-                'next_row' => $nextRow,
-                'total_rows' => $totalRows,
-                'chunk_size' => $chunkSize,
-            ]);
+    public function importAutomationChunk(Request $request)
+    {
+        $token = $request->header('X-Automation-Token');
 
-            $chunkResponse = $this->chunk($chunkRequest);
-            $chunkData = $chunkResponse->getData(true);
-
-            if ($chunkResponse->getStatusCode() >= 400) {
-                return $chunkResponse;
-            }
-
-            $processedRows += (int) ($chunkData['processed_rows'] ?? 0);
-            $insertedRows += (int) ($chunkData['summary']['created']['sales'] ?? 0);
-            $errors = array_merge($errors, $chunkData['summary']['errors'] ?? []);
-            $nextRow = (int) ($chunkData['next_row'] ?? ($nextRow + $chunkSize));
-            $done = (bool) ($chunkData['done'] ?? false);
+        if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+            return response()->json([
+                'message' => 'No autorizado',
+            ], 403);
         }
 
-        return response()->json([
-            'message' => 'Importacion automatica completada por bloques',
-            'batch_id' => $batchId,
-            'processed' => $processedRows,
-            'created' => [
-                'sales' => $insertedRows,
-            ],
-            'errors' => $errors,
-        ]);
-    }  
+        return $this->chunk($request);
+    }
 }
