@@ -268,6 +268,7 @@ export default function InventoryCoveragePage() {
   );
 
   const activeFilters = [
+    search.trim() ? { key: "search", label: `Texto: ${search.trim()}`, clear: () => setSearch("") } : null,
     selectedBrand ? { key: "brand", label: `Marca: ${selectedBrand}`, clear: () => setSelectedBrand("") } : null,
     selectedProvider ? { key: "provider", label: `Proveedor: ${selectedProvider}`, clear: () => setSelectedProvider("") } : null,
     selectedCategory ? { key: "category", label: `Categoría: ${selectedCategory}`, clear: () => setSelectedCategory("") } : null,
@@ -495,6 +496,27 @@ export default function InventoryCoveragePage() {
                 options={categoryOptions}
                 onChange={setSelectedCategory}
               />
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Texto filtrando
+                </div>
+                <div className="mt-1 truncate text-sm font-medium text-slate-800">
+                  {search.trim() ? search : "Sin texto"}
+                </div>
+              </div>
+              {search.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100"
+                >
+                  <X className="h-4 w-4" />
+                  Limpiar texto
+                </button>
+              )}
             </div>
 
             <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">

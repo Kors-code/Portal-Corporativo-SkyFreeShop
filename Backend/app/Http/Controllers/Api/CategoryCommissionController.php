@@ -29,23 +29,15 @@ class CategoryCommissionController extends Controller
     }
 }
 
-    private function normalizeParticipationValue($value): int
+    private function normalizeDecimal($value, int $decimals = 6): float
     {
-        return is_numeric($value) ? (int) round((float) $value) : 0;
+        return is_numeric($value) ? round((float) $value, $decimals) : 0.0;
     }
 
-    private function resolveParticipationValue(array $data, int $roleId, $budgetId): int
+    private function resolveBaseBudget(int $roleId, $budgetId): float
     {
-        if (array_key_exists('participation_value', $data) && $data['participation_value'] !== null) {
-            return $this->normalizeParticipationValue($data['participation_value']);
-        }
-
-        $pct = isset($data['participation_pct']) && is_numeric($data['participation_pct'])
-            ? (float) $data['participation_pct']
-            : 0.0;
-
-        if (!$budgetId || $pct <= 0) {
-            return 0;
+        if (!$budgetId) {
+            return 0.0;
         }
 
         $advisorBudget = in_array($roleId, [4, 5], true)
@@ -56,9 +48,33 @@ class CategoryCommissionController extends Controller
             : 0.0;
 
         $budgetTotal = (float) (Budget::on('budget')->where('id', $budgetId)->value('target_amount') ?? 0);
-        $baseBudget = $advisorBudget > 0 ? $advisorBudget : $budgetTotal;
 
-        return $baseBudget > 0 ? $this->normalizeParticipationValue(($pct / 100) * $baseBudget) : 0;
+        return $advisorBudget > 0 ? $advisorBudget : $budgetTotal;
+    }
+
+    private function resolveParticipationFields(array $data, int $roleId, $budgetId): array
+    {
+        $baseBudget = $this->resolveBaseBudget($roleId, $budgetId);
+        $hasValue = array_key_exists('participation_value', $data)
+            && $data['participation_value'] !== null
+            && $data['participation_value'] !== '';
+        $hasPct = array_key_exists('participation_pct', $data)
+            && $data['participation_pct'] !== null
+            && $data['participation_pct'] !== '';
+
+        if ($hasValue) {
+            $value = $this->normalizeDecimal($data['participation_value'], 2);
+            $pct = $baseBudget > 0
+                ? $this->normalizeDecimal(($value / $baseBudget) * 100, 9)
+                : ($hasPct ? $this->normalizeDecimal($data['participation_pct'], 9) : 0.0);
+
+            return [$value, $pct];
+        }
+
+        $pct = $hasPct ? $this->normalizeDecimal($data['participation_pct'], 9) : 0.0;
+        $value = 0.0;
+
+        return [$value, $pct];
     }
 
     // List categories with commission (optionally filter by role_id)
@@ -133,9 +149,9 @@ class CategoryCommissionController extends Controller
 
     ]);
         $this->ensureBudgetOpen($data['budget_id'] ?? null);
-        $participationValue = $this->resolveParticipationValue($data, (int) $data['role_id'], $data['budget_id'] ?? null);
+        [$participationValue, $participationPct] = $this->resolveParticipationFields($data, (int) $data['role_id'], $data['budget_id'] ?? null);
 
-        DB::beginTransaction();
+        DB::connection('budget')->beginTransaction();
         try {
                 $row = CategoryCommission::on('budget')->updateOrCreate(
             [
@@ -147,17 +163,17 @@ class CategoryCommissionController extends Controller
                 'commission_percentage' => $data['commission_percentage'] ?? 0,
                 'commission_percentage100' => $data['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $data['commission_percentage120'] ?? 0,
-                'participation_pct' => $data['participation_pct'] ?? 10,
+                'participation_pct' => $participationPct,
                 'participation_value' => $participationValue,
             ]
         );
 
 
 
-            DB::commit();
+            DB::connection('budget')->commit();
             return response()->json(['commission' => $row]);
         } catch (\Throwable $e) {
-            DB::rollBack();
+            DB::connection('budget')->rollBack();
             return response()->json(['message'=>'Error saving commission','error'=>$e->getMessage()],500);
         }
     }
@@ -192,29 +208,34 @@ public function bulkUpdate(Request $request)
     $this->ensureBudgetOpen($it['budget_id'] ?? null);
 }
         
-    DB::beginTransaction();
+    DB::connection('budget')->beginTransaction();
 
-    foreach ($payload['items'] as $it) {
-        $participationValue = $this->resolveParticipationValue($it, (int) $payload['role_id'], $it['budget_id'] ?? null);
+    try {
+        foreach ($payload['items'] as $it) {
+            [$participationValue, $participationPct] = $this->resolveParticipationFields($it, (int) $payload['role_id'], $it['budget_id'] ?? null);
 
-        CategoryCommission::on('budget')->updateOrCreate(
-        [
-            'category_id' => $it['category_id'],
-            'role_id' => $payload['role_id'],
-            'budget_id' => $it['budget_id'] ?? null
-        ],
-        [
-            'commission_percentage' => $it['commission_percentage'] ?? 0,
-            'commission_percentage100' => $it['commission_percentage100'] ?? 0,
-            'commission_percentage120' => $it['commission_percentage120'] ?? 0,
-            'participation_pct' => $it['participation_pct'] ?? 10,
-            'participation_value' => $participationValue,
-        ]
-    );
+            CategoryCommission::on('budget')->updateOrCreate(
+                [
+                    'category_id' => $it['category_id'],
+                    'role_id' => $payload['role_id'],
+                    'budget_id' => $it['budget_id'] ?? null
+                ],
+                [
+                    'commission_percentage' => $it['commission_percentage'] ?? 0,
+                    'commission_percentage100' => $it['commission_percentage100'] ?? 0,
+                    'commission_percentage120' => $it['commission_percentage120'] ?? 0,
+                    'participation_pct' => $participationPct,
+                    'participation_value' => $participationValue,
+                ]
+            );
 
+        }
+
+        DB::connection('budget')->commit();
+    } catch (\Throwable $e) {
+        DB::connection('budget')->rollBack();
+        return response()->json(['message' => 'Error saving commissions', 'error' => $e->getMessage()], 500);
     }
-
-    DB::commit();
 
     return response()->json(['message' => 'Bulk saved']);
 }

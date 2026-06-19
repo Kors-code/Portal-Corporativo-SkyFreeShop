@@ -16,12 +16,14 @@ import {
   Building2,
   CalendarDays,
   Download,
+  Send,
   Store,
   Target,
   TrendingUp,
 } from "lucide-react";
 import {
   getCashRegisterClosure,
+  sendDailyWhatsappReport,
   type CashClosureResponse,
 } from "../services/visualizacionesService";
 
@@ -116,7 +118,9 @@ export default function CashClosureDashboard() {
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
   const [error, setError] = useState("");
+  const [whatsappMessage, setWhatsappMessage] = useState("");
   const suppressRangeEffect = useRef(false);
 
   const load = async (next?: { budgetId?: number | ""; pdvs?: string[]; startDate?: string; endDate?: string }) => {
@@ -293,6 +297,21 @@ export default function CashClosureDashboard() {
     URL.revokeObjectURL(link.href);
   };
 
+  const sendWhatsapp = async () => {
+    try {
+      setSendingWhatsapp(true);
+      setError("");
+      setWhatsappMessage("");
+      const result = await sendDailyWhatsappReport({ pdvs: selectedPdvs });
+      setWhatsappMessage(result.message || "Reporte enviado a WhatsApp.");
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo enviar el reporte a WhatsApp. Revisa que el servicio este conectado y configurado.");
+    } finally {
+      setSendingWhatsapp(false);
+    }
+  };
+
   return (
     <div className="space-y-5 text-slate-950">
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
@@ -303,14 +322,24 @@ export default function CashClosureDashboard() {
             Seguimiento por presupuesto, rango, tiendas, cumplimiento diario y exportacion CSV.
           </p>
         </div>
-        <button
-          onClick={exportCsv}
-          disabled={!data}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
-        >
-          <Download size={16} />
-          CSV
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={sendWhatsapp}
+            disabled={!data || sendingWhatsapp}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            <Send size={16} />
+            {sendingWhatsapp ? "Enviando..." : "WhatsApp"}
+          </button>
+          <button
+            onClick={exportCsv}
+            disabled={!data}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            <Download size={16} />
+            CSV
+          </button>
+        </div>
       </div>
 
       <main className="space-y-5">
@@ -469,6 +498,11 @@ export default function CashClosureDashboard() {
           </div>
 
           {error && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</div>}
+          {whatsappMessage && (
+            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+              {whatsappMessage}
+            </div>
+          )}
           {!loading && data && data.budget.monthly_usd <= 0 && (
             <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
               Este periodo no tiene presupuesto cargado. Budget daily y Project quedan en 0 hasta crear el presupuesto.

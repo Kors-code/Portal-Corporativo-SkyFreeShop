@@ -167,6 +167,55 @@ class ImportSalesControllerTest extends TestCase
         ], 'budget');
     }
 
+    public function test_import_batch_delete_removes_processing_batch_with_sales(): void
+    {
+        $this->withoutMiddleware();
+
+        $batchId = DB::connection('budget')->table('import_batches')->insertGetId([
+            'filename' => 'SALES DFP COLOMBIA Junio 2026.xlsx',
+            'checksum' => 'delete-checksum',
+            'import_date' => '2026-06-10',
+            'rows' => 1,
+            'status' => 'processing',
+            'note' => 'stuck processing import',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $saleId = DB::connection('budget')->table('sales')->insertGetId([
+            'import_batch_id' => $batchId,
+            'store_id' => 1,
+            'seller_id' => 40,
+            'product_id' => 1,
+            'sale_date' => '2026-06-10',
+            'sale_datetime' => '2026-06-10 12:00:00',
+            'folio' => 'DELETE-ME',
+            'quantity' => 1,
+            'amount' => 10,
+            'total' => 10,
+            'value_pesos' => 10,
+            'value_usd' => 10,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::connection('budget')->table('commissions')->insert([
+            'sale_id' => $saleId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->deleteJson("/api/v1/imports/{$batchId}");
+
+        $response->assertOk()
+            ->assertJsonPath('deleted', 1)
+            ->assertJsonPath('batch_id', $batchId);
+
+        $this->assertDatabaseMissing('import_batches', ['id' => $batchId], 'budget');
+        $this->assertDatabaseMissing('sales', ['id' => $saleId], 'budget');
+        $this->assertSame(0, DB::connection('budget')->table('commissions')->where('sale_id', $saleId)->count());
+    }
+
     private function createBudgetSchema(): void
     {
         Schema::connection('budget')->create('import_batches', function ($table) {
@@ -283,6 +332,12 @@ class ImportSalesControllerTest extends TestCase
             $table->string('cashier')->nullable();
             $table->foreignId('cashier_id')->nullable();
             $table->foreignId('import_batch_id')->nullable()->constrained('import_batches')->nullOnDelete();
+            $table->timestamps();
+        });
+
+        Schema::connection('budget')->create('commissions', function ($table) {
+            $table->id();
+            $table->foreignId('sale_id')->nullable();
             $table->timestamps();
         });
 

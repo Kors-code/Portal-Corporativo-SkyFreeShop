@@ -41,9 +41,12 @@
             <input type="file" id="cvs" name="cvs[]" multiple accept=".pdf,.doc,.docx">
         </div>
 
+        <div id="preview-summary" class="preview-summary" aria-live="polite"></div>
         <div id="preview"></div>
 
-        <button type="submit" class="btn">Subir</button>
+        <div class="submit-bar">
+            <button type="submit" class="btn">Subir</button>
+        </div>
     </form>
 </div>
 

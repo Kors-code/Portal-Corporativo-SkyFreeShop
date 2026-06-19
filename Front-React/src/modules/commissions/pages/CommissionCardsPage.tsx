@@ -18,6 +18,9 @@ type SellerRow = {
   total_sales_cop: number;
   total_sales_usd?: number | null;
   avg_trm: number;
+  target_usd?: number | null;
+  pct_cumplimiento?: number | null;
+  cumplimiento?: number | null;
   tickets?: TicketMetrics;
 };
 
@@ -68,6 +71,8 @@ export default function CommissionCardsPage() {
   const [budgetIds, setBudgetIds] = useState<number[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
   const [budgetFilter, setBudgetFilter] = useState<string>(''); // simple text filter for sidebar
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
 
   // Tickets summary global
   const [ticketsSummary, setTicketsSummary] = useState<any>(null);
@@ -78,6 +83,8 @@ export default function CommissionCardsPage() {
   const buildBudgetParams = (ids: number[]) => {
     const params = new URLSearchParams();
     ids.forEach(id => params.append('budget_ids[]', String(id)));
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
     return params.toString();
   };
 
@@ -105,7 +112,7 @@ export default function CommissionCardsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [budgetIds]);
+  }, [budgetIds, dateFrom, dateTo]);
 
   const load = async () => {
     setLoading(true);
@@ -202,6 +209,13 @@ export default function CommissionCardsPage() {
 
   const moneyUSD = (v:number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0);
   const moneyCOP = (v:number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
+  const pct = (v?: number | null) => `${Number(v ?? 0).toFixed(1)}%`;
+  const sellerCompliance = (r: SellerRow) => Number(r.pct_cumplimiento ?? r.cumplimiento ?? 0);
+  const complianceClasses = (value: number) => {
+    if (value >= 100) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (value >= 80) return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-rose-200 bg-rose-50 text-rose-700';
+  };
 
   const avgTicketUsd = ticketsSummary?.avg_ticket_usd;
 
@@ -295,6 +309,36 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               />
             </div>
 
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Desde</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="w-full border rounded px-2 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="w-full border rounded px-2 py-2 text-sm"
+                />
+              </div>
+              {(dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => { setDateFrom(''); setDateTo(''); }}
+                  className="col-span-2 text-xs px-2 py-1 bg-gray-100 rounded"
+                >
+                  Limpiar fechas
+                </button>
+              )}
+            </div>
+
             <div className="flex gap-2 mb-3">
               <button onClick={selectAll} className="flex-1 text-xs px-2 py-1 bg-indigo-600 text-white rounded">Todos</button>
               <button onClick={clearAll} className="flex-1 text-xs px-2 py-1 bg-gray-100 rounded">Ninguno</button>
@@ -348,6 +392,36 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                 ))}
               </select>
             </div>
+
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Desde</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                className="mt-2 w-full text-xs px-2 py-1 bg-gray-100 rounded"
+              >
+                Limpiar fechas
+              </button>
+            )}
 
             <div className="flex gap-2 mt-2">
               <button onClick={load} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded">Cargar</button>
@@ -492,10 +566,14 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm">
                       <div className="bg-gray-50 rounded p-2">
                         <div className="text-xxs text-gray-400">Turnos</div>
                         <div className="font-medium">{r.assignedTurns ?? 0}</div>
+                      </div>
+                      <div className={`rounded border p-2 ${complianceClasses(sellerCompliance(r))}`}>
+                        <div className="text-xxs opacity-70">Cumpl.</div>
+                        <div className="font-semibold">{pct(sellerCompliance(r))}</div>
                       </div>
                       <div className="bg-gray-50 rounded p-2">
                         <div className="text-xxs text-gray-400">Comision COP</div>
@@ -573,6 +651,11 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <div>
                         <div className="font-medium">{r.seller}</div>
                         <div className="text-xs text-gray-500">Turnos: {r.assignedTurns}</div>
+                        <div className="mt-1">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
+                            Cumpl. {pct(sellerCompliance(r))}
+                          </span>
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold text-green-600">{moneyCOP(r.total_commission_cop)}</div>
@@ -590,6 +673,7 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                     <tr>
                       <th className="p-2 text-left">Vendedor</th>
                       <th className="p-2 text-right">Turnos</th>
+                      <th className="p-2 text-right">Cumplimiento</th>
                       <th className="p-2 text-right">Ventas (USD)</th>
                       <th className="p-2 text-right">Comisión (USD)</th>
                       <th className="p-2 text-right">Comisión (COP)</th>
@@ -600,6 +684,11 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <tr key={r.user_id} className="border-t hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedSellerId(r.user_id)}>
                         <td className="p-2">{r.seller}</td>
                         <td className="p-2 text-right">{r.assignedTurns}</td>
+                        <td className="p-2 text-right">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
+                            {pct(sellerCompliance(r))}
+                          </span>
+                        </td>
                         <td className="p-2 text-right">{Number(r.total_sales_usd || 0).toFixed(2)}</td>
                         <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(r.total_commission_usd)}</td>
                         <td className="p-2 text-right font-semibold text-green-600">{moneyCOP(r.total_commission_cop)}</td>
@@ -617,6 +706,8 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               <CommissionDetailModal
               userId={selectedSellerId}
               budgetIds={budgetIds} 
+              dateFrom={dateFrom}
+              dateTo={dateTo}
               summaryTotals={selectedSeller ? {
                 total_sales_usd: selectedSeller.total_sales_usd,
                 total_sales_cop: selectedSeller.total_sales_cop,

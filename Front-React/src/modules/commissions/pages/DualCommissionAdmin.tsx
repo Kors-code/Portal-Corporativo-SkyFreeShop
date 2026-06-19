@@ -352,14 +352,38 @@ console.log(turnsCount)
 
   async function loadLineState(line: Line, budgetId: number) {
     const specialistRes = await api.get('/advisors/specialists', {
-      params: { budget_id: budgetId, business_line: line },
+      params: { budget_id: budgetId, business_line: line, include_inherited: 1 },
     });
 
-    const specialists: Specialist[] = Array.isArray(specialistRes.data) ? specialistRes.data : [];
+    const specialistPayload = specialistRes.data;
+    let specialists: Specialist[] = Array.isArray(specialistPayload)
+      ? specialistPayload
+      : Array.isArray(specialistPayload?.rows)
+        ? specialistPayload.rows
+        : [];
+    const inheritedSpecialist: Specialist | null = Array.isArray(specialistPayload)
+      ? null
+      : specialistPayload?.inherited ?? null;
     const active = specialists.find((s) => !s.valid_to) ?? specialists[0] ?? null;
 
+    if (!active && inheritedSpecialist?.user_id) {
+      await api.post('/advisors/specialists', {
+        budget_id: budgetId,
+        user_id: inheritedSpecialist.user_id,
+        business_line: line,
+        note: `Asignado automaticamente desde ${inheritedSpecialist.user_name ?? 'asesor anterior'}`,
+      });
+
+      const refreshedRes = await api.get('/advisors/specialists', {
+        params: { budget_id: budgetId, business_line: line },
+      });
+      specialists = Array.isArray(refreshedRes.data) ? refreshedRes.data : [];
+    }
+
+    const resolvedActive = specialists.find((s) => !s.valid_to) ?? specialists[0] ?? null;
+
     setLineSpecialists((prev) => ({ ...prev, [line]: specialists }));
-    setLineActive((prev) => ({ ...prev, [line]: active }));
+    setLineActive((prev) => ({ ...prev, [line]: resolvedActive }));
     setUsersMap((prev) => ({
       ...prev,
       ...buildUsersMapFromArray(
@@ -374,7 +398,7 @@ console.log(turnsCount)
 
     const resolvedAdvisorId = hasExisting
       ? existingSelected
-      : active?.user_id ?? specialists[0]?.user_id ?? null;
+      : resolvedActive?.user_id ?? specialists[0]?.user_id ?? null;
 
     if (resolvedAdvisorId && resolvedAdvisorId !== selectedAdvisorId[line]) {
       setSelectedAdvisorId((prev) => ({ ...prev, [line]: Number(resolvedAdvisorId) }));
@@ -398,18 +422,12 @@ console.log(turnsCount)
 
     async function loadMeta() {
       try {
-        const [bRes, uRes] = await Promise.all([
-          api.get('/budgets'),
-          api.get('/advisors/budget-sellers'),
-        ]);
+        const bRes = await api.get('/budgets');
         if (!mounted) return;
 
         const budgetsList = Array.isArray(bRes.data) ? bRes.data : [];
-        const usersList = Array.isArray(uRes.data) ? uRes.data : [];
 
         setBudgets(budgetsList);
-        setAdvisors(usersList);
-        setUsersMap((prev) => ({ ...prev, ...buildUsersMapFromArray(usersList) }));
 
         if (!selectedBudgetId && budgetsList.length) {
           setSelectedBudgetId(Number(budgetsList[0].id));
@@ -428,6 +446,31 @@ console.log(turnsCount)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selectedBudgetId) {
+      setAdvisors([]);
+      return;
+    }
+
+    let mounted = true;
+
+    api.get('/advisors/budget-sellers', { params: { budget_id: selectedBudgetId } })
+      .then((res) => {
+        if (!mounted) return;
+        const usersList = Array.isArray(res.data) ? res.data : [];
+        setAdvisors(usersList);
+        setUsersMap((prev) => ({ ...prev, ...buildUsersMapFromArray(usersList) }));
+      })
+      .catch((e) => {
+        console.warn('advisors load failed', e);
+        if (mounted) setAdvisors([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedBudgetId]);
 
   useEffect(() => {
     if (!selectedBudgetId) {

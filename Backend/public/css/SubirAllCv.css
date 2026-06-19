@@ -88,6 +88,16 @@ input[type="email"]:focus {
 /* preview */
 #preview {
   margin-top: 14px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.preview-summary {
+  min-height: 20px;
+  margin-top: 12px;
+  color: #5b1d20;
+  font-size: 13px;
+  font-weight: 700;
 }
 .file-item {
   padding: 10px 12px;
@@ -122,6 +132,13 @@ input[type="email"]:focus {
   letter-spacing: 0.2px;
   box-shadow: 0 6px 18px rgba(128,0,32,0.18);
   transition: transform .08s ease, box-shadow .12s ease, opacity .12s;
+}
+.submit-bar {
+  position: sticky;
+  bottom: 0;
+  margin-top: 14px;
+  padding-top: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.88) 0%, #ffffff 36%);
 }
 
 /* alertas */

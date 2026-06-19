@@ -359,6 +359,12 @@ Route::middleware('auth')->group(function () {
         Route::get('visualizaciones/cierre-caja', [VisualizationController::class, 'cashRegisterClosure'])
             ->middleware('permission:visualizations.view');
 
+        Route::get('visualizaciones/daily-whatsapp/preview', [VisualizationController::class, 'whatsappDailyReportPreview'])
+            ->middleware('permission:visualizations.view');
+
+        Route::post('visualizaciones/daily-whatsapp/send', [VisualizationController::class, 'sendWhatsappDailyReport'])
+            ->middleware('permission:visualizations.view');
+
         /* ------------------------------ Entregas --------------------------- */
         Route::middleware(['permission:entregas.view'])->group(function () {
             Route::get('entregas/categorias', [EntregaController::class, 'categorias']);

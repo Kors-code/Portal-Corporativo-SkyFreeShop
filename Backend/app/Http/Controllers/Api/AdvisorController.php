@@ -22,6 +22,38 @@ class AdvisorController extends Controller
     private const DEFAULT_PARBEL_KEYS = ['13', self::FRAG_KEY];
     private const ADVISOR_CATEGORY_ID = 15;
 
+    private function applyAdvisorRoleForSaleDate($query, string $userColumn, string $saleDateColumn)
+    {
+        return $query
+            ->whereExists(function ($q) use ($userColumn, $saleDateColumn) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->join('roles as r', 'r.id', '=', 'ur.role_id')
+                    ->whereColumn('ur.user_id', $userColumn)
+                    ->where(function ($roleQ) {
+                        $roleQ->whereRaw('LOWER(r.name) = ?', ['vendedor'])
+                            ->orWhereRaw('LOWER(r.name) LIKE ?', ['asesor%']);
+                    })
+                    ->whereColumn('ur.start_date', '<=', $saleDateColumn)
+                    ->where(function ($dateQ) use ($saleDateColumn) {
+                        $dateQ->whereNull('ur.end_date')
+                            ->orWhereColumn('ur.end_date', '>=', $saleDateColumn);
+                    });
+            })
+            ->whereNotExists(function ($q) use ($userColumn, $saleDateColumn) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->join('roles as r', 'r.id', '=', 'ur.role_id')
+                    ->whereColumn('ur.user_id', $userColumn)
+                    ->whereRaw('LOWER(r.name) = ?', ['cajero'])
+                    ->whereColumn('ur.start_date', '<=', $saleDateColumn)
+                    ->where(function ($dateQ) use ($saleDateColumn) {
+                        $dateQ->whereNull('ur.end_date')
+                            ->orWhereColumn('ur.end_date', '>=', $saleDateColumn);
+                    });
+            });
+    }
+
     public function budgetSellers(Request $request)
     {
         $budgetId = (int) $request->query('budget_id');
@@ -31,29 +63,59 @@ class AdvisorController extends Controller
         }
 
         $hasBudgetId = Schema::connection('budget')->hasColumn('sales', 'budget_id');
+        [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
 
         $query = DB::connection('budget')
-            ->table('sales')
-            ->join('users', 'users.id', '=', 'sales.seller_id')
+            ->table('users')
+            ->join('user_roles as ur', 'ur.user_id', '=', 'users.id')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->leftJoin('sales', function ($join) use ($budgetId, $hasBudgetId, $startDate, $endDate) {
+                $join->on('sales.seller_id', '=', 'users.id');
+                if ($hasBudgetId) {
+                    $join->where('sales.budget_id', '=', $budgetId);
+                } else {
+                    $join->whereBetween('sales.sale_date', [
+                        $startDate->toDateTimeString(),
+                        $endDate->toDateTimeString()
+                    ]);
+                }
+            })
             ->select(
                 'users.id',
                 'users.name',
                 'users.codigo_vendedor',
                 DB::raw('SUM(COALESCE(sales.value_usd,0)) as total_usd')
             )
+            ->where(function ($roleQ) {
+                $roleQ->whereRaw('LOWER(r.name) = ?', ['vendedor'])
+                    ->orWhereRaw('LOWER(r.name) LIKE ?', ['asesor%']);
+            })
+            ->where(function ($dateQ) use ($endDate) {
+                $dateQ->whereNull('ur.start_date')
+                    ->orWhere('ur.start_date', '<=', $endDate->toDateString());
+            })
+            ->where(function ($dateQ) use ($startDate) {
+                $dateQ->whereNull('ur.end_date')
+                    ->orWhere('ur.end_date', '>=', $startDate->toDateString());
+            })
+            ->whereNotExists(function ($q) use ($startDate, $endDate) {
+                $q->selectRaw('1')
+                    ->from('user_roles as cashier_ur')
+                    ->join('roles as cashier_r', 'cashier_r.id', '=', 'cashier_ur.role_id')
+                    ->whereColumn('cashier_ur.user_id', 'users.id')
+                    ->whereRaw('LOWER(cashier_r.name) = ?', ['cajero'])
+                    ->where(function ($dateQ) use ($endDate) {
+                        $dateQ->whereNull('cashier_ur.start_date')
+                            ->orWhere('cashier_ur.start_date', '<=', $endDate->toDateString());
+                    })
+                    ->where(function ($dateQ) use ($startDate) {
+                        $dateQ->whereNull('cashier_ur.end_date')
+                            ->orWhere('cashier_ur.end_date', '>=', $startDate->toDateString());
+                    });
+            })
             ->groupBy('users.id','users.name','users.codigo_vendedor');
 
-        if ($hasBudgetId) {
-            $query->where('sales.budget_id', $budgetId);
-        } else {
-            [$startDate, $endDate] = $this->resolveBudgetRange($budgetId);
-            $query->whereBetween('sales.sale_date', [
-                $startDate->toDateTimeString(),
-                $endDate->toDateTimeString()
-            ]);
-        }
-
-        $rows = $query->orderByDesc('total_usd')->get();
+        $rows = $query->orderBy('users.name')->get();
 
         return response()->json($rows);
     }
@@ -88,6 +150,8 @@ class AdvisorController extends Controller
                    ->orWhereNull('sales.sale_date');
             });
         }
+
+        $this->applyAdvisorRoleForSaleDate($q, 'users.id', 'sales.sale_date');
 
         $q->groupBy('users.id','users.name','users.codigo_vendedor')
           ->orderBy('users.name');
@@ -319,13 +383,45 @@ class AdvisorController extends Controller
     {
         $budgetId = (int) $request->query('budget_id');
         $line = $request->query('business_line');
+        $includeInherited = filter_var($request->query('include_inherited', false), FILTER_VALIDATE_BOOLEAN);
 
-        $query = AdvisorSpecialist::where('budget_id', $budgetId);
-        if ($line) $query->where('business_line', $line);
+        $query = DB::connection('budget')
+            ->table('advisor_specialists as asp')
+            ->leftJoin('users as u', 'u.id', '=', 'asp.user_id')
+            ->where('asp.budget_id', $budgetId)
+            ->select('asp.*', 'u.name as user_name');
+        if ($line) $query->where('asp.business_line', $line);
 
-        $rows = $query->orderByDesc('valid_from')->get();
+        $rows = $query->orderByDesc('asp.valid_from')->get();
 
-        return response()->json($rows);
+        if (!$includeInherited) {
+            return response()->json($rows);
+        }
+
+        $active = $rows->first(fn ($row) => empty($row->valid_to));
+        $inherited = null;
+
+        if (!$active && $budgetId && $line) {
+            $currentBudget = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
+
+            if ($currentBudget) {
+                $inherited = DB::connection('budget')
+                    ->table('advisor_specialists as asp')
+                    ->join('budgets as b', 'b.id', '=', 'asp.budget_id')
+                    ->leftJoin('users as u', 'u.id', '=', 'asp.user_id')
+                    ->where('asp.business_line', $line)
+                    ->where('b.start_date', '<', $currentBudget->start_date)
+                    ->select('asp.*', 'u.name as user_name', 'b.name as budget_name', 'b.start_date as budget_start_date')
+                    ->orderByDesc('b.start_date')
+                    ->orderByDesc('asp.valid_from')
+                    ->first();
+            }
+        }
+
+        return response()->json([
+            'rows' => $rows,
+            'inherited' => $inherited,
+        ]);
     }
 
     public function saveCommissionOverrides(Request $r)

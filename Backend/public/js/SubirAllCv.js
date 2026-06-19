@@ -1,6 +1,7 @@
 const dropArea = document.getElementById('drop-area');
 const input = document.getElementById('cvs');
 const preview = document.getElementById('preview');
+const previewSummary = document.getElementById('preview-summary');
 
 // Evitar comportamiento por defecto
 ['dragenter','dragover','dragleave','drop'].forEach(eventName => {
@@ -30,6 +31,14 @@ input.addEventListener('change', e => {
 
 function mostrarPreview(files) {
     preview.innerHTML = "";
+    previewSummary.textContent = "";
+
+    if (!files || files.length === 0) {
+        return;
+    }
+
+    previewSummary.textContent = `${files.length} archivo${files.length === 1 ? '' : 's'} seleccionado${files.length === 1 ? '' : 's'}`;
+
     for (let file of files) {
         let item = document.createElement("div");
         item.classList.add("file-item");

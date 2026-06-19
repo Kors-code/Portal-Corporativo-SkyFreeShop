@@ -243,7 +243,7 @@ class InventoryReportService
     {
         return collect($rows)
             ->groupBy(function ($row) {
-                return $row->product_id . ':' . $this->inventoryGroupCode((string) ($row->store_code ?? ''));
+                return $row->product_id . ':' . $this->inventoryProductGroupCode((string) ($row->store_code ?? ''));
             })
             ->map(function ($group) {
                 if ($group->count() === 1) {
@@ -256,11 +256,31 @@ class InventoryReportService
                 }) ?? $group->first();
 
                 $stock = $group->sum(fn ($row) => (float) ($row->stock_actual ?? 0));
+                $monthColumns = $this->mergeMonthlySales($group->pluck('monthly_sales_json')->all());
+                $storeLabels = $group
+                    ->map(fn ($row) => $this->inventoryGroupCode((string) ($row->store_code ?? '')))
+                    ->filter()
+                    ->unique()
+                    ->values();
 
                 $primary->stock_actual = $stock;
-                $primary->store_id = $primary->sales_store_id ?? $primary->store_id;
-                $primary->store_code = $primary->sales_store_code ?? $primary->store_code;
-                $primary->store_name = $primary->sales_store_name ?? $primary->store_name;
+                $primary->total_ventas = $group->sum(fn ($row) => (float) ($row->total_ventas ?? 0));
+                $primary->maximo_dia = $group->sum(fn ($row) => (float) ($row->maximo_dia ?? 0));
+                $primary->promedio_diario = $group->sum(fn ($row) => (float) ($row->promedio_diario ?? 0));
+                $primary->monthly_sales_json = json_encode($monthColumns);
+
+                if ($storeLabels->count() > 1) {
+                    $label = $storeLabels->implode(' + ');
+                    $primary->store_code = $label;
+                    $primary->store_name = $label;
+                    $primary->sales_store_id = null;
+                    $primary->sales_store_code = null;
+                    $primary->sales_store_name = null;
+                } else {
+                    $primary->store_id = $primary->sales_store_id ?? $primary->store_id;
+                    $primary->store_code = $primary->sales_store_code ?? $primary->store_code;
+                    $primary->store_name = $primary->sales_store_name ?? $primary->store_name;
+                }
 
                 $inventoryDates = $group
                     ->pluck('last_inventory_date')
@@ -277,9 +297,37 @@ class InventoryReportService
             ->values();
     }
 
+    private function mergeMonthlySales(array $monthlySalesJson): array
+    {
+        $months = [];
+
+        foreach ($monthlySalesJson as $json) {
+            $decoded = json_decode($json ?? '{}', true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            foreach ($decoded as $month => $value) {
+                $key = (string) $month;
+                $months[$key] = ($months[$key] ?? 0) + (float) $value;
+            }
+        }
+
+        uksort($months, fn (string $left, string $right) => $this->monthKeyTimestamp($left) <=> $this->monthKeyTimestamp($right));
+
+        return $months;
+    }
+
     private function inventoryGroupCode(string $storeCode): string
     {
         return $this->salesStoreCodeFor($storeCode) ?? $this->normalizeStoreCode($storeCode);
+    }
+
+    private function inventoryProductGroupCode(string $storeCode): string
+    {
+        $code = $this->inventoryGroupCode($storeCode);
+
+        return in_array($code, ['COLS1', 'COLS2'], true) ? 'COLS' : $code;
     }
 
     private function salesStoreCodeFor(string $storeCode): ?string

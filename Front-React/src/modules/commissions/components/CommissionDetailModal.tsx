@@ -30,11 +30,15 @@ type SaleRow = {
 export default function CommissionDetailModal({
   userId,
   budgetIds,
+  dateFrom,
+  dateTo,
   summaryTotals,
   onClose
 }: {
   userId: number;
   budgetIds: number[]; // ahora recibe un array de presupuestos
+  dateFrom?: string;
+  dateTo?: string;
   summaryTotals?: {
     total_sales_usd?: number | null;
     total_sales_cop?: number | null;
@@ -67,6 +71,7 @@ export default function CommissionDetailModal({
 
   // Guardar una representación string de budgetIds en el effect deps para detectar cambios en order/values
   const budgetIdsKey = (budgetIds || []).join(',');
+  const dateRangeKey = `${dateFrom ?? ''}|${dateTo ?? ''}`;
 // DÍAS LABORADOS
 const [daysWorked, setDaysWorked] = useState<{
   date: string;
@@ -80,6 +85,8 @@ const [daysWorked, setDaysWorked] = useState<{
   const buildBudgetParams = (ids: number[]) => {
     const p = new URLSearchParams();
     ids.forEach(id => p.append('budget_ids[]', String(id)));
+    if (dateFrom) p.append('date_from', dateFrom);
+    if (dateTo) p.append('date_to', dateTo);
     return p.toString();
   };
 
@@ -90,7 +97,7 @@ const [daysWorked, setDaysWorked] = useState<{
       load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, budgetIdsKey]);
+  }, [userId, budgetIdsKey, dateRangeKey]);
 
   const load = async () => {
     setLoading(true);
@@ -237,6 +244,8 @@ async function downloadExcel() {
   try {
     const params = new URLSearchParams();
     budgetIds.forEach(id => params.append('budget_ids[]', String(id)));
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
 
     const res = await api.get(
       `/commissions/by-seller/${userId}/export?${params.toString()}`,

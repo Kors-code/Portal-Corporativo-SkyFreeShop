@@ -18,8 +18,9 @@ type MessageState = { type: 'ok' | 'error'; text: string };
 /* =========================================================
  * Precisión
  * ========================================================= */
-const PARTICIPATION_PCT_DECIMALS = 5;
+const PARTICIPATION_PCT_DECIMALS = 9;
 const PARTICIPATION_PCT_DISPLAY_DECIMALS = 2;
+const PARTICIPATION_VALUE_DECIMALS = 0;
 
 const roundTo = (value: number, decimals: number) => {
   const n = Number(value);
@@ -37,7 +38,7 @@ const computeParticipationPct = (participationValue: number, baseBudget: number)
 
 const normalizeParticipationValue = (value: number) => {
   const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : 0;
+  return Number.isFinite(n) ? roundTo(n, PARTICIPATION_VALUE_DECIMALS) : 0;
 };
 
 const formatUSD = (value: number) =>
@@ -145,31 +146,60 @@ export default function CategoryCommissionsPage() {
   const normalizeRowsWithBase = (rows: CategoryWithCommission[], baseBudget: number) => {
     return rows.map((row) => {
       const rawVal = (row as any).participation_value;
-      const rawPct = (row as any).participation_pct;
-
       let valNum: number | null =
         rawVal !== undefined && rawVal !== null && !isNaN(Number(rawVal))
           ? Number(rawVal)
           : null;
 
-      const pctNum =
-        rawPct !== undefined && rawPct !== null && !isNaN(Number(rawPct))
-          ? Number(rawPct)
-          : 0;
-
       // Migración suave: si NO hay valor (o es 0) pero sí hay % histórico, derivamos USD
-      if ((valNum === null || valNum === 0) && pctNum > 0 && baseBudget > 0) {
-        valNum = (pctNum / 100) * baseBudget;
-      }
-
-      const pctComputed = computeParticipationPct(valNum ?? 0, baseBudget);
+      const valueNum = normalizeParticipationValue(valNum ?? 0);
+      const pctComputed = computeParticipationPct(valueNum, baseBudget);
 
       return {
         ...row,
-        participation_value: valNum === null ? undefined : normalizeParticipationValue(valNum),
+        participation_value: valueNum,
         participation_pct: pctComputed,
       };
     });
+  };
+
+  const syncCalculatedParticipationPct = async (
+    originalRows: CategoryWithCommission[],
+    normalizedRows: CategoryWithCommission[],
+    rId: number,
+    bId?: number | null
+  ) => {
+    if (!bId) return;
+
+    const changedRows = normalizedRows.filter((row) => {
+      const original = originalRows.find((item) => item.category_id === row.category_id);
+      if (!original) return false;
+
+      const configured = Boolean((original as any).commission_id || (original as any).budget_id);
+      if (!configured) return false;
+
+      const originalPct = Number((original as any).participation_pct ?? 0);
+      const nextPct = Number((row as any).participation_pct ?? 0);
+
+      return Math.abs(originalPct - nextPct) > 0.0000005;
+    });
+
+    if (changedRows.length === 0) return;
+
+    const payload = changedRows.map((row) => ({
+      category_id: row.category_id,
+      role_id: rId,
+      budget_id: bId,
+      commission_percentage: Number(row.commission_percentage ?? 0),
+      commission_percentage100: Number(row.commission_percentage100 ?? 0),
+      commission_percentage120: Number(row.commission_percentage120 ?? 0),
+      participation_value: normalizeParticipationValue(Number((row as any).participation_value ?? 0)),
+      participation_pct: roundTo(Number((row as any).participation_pct ?? 0), PARTICIPATION_PCT_DECIMALS),
+    }));
+
+    await bulkSaveCategoryCommissions(rId, payload);
+    setMessage({ type: 'ok', text: 'Porcentajes sincronizados con el presupuesto actual' });
+    setTimeout(() => setMessage(null), 2000);
   };
 
   /* =========================================================
@@ -232,6 +262,7 @@ export default function CategoryCommissionsPage() {
       setItems(withValues);
       setDirtyIds(new Set());
       setBudgetChangedNotice(false);
+      await syncCalculatedParticipationPct(filtered, withValues, rId, bId);
 
       // 🔑 Guardamos la base usada para la próxima comparación
       lastBaseBudgetRef.current = isSpecialistRole
@@ -411,6 +442,7 @@ export default function CategoryCommissionsPage() {
         role_id: roleId,
         budget_usd: Number(advisorBudgetUsd ?? 0),
       });
+      await loadCategories(roleId, budgetId, Number(advisorBudgetUsd ?? 0));
       setMessage({ type: 'ok', text: 'Presupuesto del asesor guardado correctamente' });
     } catch (e) {
       console.error('save advisor budget error', e);
@@ -754,7 +786,7 @@ export default function CategoryCommissionsPage() {
                           <td className="px-4 py-4 align-top">
                             <input
                               type="number"
-                              step="0.01"
+                              step="1"
                               value={it.commission_percentage ?? ''}
                               onChange={(e) =>
                                 onChangeField(it.category_id, 'commission_percentage', e.target.value)
@@ -791,12 +823,12 @@ export default function CategoryCommissionsPage() {
                           <td className="px-4 py-4 align-top">
                             <input
                               type="number"
-                              step="1"
+                              step="0.01"
                               min={0}
                               value={
                                 (it as any).participation_value !== undefined &&
                                 (it as any).participation_value !== null
-                                  ? Number((it as any).participation_value)
+                                  ? Number((it as any).participation_value).toFixed(0)
                                   : ''
                               }
                               onChange={(e) =>

@@ -119,3 +119,15 @@ export async function getCashRegisterClosure(params: {
 
   return response.data;
 }
+
+export async function sendDailyWhatsappReport(params: {
+  pdvs?: string[];
+}): Promise<{ ok: boolean; message: string }> {
+  const response = await api.post<{ ok: boolean; message: string }>(
+    "/visualizaciones/daily-whatsapp/send",
+    {},
+    { params }
+  );
+
+  return response.data;
+}

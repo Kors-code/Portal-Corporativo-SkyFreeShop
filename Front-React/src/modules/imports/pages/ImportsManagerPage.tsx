@@ -219,10 +219,14 @@ export default function ImportsManagerPage() {
     setDeletingId(id);
     setError(null);
     try {
-      await api.deleteFn(id);
-      setBatches((prev) => prev.filter((b) => b.id !== id));
+      const res = await api.deleteFn(id);
+      const deleted = Number(res?.data?.deleted ?? 0);
+      if (deleted < 1) {
+        throw new Error(res?.data?.message || "La importacion no fue eliminada en la base de datos.");
+      }
       setSelectedIds((prev) => prev.filter((x) => x !== id));
       if (selectedBatch?.id === id) setSelectedBatch(null);
+      await load();
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || "Error eliminando");
     } finally {
@@ -242,10 +246,15 @@ export default function ImportsManagerPage() {
     setBulkDeleting(true);
     setError(null);
     try {
-      await api.deleteManyFn(selectedIds);
-      setBatches((prev) => prev.filter((b) => !selectedIds.includes(b.id)));
+      const res = await api.deleteManyFn(selectedIds);
+      const deleted = Number(res?.data?.deleted ?? 0);
+      const expected = selectedIds.length;
       setSelectedIds([]);
       setSelectedBatch(null);
+      await load();
+      if (deleted < expected) {
+        setError(`Se eliminaron ${deleted} de ${expected} importaciones. La lista ya fue recargada desde la base de datos.`);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || "Error eliminando en bloque");
     } finally {

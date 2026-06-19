@@ -47,6 +47,35 @@ class CommissionReportController extends Controller
     // -------------------------
     // Helpers / Normalization
     // -------------------------
+    private function applySellerRoleForSaleDate($query, string $userColumn, string $saleDateColumn)
+    {
+        return $query
+            ->whereExists(function ($q) use ($userColumn, $saleDateColumn) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->join('roles as r', 'r.id', '=', 'ur.role_id')
+                    ->whereColumn('ur.user_id', $userColumn)
+                    ->whereRaw('LOWER(r.name) = ?', ['vendedor'])
+                    ->whereColumn('ur.start_date', '<=', $saleDateColumn)
+                    ->where(function ($dateQ) use ($saleDateColumn) {
+                        $dateQ->whereNull('ur.end_date')
+                            ->orWhereColumn('ur.end_date', '>=', $saleDateColumn);
+                    });
+            })
+            ->whereNotExists(function ($q) use ($userColumn, $saleDateColumn) {
+                $q->selectRaw('1')
+                    ->from('user_roles as ur')
+                    ->join('roles as r', 'r.id', '=', 'ur.role_id')
+                    ->whereColumn('ur.user_id', $userColumn)
+                    ->whereRaw('LOWER(r.name) = ?', ['cajero'])
+                    ->whereColumn('ur.start_date', '<=', $saleDateColumn)
+                    ->where(function ($dateQ) use ($saleDateColumn) {
+                        $dateQ->whereNull('ur.end_date')
+                            ->orWhereColumn('ur.end_date', '>=', $saleDateColumn);
+                    });
+            });
+    }
+
     private function ensureBudgetOpen(Budget $budget)
     {
         if ($budget->is_closed === 1) {
@@ -163,6 +192,50 @@ class CommissionReportController extends Controller
             $sum += (float)($b->target_amount ?? $b->amount ?? 0);
         }
         return $sum;
+    }
+
+    private function resolveReportDateRange(Request $request, $budgets): array
+    {
+        $budgetStart = Carbon::parse($budgets->min('start_date'))->toDateString();
+        $budgetEnd = Carbon::parse($budgets->max('end_date'))->toDateString();
+
+        $dateFromInput = $request->query('date_from', $request->query('fecha_inicio'));
+        $dateToInput = $request->query('date_to', $request->query('fecha_fin'));
+
+        $startDate = $budgetStart;
+        $endDate = $budgetEnd;
+
+        try {
+            if (!empty($dateFromInput)) {
+                $startDate = Carbon::parse($dateFromInput)->toDateString();
+            }
+
+            if (!empty($dateToInput)) {
+                $endDate = Carbon::parse($dateToInput)->toDateString();
+            }
+        } catch (\Throwable $e) {
+            abort(422, 'El filtro de fechas no es valido.');
+        }
+
+        if ($startDate < $budgetStart) {
+            $startDate = $budgetStart;
+        }
+
+        if ($endDate > $budgetEnd) {
+            $endDate = $budgetEnd;
+        }
+
+        if ($endDate < $startDate) {
+            abort(422, 'La fecha final debe ser mayor o igual a la fecha inicial.');
+        }
+
+        return [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'budget_start_date' => $budgetStart,
+            'budget_end_date' => $budgetEnd,
+            'has_date_filter' => !empty($dateFromInput) || !empty($dateToInput),
+        ];
     }
 
     /**
@@ -347,8 +420,10 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ? ($singleBudget->total_turns ?? $this->TOTAL_TURNS)
         : ($budgets->sum('total_turns') ?: $this->TOTAL_TURNS);
 
-    $startDate = $budgets->min('start_date');
-    $endDate   = $budgets->max('end_date');
+    $dateRange = $this->resolveReportDateRange($request, $budgets);
+    $startDate = $dateRange['start_date'];
+    $endDate   = $dateRange['end_date'];
+    $hasDateFilter = $dateRange['has_date_filter'];
 
     $roleName = $request->query('role_name');
     $roleId = $request->query('role_id') ? (int) $request->query('role_id') : null;
@@ -358,7 +433,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     // participation map and category totals (normalized)
     $participationByCode = $this->buildParticipationMap($budgetIds, $roleId);
-    $categoryTotalsRaw = $this->buildCategoryTotals($budgetIds);
+    $categoryTotalsRaw = $hasDateFilter
+        ? []
+        : $this->buildCategoryTotals($budgetIds);
 
     // aggregated subqueries for sellers
     $salesTotalsSub = DB::connection('budget')->table('sales as s')
@@ -374,15 +451,23 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $salesTotalsSub->whereIn('s.budget_id', $budgetIds);
     }
 
+    $this->applySellerRoleForSaleDate($salesTotalsSub, 's.seller_id', 's.sale_date');
+
     $salesTotalsSub->groupBy('s.seller_id');
 
-    $commissionTotalsSub = DB::connection('budget')->table('budget_user_totals')
-        ->selectRaw('
-            user_id,
-            COALESCE(SUM(total_commission_cop),0) as total_commission_cop
-        ')
-        ->whereIn('budget_id', $budgetIds)
-        ->groupBy('user_id');
+    if ($hasDateFilter) {
+        $commissionTotalsSub = DB::connection('budget')->table('users')
+            ->selectRaw('id as user_id, 0 as total_commission_cop')
+            ->whereRaw('1 = 0');
+    } else {
+        $commissionTotalsSub = DB::connection('budget')->table('budget_user_totals')
+            ->selectRaw('
+                user_id,
+                COALESCE(SUM(total_commission_cop),0) as total_commission_cop
+            ')
+            ->whereIn('budget_id', $budgetIds)
+            ->groupBy('user_id');
+    }
 
     $butTurnsSub  = DB::connection('budget')->table('budget_user_turns')
         ->selectRaw('user_id, COALESCE(SUM(assigned_turns),0) as assignedTurns')
@@ -447,17 +532,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereBetween('sales.sale_date', [$startDate, $endDate])
         ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
 
-    $ticketRowsQuery->whereExists(function ($q) {
-        $q->select(DB::raw(1))
-            ->from('user_roles as ur')
-            ->join('roles as r', 'r.id', '=', 'ur.role_id')
-            ->whereColumn('ur.user_id', 'sales.seller_id')
-            ->where('r.name', 'Vendedor')
-            ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
-            ->where(function ($q2) {
-                $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
-            });
-    });
+    $this->applySellerRoleForSaleDate($ticketRowsQuery, 'sales.seller_id', 'sales.sale_date');
 
     if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $ticketRowsQuery->whereIn('sales.budget_id', $budgetIds);
@@ -470,18 +545,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
         ->whereBetween('sales.sale_date', [$startDate, $endDate]);
 
-    $globalTicketRowsQuery->whereExists(function ($q) {
-        $q->select(DB::raw(1))
-            ->from('user_roles as ur')
-            ->join('roles as r', 'r.id', '=', 'ur.role_id')
-            ->whereColumn('ur.user_id', 'sales.seller_id')
-            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
-            ->where('r.name', 'Vendedor')
-            ->whereColumn('sales.sale_date', '>=', 'ur.start_date')
-            ->where(function ($q2) {
-                $q2->whereNull('ur.end_date')->orWhereColumn('sales.sale_date', '<=', 'ur.end_date');
-            });
-    });
+    $this->applySellerRoleForSaleDate($globalTicketRowsQuery, 'sales.seller_id', 'sales.sale_date');
 
     if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
         $globalTicketRowsQuery->whereIn('sales.budget_id', $budgetIds);
@@ -601,6 +665,119 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         return $r;
     });
 
+    $rows = $rows->map(function ($r) use ($targetAmount, $totalTurns) {
+        $assignedTurns = (float) ($r->assignedTurns ?? 0);
+        $salesUsd = (float) ($r->total_sales_usd ?? 0);
+        $sellerTargetUsd = ($totalTurns > 0 && $assignedTurns > 0)
+            ? round($targetAmount * ($assignedTurns / $totalTurns), 2)
+            : 0.0;
+        $pct = $sellerTargetUsd > 0
+            ? round(($salesUsd / $sellerTargetUsd) * 100, 2)
+            : 0.0;
+
+        $r->target_usd = $sellerTargetUsd;
+        $r->pct_cumplimiento = $pct;
+        $r->cumplimiento = $pct;
+
+        return $r;
+    });
+
+    if ($hasDateFilter) {
+        $tierByCode = $this->buildCommissionTierMap($budgetIds, $roleId);
+        $filteredSalesQuery = Sale::query()
+            ->leftJoin('products', 'sales.product_id', '=', 'products.id')
+            ->select(
+                'sales.seller_id',
+                'sales.amount_cop',
+                'sales.value_usd',
+                'products.classification as category_code',
+                'products.product_code',
+                'products.upc',
+                'products.sku_mia',
+                'products.upc2',
+                'products.upc3'
+            )
+            ->whereBetween('sales.sale_date', [$startDate, $endDate])
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2']);
+
+        if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+            $filteredSalesQuery->whereIn('sales.budget_id', $budgetIds);
+        }
+
+        $this->applySellerRoleForSaleDate($filteredSalesQuery, 'sales.seller_id', 'sales.sale_date');
+
+        $salesBySellerCategory = [];
+        $categoryTotalsRaw = [];
+
+        foreach ($filteredSalesQuery->get() as $saleRow) {
+            $category = $this->normalizeClassification($this->resolveSaleCategoryCode($saleRow));
+            if ($this->isHiddenClassification($category) || !$this->isReportClassification($category)) {
+                continue;
+            }
+
+            $sellerId = (int) $saleRow->seller_id;
+            if (!isset($salesBySellerCategory[$sellerId])) {
+                $salesBySellerCategory[$sellerId] = [];
+            }
+            if (!isset($salesBySellerCategory[$sellerId][$category])) {
+                $salesBySellerCategory[$sellerId][$category] = [
+                    'sales_usd' => 0.0,
+                    'sales_cop' => 0.0,
+                    'commission_cop' => 0.0,
+                ];
+            }
+            if (!isset($categoryTotalsRaw[$category])) {
+                $categoryTotalsRaw[$category] = [
+                    'classification_raws' => [$category],
+                    'sales_usd' => 0.0,
+                    'sales_cop' => 0.0,
+                    'commission_cop' => 0.0,
+                ];
+            }
+
+            $salesUsd = (float) ($saleRow->value_usd ?? 0);
+            $salesCop = (float) ($saleRow->amount_cop ?? 0);
+
+            $salesBySellerCategory[$sellerId][$category]['sales_usd'] += $salesUsd;
+            $salesBySellerCategory[$sellerId][$category]['sales_cop'] += $salesCop;
+            $categoryTotalsRaw[$category]['sales_usd'] += $salesUsd;
+            $categoryTotalsRaw[$category]['sales_cop'] += $salesCop;
+        }
+
+        $rows = $rows->map(function ($r) use (&$categoryTotalsRaw, $salesBySellerCategory, $participationByCode, $tierByCode) {
+            $sellerId = (int) $r->user_id;
+            $sellerTargetUsd = (float) ($r->target_usd ?? 0);
+            $sellerCommissionCop = 0.0;
+
+            foreach (($salesBySellerCategory[$sellerId] ?? []) as $category => $totals) {
+                $participation = (float) ($participationByCode[$category] ?? 0);
+                $categoryBudgetForUser = round($sellerTargetUsd * ($participation / 100), 2);
+                $pctUser = $categoryBudgetForUser > 0
+                    ? round(((float) $totals['sales_usd'] / $categoryBudgetForUser) * 100, 2)
+                    : null;
+
+                $rates = $tierByCode[$category] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
+                $appliedPct = 0.0;
+                if ($pctUser !== null && $pctUser >= $this->MIN_PCT_TO_QUALIFY) {
+                    if ($pctUser >= 120) {
+                        $appliedPct = $rates['pct120'] ?: ($rates['pct100'] ?: $rates['base']);
+                    } elseif ($pctUser >= 100) {
+                        $appliedPct = $rates['pct100'] ?: $rates['base'];
+                    } else {
+                        $appliedPct = $rates['base'];
+                    }
+                }
+
+                $commissionCop = round(((float) $totals['sales_cop']) * ((float) $appliedPct / 100), 2);
+                $sellerCommissionCop += $commissionCop;
+                $categoryTotalsRaw[$category]['commission_cop'] += $commissionCop;
+            }
+
+            $r->total_commission_cop = round($sellerCommissionCop, 2);
+            return $r;
+        });
+    }
+
     // avg_trm per user using trms table (calculate only for users returned)
     if ($rows->isNotEmpty()) {
         $userIds = $rows->pluck('user_id')->unique()->values()->all();
@@ -702,10 +879,12 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     $remainingTurns = max(0, $totalTurns - $totalAssigned);
 
-    // totals from aggregated table
-    $totalCommissionCop = (float) DB::connection('budget')->table('budget_user_totals')
-        ->whereIn('budget_id', $budgetIds)
-        ->sum('total_commission_cop');
+    // totals from aggregated table, or recalculated from filtered rows when date range is partial
+    $totalCommissionCop = $hasDateFilter
+        ? (float) $rows->sum(fn ($r) => (float) ($r->total_commission_cop ?? 0))
+        : (float) DB::connection('budget')->table('budget_user_totals')
+            ->whereIn('budget_id', $budgetIds)
+            ->sum('total_commission_cop');
 
     // compute totalCopGlobal and totalUsdGlobal from categoryTotalsRaw (used for TRM fallback)
     $totalCopFromCategoryTotals = 0.0;
@@ -792,6 +971,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             'name' => count($budgetIds) === 1 ? $budgets->first()->name : 'Múltiples presupuestos',
             'start_date' => $startDate,
             'end_date' => $endDate,
+            'budget_start_date' => $dateRange['budget_start_date'],
+            'budget_end_date' => $dateRange['budget_end_date'],
+            'has_date_filter' => $hasDateFilter,
             'target_amount' => $targetAmount,
             'min_pct_to_qualify' => $this->MIN_PCT_TO_QUALIFY,
             'total_turns' => $totalTurns
@@ -839,8 +1021,10 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $budgets = Budget::whereIn('id', $budgetIds)->orderBy('start_date')->get();
         abort_if($budgets->isEmpty(), 404, 'Presupuestos no encontrados');
 
-        $startDate = $budgets->min('start_date');
-        $endDate   = $budgets->max('end_date');
+        $dateRange = $this->resolveReportDateRange($request, $budgets);
+        $startDate = $dateRange['start_date'];
+        $endDate   = $dateRange['end_date'];
+        $hasDateFilter = $dateRange['has_date_filter'];
 
         // 🔹 Fechas donde el usuario fue VENDEDOR (no usado directamente but useful)
         $sellerRoleRanges = DB::connection('budget')
@@ -885,6 +1069,8 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         if (Schema::connection('budget')->hasColumn('sales','budget_id')) {
             $salesQuery->whereIn('sales.budget_id', $budgetIds);
         }
+
+        $this->applySellerRoleForSaleDate($salesQuery, 'sales.seller_id', 'sales.sale_date');
 
         $sales = $salesQuery->orderBy('sales.sale_date')->get();
         $sales->each(function ($sale) {
@@ -955,13 +1141,18 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             }
         }
 
-        $commissionRows = DB::connection('budget')
-            ->table('budget_user_category_totals')
-            ->selectRaw('category_group, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
-            ->whereIn('budget_id', $budgetIds)
-            ->where('user_id', $userId)
-            ->groupBy('category_group')
-            ->get();
+        $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
+        $tierByCode = $hasDateFilter ? $this->buildCommissionTierMap($budgetIds, $roleId) : [];
+
+        $commissionRows = $hasDateFilter
+            ? collect()
+            : DB::connection('budget')
+                ->table('budget_user_category_totals')
+                ->selectRaw('category_group, SUM(commission_cop) AS commission_cop, MAX(applied_pct) AS applied_pct')
+                ->whereIn('budget_id', $budgetIds)
+                ->where('user_id', $userId)
+                ->groupBy('category_group')
+                ->get();
 
         $commissionByNorm = [];
         foreach ($commissionRows as $r) {
@@ -997,7 +1188,6 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             ->values();
 
         // aggregate participation map for budgets (global participation)
-        $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
         $participationMap = $this->buildParticipationMap($budgetIds, $roleId);
 
         // total participation (sum) to avoid division by zero if needed
@@ -1111,8 +1301,21 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 ? (float) $data['applied_pct']
                 : 0.0;
 
+            if ($hasDateFilter && $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY) {
+                $rates = $tierByCode[$classificationNorm] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
+                if ($pctOfCategoryUser >= 120) {
+                    $appliedPct = $rates['pct120'] ?: ($rates['pct100'] ?: $rates['base']);
+                } elseif ($pctOfCategoryUser >= 100) {
+                    $appliedPct = $rates['pct100'] ?: $rates['base'];
+                } else {
+                    $appliedPct = $rates['base'];
+                }
+            }
+
             $commissionUsd = 0.0;
-            $calculatedCommissionCop = round($commissionCop, 2);
+            $calculatedCommissionCop = $hasDateFilter
+                ? round($salesCop * ((float) $appliedPct / 100), 2)
+                : round($commissionCop, 2);
             $trmUsed = null;
             if ($salesUsd > 0 && $salesCop > 0) {
                 $trmUsed = $salesCop / $salesUsd;
@@ -1155,20 +1358,28 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             return $this->categoryOrder($a['classification_code']) <=> $this->categoryOrder($b['classification_code']);
         });
 
-        $userTotals = DB::connection('budget')
-            ->table('budget_user_totals')
-            ->selectRaw('
-                COALESCE(SUM(total_sales_usd),0) AS total_sales_usd,
-                COALESCE(SUM(total_sales_cop),0) AS total_sales_cop
-            ')
-            ->whereIn('budget_id', $budgetIds)
-            ->where('user_id', $userId)
-            ->first();
-        $userTotals->total_commission_cop = (float) DB::connection('budget')
-            ->table('budget_user_category_totals')
-            ->whereIn('budget_id', $budgetIds)
-            ->where('user_id', $userId)
-            ->sum('commission_cop');
+        if ($hasDateFilter) {
+            $userTotals = (object) [
+                'total_sales_usd' => (float) $sales->sum(fn ($s) => (float) ($s->value_usd ?? 0)),
+                'total_sales_cop' => (float) $sales->sum(fn ($s) => (float) ($s->amount_cop ?? 0)),
+                'total_commission_cop' => 0.0,
+            ];
+        } else {
+            $userTotals = DB::connection('budget')
+                ->table('budget_user_totals')
+                ->selectRaw('
+                    COALESCE(SUM(total_sales_usd),0) AS total_sales_usd,
+                    COALESCE(SUM(total_sales_cop),0) AS total_sales_cop
+                ')
+                ->whereIn('budget_id', $budgetIds)
+                ->where('user_id', $userId)
+                ->first();
+            $userTotals->total_commission_cop = (float) DB::connection('budget')
+                ->table('budget_user_category_totals')
+                ->whereIn('budget_id', $budgetIds)
+                ->where('user_id', $userId)
+                ->sum('commission_cop');
+        }
 
         if (empty($avgTrmForUser) && $userTotals->total_sales_usd > 0 && $userTotals->total_sales_cop > 0) {
             $avgTrmForUser = round($userTotals->total_sales_cop / $userTotals->total_sales_usd, 2);
@@ -1183,6 +1394,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         }
         $totalCommissionUsdFromCats = round($totalCommissionUsdFromCats, 2);
         $totalCommissionCopFromCats = round($totalCommissionCopFromCats, 2);
+        if ($hasDateFilter) {
+            $userTotals->total_commission_cop = $totalCommissionCopFromCats;
+        }
 
         $totals = [
             'total_commission_cop' => round((float) ($userTotals->total_commission_cop ?? $totalCommissionCopFromCats), 2),
@@ -1272,6 +1486,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 'name' => count($budgetIds) === 1 ? $budgets->first()->name : 'Múltiples presupuestos',
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'budget_start_date' => $dateRange['budget_start_date'],
+                'budget_end_date' => $dateRange['budget_end_date'],
+                'has_date_filter' => $hasDateFilter,
                 'target_amount' => $totalTarget,
                 'total_turns' => $totalTurns
             ],
@@ -1302,13 +1519,6 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             ->where('budget_id', $budget->id)
             ->where('user_id', '!=', $userId)
             ->sum('assigned_turns');
-        if ($totalAssignedExcept + $newValue > $totalTurns) {
-            return response()->json([
-                'message' => 'No hay suficientes turnos disponibles',
-                'available' => max(0, $totalTurns - $totalAssignedExcept)
-            ], 422);
-        }
-
         DB::connection('budget')->table('budget_user_turns')->updateOrInsert(
             [
                 'budget_id' => $budget->id,

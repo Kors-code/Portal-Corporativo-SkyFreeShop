@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\DailyWhatsappReportImageService;
+use App\Services\WhatsappReportSender;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -307,6 +309,69 @@ class VisualizationController extends Controller
             'daily_performance' => $dailyPerformance,
             'transactions' => $transactions,
         ]);
+    }
+
+    public function whatsappDailyReportPreview(Request $request, DailyWhatsappReportImageService $imageService)
+    {
+        $report = $this->dailyWhatsappReportData($request);
+
+        return response($imageService->make($report), 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'inline; filename="daily-whatsapp-report.png"',
+        ]);
+    }
+
+    public function sendWhatsappDailyReport(
+        Request $request,
+        DailyWhatsappReportImageService $imageService,
+        WhatsappReportSender $sender
+    ) {
+        $report = $this->dailyWhatsappReportData($request);
+        $images = $imageService->makeImages($report);
+        $caption = sprintf(
+            'Daily ventas %s - %s',
+            $report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString(),
+            $report['budget']['name'] ?? 'Presupuesto activo'
+        );
+
+        if (count($images) === 1) {
+            $result = [$sender->sendImage((string) $images[0]['bytes'], $caption)];
+        } else {
+            $result = $sender->sendImages($images);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte enviado a WhatsApp.',
+            'images_count' => count($images),
+            'whatsapp' => $result,
+        ]);
+    }
+
+    protected function dailyWhatsappReportData(Request $request): array
+    {
+        $today = now('America/Bogota')->toDateString();
+        $date = $request->query('date', $request->input('date', $today));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+
+        $budget = $this->budgetDB()->table('budgets')
+            ->where('start_date', '<=', $date)
+            ->where('end_date', '>=', $date)
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (!$budget) {
+            abort(422, 'No hay presupuesto activo para la fecha seleccionada.');
+        }
+
+        $dailyRequest = Request::create($request->path(), 'GET', [
+            'budget_id' => $budget->id,
+            'start_date' => (new \DateTimeImmutable((string) $budget->start_date))->format('Y-m-d'),
+            'end_date' => $date,
+            'pdvs' => $this->normalizePdvs($request),
+        ]);
+
+        return $this->cashRegisterClosure($dailyRequest)->getData(true);
     }
 
     protected function normalizePdvs(Request $request): array

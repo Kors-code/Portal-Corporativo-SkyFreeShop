@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
+use App\Services\CommissionService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Throwable;
@@ -62,10 +63,110 @@ private function deletePreviousBatch($file)
 
         DB::connection('budget')->transaction(function () use ($batches) {
             foreach ($batches as $batch) {
-                Sale::where('import_batch_id', $batch->id)->delete();
+                $this->deleteSalesForBatch((int) $batch->id);
                 $batch->delete();
             }
         });
+    }
+
+    private function deleteSalesForBatch(int $batchId): void
+    {
+        $saleIds = DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->pluck('id')
+            ->all();
+
+        if (!empty($saleIds) && Schema::connection('budget')->hasTable('commissions')) {
+            DB::connection('budget')->table('commissions')
+                ->whereIn('sale_id', $saleIds)
+                ->delete();
+        }
+
+        DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->delete();
+    }
+
+    private function recalculateCommissionsForImportBatch(int $batchId): array
+    {
+        $salesQuery = DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId);
+
+        $dateRange = (clone $salesQuery)
+            ->selectRaw('MIN(sale_date) as start_date, MAX(sale_date) as end_date')
+            ->first();
+
+        $budgetIds = [];
+
+        if (Schema::connection('budget')->hasColumn('sales', 'budget_id')) {
+            $budgetIds = (clone $salesQuery)
+                ->whereNotNull('budget_id')
+                ->distinct()
+                ->pluck('budget_id')
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->values()
+                ->all();
+        }
+
+        if (empty($budgetIds) && !empty($dateRange?->start_date) && !empty($dateRange?->end_date)) {
+            $budgetIds = DB::connection('budget')->table('budgets')
+                ->where('start_date', '<=', $dateRange->end_date)
+                ->where('end_date', '>=', $dateRange->start_date)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        $budgetIds = array_values(array_unique($budgetIds));
+        $service = app(CommissionService::class);
+        $results = [];
+
+        foreach ($budgetIds as $budgetId) {
+            $results[$budgetId] = $service->generateForBudget((int) $budgetId);
+        }
+
+        Log::info('IMPORT SALES COMMISSIONS RECALCULATED', [
+            'batch_id' => $batchId,
+            'date_range' => [
+                'start_date' => $dateRange->start_date ?? null,
+                'end_date' => $dateRange->end_date ?? null,
+            ],
+            'budget_ids' => $budgetIds,
+            'results' => $results,
+        ]);
+
+        return [
+            'budget_ids' => $budgetIds,
+            'results' => $results,
+        ];
+    }
+
+    private function tryRecalculateCommissionsForImportBatch(int $batchId): array
+    {
+        try {
+            return $this->recalculateCommissionsForImportBatch($batchId);
+        } catch (Throwable $e) {
+            Log::error('IMPORT SALES COMMISSIONS RECALC FAILED', [
+                'batch_id' => $batchId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->update([
+                    'note' => 'Importacion completada; fallo recalculo de comisiones: ' . Str::limit($e->getMessage(), 500),
+                    'updated_at' => now(),
+                ]);
+
+            return [
+                'budget_ids' => [],
+                'results' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
     }
     protected function logSkip(int $row, string $reason, array $context = []): void
     {
@@ -1061,6 +1162,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'errors_count' => count($errors),
         ]);
 
+        $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
+
         return response()->json([
             'message' => 'Importación completada',
             'processed' => $processed,
@@ -1068,6 +1171,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'created' => $created,
             'errors' => $errors,
             'batch_id' => $batchId,
+            'commission_recalc' => $commissionRecalc,
         ]);
     }
 
@@ -1308,7 +1412,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'updated_at' => now(),
             ]);
             Storage::delete($data['path']);
+            $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
         } else {
+            $commissionRecalc = null;
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
                 'note' => "Ultimo chunk OK {$startRow}-{$lastRow}; siguiente fila {$nextRow}; {$timing['total_ms']} ms",
                 'updated_at' => now(),
@@ -1323,6 +1429,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'total_rows' => max(0, $absoluteHighestRow - 1),
             'summary' => $result,
             'timing' => $timing,
+            'commission_recalc' => $commissionRecalc,
         ]);
     }
 
@@ -1552,18 +1659,11 @@ protected function parseDate($value, string $context = 'sale'): ?string
         DB::connection('budget')->beginTransaction();
 
         try {
-            $processingIds = DB::connection('budget')->table('import_batches')
-                ->whereIn('id', $ids)
-                ->where('status', 'processing')
-                ->where('rows', '>', 0)
-                ->pluck('id')
-                ->all();
+            $deleteIds = array_map('intval', $ids);
 
-            $deleteIds = array_values(array_diff($ids, $processingIds));
-
-            DB::connection('budget')->table('sales')
-                ->whereIn('import_batch_id', $deleteIds)
-                ->delete();
+            foreach ($deleteIds as $batchId) {
+                $this->deleteSalesForBatch($batchId);
+            }
 
             DB::connection('budget')->table('import_batches')
                 ->whereIn('id', $deleteIds)
@@ -1574,7 +1674,6 @@ protected function parseDate($value, string $context = 'sale'): ?string
             return response()->json([
                 'message' => 'Batches eliminados',
                 'deleted' => count($deleteIds),
-                'skipped_processing' => $processingIds,
             ]);
         } catch (Throwable $e) {
             DB::connection('budget')->rollBack();
