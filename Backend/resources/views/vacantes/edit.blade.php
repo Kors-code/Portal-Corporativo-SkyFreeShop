@@ -32,7 +32,7 @@
         <textarea name="descripcion" rows="2" required>{{ old('descripcion', $vacante->descripcion) }}</textarea>
         
         <label>Requisito IA:</label>
-        <input type="text" name="requisito_ia" value="{{ old('requisito_ia', $vacante->requisito_ia) }}" required>
+        <textarea name="requisito_ia" rows="3" required>{{ old('requisito_ia', $vacante->requisito_ia) }}</textarea>
         
         <label>Salario</label>
         <input type="text" name="salario" value="{{ old('salario', $vacante->salario) }}" required>
@@ -42,10 +42,10 @@
             <label>Beneficios</label>
             @php $beneficios = old('beneficios', $vacante->beneficios ?? []); @endphp
             @foreach($beneficios as $beneficio)
-                <input type="text" name="beneficios[]" value="{{ $beneficio }}" required>
+                <textarea name="beneficios[]" rows="2" required>{{ $beneficio }}</textarea>
             @endforeach
             @if(empty($beneficios))
-                <input type="text" name="beneficios[]" value="">
+                <textarea name="beneficios[]" rows="2"></textarea>
             @endif
         </div>
         <button type="button" id="btn-agregarbeneficio">➕ Añadir beneficio</button>
@@ -56,10 +56,10 @@
             <label>Requisitos</label>
             @php $requisitos = old('requisitos', $vacante->requisitos ?? []); @endphp
             @foreach($requisitos as $req)
-                <input type="text" name="requisitos[]" value="{{ $req }}">
+                <textarea name="requisitos[]" rows="2">{{ $req }}</textarea>
             @endforeach
             @if(empty($requisitos))
-                <input type="text" name="requisitos[]" value="">
+                <textarea name="requisitos[]" rows="2"></textarea>
             @endif
         </div>
         <button type="button" id="btn-agregar">➕ Añadir Requisito</button>
@@ -108,4 +108,5 @@
         <button type="submit">✅ Guardar cambios</button>
     </form>
 </div>
+<script src="{{ asset('js/añadirRequisitos.js') }}" defer></script>
 @endsection

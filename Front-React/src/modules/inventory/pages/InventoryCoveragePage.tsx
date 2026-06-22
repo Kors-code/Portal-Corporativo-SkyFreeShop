@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -714,24 +714,130 @@ function FilterSelect({
   options: string[];
   onChange: (value: string) => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = normalizeForSearch(query);
+
+    if (!normalizedQuery) {
+      return options;
+    }
+
+    return options.filter((option) => normalizeForSearch(option).includes(normalizedQuery));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => inputRef.current?.focus(), 0);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isOpen]);
+
+  const selectOption = (nextValue: string) => {
+    onChange(nextValue);
+    setQuery("");
+    setIsOpen(false);
+  };
+
   return (
     <FieldCard label={label}>
-      <div className="relative">
-        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+      <div ref={wrapperRef} className="relative">
+        <div className="pointer-events-none absolute left-4 top-[27px] -translate-y-1/2 text-slate-400">
           {icon}
         </div>
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+        <button
+          type="button"
+          onClick={() => setIsOpen((current) => !current)}
+          className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-left text-sm outline-none transition hover:bg-white focus:border-slate-400 focus:bg-white"
         >
-          <option value="">Todos</option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <span className={`min-w-0 truncate ${value ? "font-medium text-slate-800" : "text-slate-500"}`}>
+            {value || "Todos"}
+          </span>
+          <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 transition ${isOpen ? "rotate-90" : ""}`} />
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.16)]">
+            <div className="border-b border-slate-100 p-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setIsOpen(false);
+                    }
+                    if (event.key === "Enter" && filteredOptions.length === 1) {
+                      selectOption(filteredOptions[0]);
+                    }
+                  }}
+                  placeholder={`Escribe ${label.toLowerCase()}`}
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+              </div>
+              <div className="mt-2 text-xs font-medium text-slate-400">
+                {query.trim()
+                  ? `${filteredOptions.length} resultado${filteredOptions.length === 1 ? "" : "s"}`
+                  : `${options.length} opcion${options.length === 1 ? "" : "es"}`}
+              </div>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto p-2">
+              <button
+                type="button"
+                onClick={() => selectOption("")}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                  !value ? "bg-slate-900 font-semibold text-white" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Todos
+                {!value && <CheckCircle2 className="h-4 w-4" />}
+              </button>
+
+              {filteredOptions.map((option) => {
+                const selected = option === value;
+
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => selectOption(option)}
+                    className={`mt-1 flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                      selected ? "bg-slate-900 font-semibold text-white" : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate">{option}</span>
+                    {selected && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
+
+              {filteredOptions.length === 0 && (
+                <div className="px-3 py-6 text-center text-sm font-medium text-slate-400">
+                  Sin resultados
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </FieldCard>
   );
@@ -902,6 +1008,14 @@ function uniqueValues(
         .filter((value) => value.length > 0)
     )
   ).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function normalizeForSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function formatNumber(value: number): string {

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
@@ -168,6 +169,51 @@ private function deletePreviousBatch($file)
             ];
         }
     }
+
+    private function recalculateInventoryMetricsForImportBatch(int $batchId): array
+    {
+        $storeIds = DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->whereNotNull('store_id')
+            ->distinct()
+            ->pluck('store_id')
+            ->map(fn ($storeId) => (int) $storeId)
+            ->filter()
+            ->values()
+            ->all();
+
+        foreach ($storeIds as $storeId) {
+            Artisan::call('inventory:metrics', ['--store_id' => $storeId]);
+        }
+
+        Log::info('IMPORT SALES INVENTORY METRICS RECALCULATED', [
+            'batch_id' => $batchId,
+            'store_ids' => $storeIds,
+        ]);
+
+        return [
+            'store_ids' => $storeIds,
+        ];
+    }
+
+    private function tryRecalculateInventoryMetricsForImportBatch(int $batchId): array
+    {
+        try {
+            return $this->recalculateInventoryMetricsForImportBatch($batchId);
+        } catch (Throwable $e) {
+            Log::error('IMPORT SALES INVENTORY METRICS RECALC FAILED', [
+                'batch_id' => $batchId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'store_ids' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
     protected function logSkip(int $row, string $reason, array $context = []): void
     {
         Log::warning('IMPORT SKIP', [

@@ -94,9 +94,9 @@ public function update(Request $request, $slug)
         'salario' => 'required|string|max:255',
         'localidad' => 'required|string|max:255',
         'beneficios' => 'nullable|array',
-        'beneficios.*' => 'nullable|string|max:255',
+        'beneficios.*' => 'nullable|string',
         'requisitos' => 'nullable|array',
-        'requisitos.*' => 'nullable|string|max:255',
+        'requisitos.*' => 'nullable|string',
         'criterios' => 'required|array',
         'criterios.*' => 'nullable|integer|min:0|max:100',
     ]);

@@ -60,7 +60,7 @@
     </ul>
     <p><strong>🎯 Este campo ayuda a que la IA evalúe correctamente la compatibilidad entre el candidato y la vacante.</strong></p>
 </div>
-        <input type="text" name="requisito_ia" required>
+        <textarea name="requisito_ia" rows="3" required></textarea>
         </label>
         <label>Salario</label>
         <small class="descripcion-campo">
@@ -73,7 +73,7 @@
         <small class="descripcion-campo">
             Visible para los candidatos
         </small>
-        <input type="text" name="beneficios[]" required>
+        <textarea name="beneficios[]" rows="2" required></textarea>
         </label>
             
         </div>
@@ -85,7 +85,7 @@
             <small class="descripcion-campo">
                 *Ejemplo: mínimo 1 año de experiencia, nivel intermedio de inglés, etc.
             </small>
-            <input type="text" name="requisitos[]">
+            <textarea name="requisitos[]" rows="2"></textarea>
             
         </div>
     </div>
