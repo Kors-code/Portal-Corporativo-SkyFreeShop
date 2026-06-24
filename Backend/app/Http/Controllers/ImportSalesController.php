@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
 use App\Services\CommissionService;
+use App\Services\WhatsappReportJobService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Throwable;
@@ -209,6 +210,49 @@ private function deletePreviousBatch($file)
 
             return [
                 'store_ids' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function reportDateForImportBatch(int $batchId): ?string
+    {
+        $date = DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->max('sale_date');
+
+        return $date ? (new \DateTimeImmutable((string) $date))->format('Y-m-d') : null;
+    }
+
+    private function tryQueueStoreSalesWhatsappForImportBatch(int $batchId): array
+    {
+        try {
+            $date = $this->reportDateForImportBatch($batchId);
+            $job = app(WhatsappReportJobService::class)->enqueue('store_sales', $date, [
+                'import_batch_id' => $batchId,
+            ]);
+
+            Log::info('IMPORT SALES STORE WHATSAPP QUEUED', [
+                'batch_id' => $batchId,
+                'job_id' => $job->id,
+                'date' => $date,
+            ]);
+
+            return [
+                'ok' => true,
+                'queued' => true,
+                'job_id' => $job->id,
+                'date' => $date,
+            ];
+        } catch (Throwable $e) {
+            Log::error('IMPORT SALES STORE WHATSAPP QUEUE FAILED', [
+                'batch_id' => $batchId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'ok' => false,
                 'error' => $e->getMessage(),
             ];
         }
@@ -1209,6 +1253,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
 
         $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
+        $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch((int) $batchId);
 
         return response()->json([
             'message' => 'Importación completada',
@@ -1218,6 +1263,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'errors' => $errors,
             'batch_id' => $batchId,
             'commission_recalc' => $commissionRecalc,
+            'store_whatsapp' => $storeWhatsapp,
         ]);
     }
 
@@ -1459,8 +1505,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ]);
             Storage::delete($data['path']);
             $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
+            $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch($batchId);
         } else {
             $commissionRecalc = null;
+            $storeWhatsapp = null;
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
                 'note' => "Ultimo chunk OK {$startRow}-{$lastRow}; siguiente fila {$nextRow}; {$timing['total_ms']} ms",
                 'updated_at' => now(),
@@ -1476,6 +1524,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'summary' => $result,
             'timing' => $timing,
             'commission_recalc' => $commissionRecalc,
+            'store_whatsapp' => $storeWhatsapp,
         ]);
     }
 

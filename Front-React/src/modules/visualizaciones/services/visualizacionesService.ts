@@ -105,6 +105,49 @@ export type CashClosureResponse = {
   }>;
 };
 
+export type StoreSalesRow = {
+  code: string;
+  label: string;
+  total_usd: number;
+  trx: number;
+  tkt_usd: number;
+  units: number;
+  units_per_ticket: number;
+};
+
+export type StoreSalesResponse = {
+  date: string;
+  stores: StoreSalesRow[];
+  totals: Omit<StoreSalesRow, "code">;
+  meta_usd: number;
+  compliance_pct: number;
+};
+
+export type AdvisorSalesRow = {
+  user_id: number;
+  advisor: string;
+  seller_code: string | null;
+  total_usd: number;
+  trx: number;
+  tkt_usd: number;
+  units: number;
+  units_per_ticket: number;
+};
+
+export type AdvisorSalesResponse = {
+  date: string;
+  advisors: AdvisorSalesRow[];
+  totals: {
+    label: string;
+    total_usd: number;
+    trx: number;
+    tkt_usd: number;
+    units: number;
+    units_per_ticket: number;
+    advisors_count: number;
+  };
+};
+
 export async function getCashRegisterClosure(params: {
   date?: string;
   start_date?: string;
@@ -125,6 +168,52 @@ export async function sendDailyWhatsappReport(params: {
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
     "/visualizaciones/daily-whatsapp/send",
+    {},
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function getStoreSalesSummary(params: {
+  date?: string;
+}): Promise<StoreSalesResponse> {
+  const response = await api.get<StoreSalesResponse>(
+    "/visualizaciones/ventas-tiendas",
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function sendStoreSalesWhatsappReport(params: {
+  date?: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const response = await api.post<{ ok: boolean; message: string }>(
+    "/visualizaciones/ventas-tiendas/whatsapp/send",
+    {},
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function getAdvisorSalesSummary(params: {
+  date?: string;
+}): Promise<AdvisorSalesResponse> {
+  const response = await api.get<AdvisorSalesResponse>(
+    "/visualizaciones/ventas-asesores",
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function sendAdvisorSalesWhatsappReport(params: {
+  date?: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const response = await api.post<{ ok: boolean; message: string }>(
+    "/visualizaciones/ventas-asesores/whatsapp/send",
     {},
     { params }
   );

@@ -256,7 +256,8 @@ class InventoryReportService
                 }) ?? $group->first();
 
                 $stock = $group->sum(fn ($row) => (float) ($row->stock_actual ?? 0));
-                $monthColumns = $this->mergeMonthlySales($group->pluck('monthly_sales_json')->all());
+                $salesMetricRows = $this->uniqueSalesMetricRows($group);
+                $monthColumns = $this->mergeMonthlySales($salesMetricRows->pluck('monthly_sales_json')->all());
                 $storeLabels = $group
                     ->map(fn ($row) => $this->inventoryGroupCode((string) ($row->store_code ?? '')))
                     ->filter()
@@ -264,9 +265,9 @@ class InventoryReportService
                     ->values();
 
                 $primary->stock_actual = $stock;
-                $primary->total_ventas = $group->sum(fn ($row) => (float) ($row->total_ventas ?? 0));
-                $primary->maximo_dia = $group->sum(fn ($row) => (float) ($row->maximo_dia ?? 0));
-                $primary->promedio_diario = $group->sum(fn ($row) => (float) ($row->promedio_diario ?? 0));
+                $primary->total_ventas = $salesMetricRows->sum(fn ($row) => (float) ($row->total_ventas ?? 0));
+                $primary->maximo_dia = $salesMetricRows->sum(fn ($row) => (float) ($row->maximo_dia ?? 0));
+                $primary->promedio_diario = $salesMetricRows->sum(fn ($row) => (float) ($row->promedio_diario ?? 0));
                 $primary->monthly_sales_json = json_encode($monthColumns);
 
                 if ($storeLabels->count() > 1) {
@@ -295,6 +296,15 @@ class InventoryReportService
                 return $primary;
             })
             ->values();
+    }
+
+    private function uniqueSalesMetricRows($rows)
+    {
+        return collect($rows)->unique(function ($row) {
+            return $this->normalizeStoreCode(
+                (string) ($row->sales_store_code ?? $row->store_code ?? '')
+            );
+        })->values();
     }
 
     private function mergeMonthlySales(array $monthlySalesJson): array

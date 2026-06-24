@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\BudgetProgressController;
 use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\TurnsImportController;
+use App\Http\Controllers\Api\WhatsappAutomationController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
@@ -29,6 +30,8 @@ Route::get('/test-api', function () {
 });
 Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
 Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk']);
+Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next']);
+Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete']);
 Route::get('/v1/ping', function () {
     return response()->json([
         'status' => 'ok',

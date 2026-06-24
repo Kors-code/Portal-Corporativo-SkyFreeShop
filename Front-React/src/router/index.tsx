@@ -34,6 +34,8 @@ import ListadoEntregasPage from "../modules/entregas/pages/ListadoEntregasPage";
 import VisualizacionesGuard from "../modules/visualizaciones/components/VisualizacionesGuard";
 import VisualizacionesHub from "../modules/visualizaciones/pages/VisualizacionesHub";
 import CashClosureDashboard from "../modules/visualizaciones/pages/CashClosureDashboard";
+import StoreSalesDashboard from "../modules/visualizaciones/pages/StoreSalesDashboard";
+import AdvisorSalesDashboard from "../modules/visualizaciones/pages/AdvisorSalesDashboard";
 
 
 
@@ -74,6 +76,8 @@ export default function AppRouter() {
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/visualizaciones" element={<VisualizacionesGuard><VisualizacionesHub /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/cierre-caja" element={<VisualizacionesGuard><CashClosureDashboard /></VisualizacionesGuard>} />
+          <Route path="/visualizaciones/ventas-tiendas" element={<VisualizacionesGuard><StoreSalesDashboard /></VisualizacionesGuard>} />
+          <Route path="/visualizaciones/ventas-asesores" element={<VisualizacionesGuard><AdvisorSalesDashboard /></VisualizacionesGuard>} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
           <Route path="/entregas" element={<EntregasDashboardPage />} />

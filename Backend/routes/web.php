@@ -359,10 +359,31 @@ Route::middleware('auth')->group(function () {
         Route::get('visualizaciones/cierre-caja', [VisualizationController::class, 'cashRegisterClosure'])
             ->middleware('permission:visualizations.view');
 
+        Route::get('visualizaciones/ventas-tiendas', [VisualizationController::class, 'storeSalesSummary'])
+            ->middleware('permission:visualizations.view');
+
+        Route::get('visualizaciones/ventas-tiendas/whatsapp/preview', [VisualizationController::class, 'storeSalesWhatsappPreview'])
+            ->middleware('permission:visualizations.view');
+
+        Route::post('visualizaciones/ventas-tiendas/whatsapp/send', [VisualizationController::class, 'sendStoreSalesWhatsappReport'])
+            ->middleware('permission:visualizations.view');
+
+        Route::get('visualizaciones/ventas-asesores', [VisualizationController::class, 'advisorSalesSummary'])
+            ->middleware('permission:visualizations.view');
+
+        Route::get('visualizaciones/ventas-asesores/whatsapp/preview', [VisualizationController::class, 'advisorSalesWhatsappPreview'])
+            ->middleware('permission:visualizations.view');
+
+        Route::post('visualizaciones/ventas-asesores/whatsapp/send', [VisualizationController::class, 'sendAdvisorSalesWhatsappReport'])
+            ->middleware('permission:visualizations.view');
+
         Route::get('visualizaciones/daily-whatsapp/preview', [VisualizationController::class, 'whatsappDailyReportPreview'])
             ->middleware('permission:visualizations.view');
 
         Route::post('visualizaciones/daily-whatsapp/send', [VisualizationController::class, 'sendWhatsappDailyReport'])
+            ->middleware('permission:visualizations.view');
+
+        Route::post('visualizaciones/daily-whatsapp/send-to-recipients', [VisualizationController::class, 'sendWhatsappDailyNumberReport'])
             ->middleware('permission:visualizations.view');
 
         /* ------------------------------ Entregas --------------------------- */
@@ -660,6 +681,12 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/visualizaciones/cierre-caja', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/visualizaciones/ventas-tiendas', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/visualizaciones/ventas-asesores', fn () => view('panel'))
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/entregas/{any?}', fn () => view('panel'))

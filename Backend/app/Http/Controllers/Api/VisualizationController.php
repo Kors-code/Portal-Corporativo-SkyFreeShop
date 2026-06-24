@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\DailyWhatsappReportImageService;
+use App\Services\AdvisorSalesWhatsappImageService;
+use App\Services\StoreSalesWhatsappImageService;
+use App\Services\WhatsappNumberReportSender;
 use App\Services\WhatsappReportSender;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -348,7 +351,86 @@ class VisualizationController extends Controller
         ]);
     }
 
-    protected function dailyWhatsappReportData(Request $request): array
+    public function sendWhatsappDailyNumberReport(
+        Request $request,
+        DailyWhatsappReportImageService $imageService,
+        WhatsappNumberReportSender $sender
+    ) {
+        $report = $this->dailyWhatsappReportData($request);
+        $images = $imageService->makeImages($report);
+        $result = $sender->sendImages($images);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte diario enviado a numeros de WhatsApp.',
+            'images_count' => count($images),
+            'whatsapp' => $result,
+        ]);
+    }
+
+    public function storeSalesSummary(Request $request)
+    {
+        return response()->json($this->storeSalesReportData($request));
+    }
+
+    public function storeSalesWhatsappPreview(Request $request, StoreSalesWhatsappImageService $imageService)
+    {
+        $report = $this->storeSalesReportData($request);
+
+        return response($imageService->make($report), 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'inline; filename="ventas-tiendas-whatsapp.png"',
+        ]);
+    }
+
+    public function sendStoreSalesWhatsappReport(
+        Request $request,
+        StoreSalesWhatsappImageService $imageService,
+        WhatsappNumberReportSender $sender
+    ) {
+        $report = $this->storeSalesReportData($request);
+        $caption = sprintf('Ventas por tiendas - %s', $report['date']);
+        $result = $sender->sendImage($imageService->make($report), $caption);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte de ventas por tiendas enviado a WhatsApp.',
+            'whatsapp' => $result,
+        ]);
+    }
+
+    public function advisorSalesSummary(Request $request)
+    {
+        return response()->json($this->advisorSalesReportData($request));
+    }
+
+    public function advisorSalesWhatsappPreview(Request $request, AdvisorSalesWhatsappImageService $imageService)
+    {
+        $report = $this->advisorSalesReportData($request);
+
+        return response($imageService->make($report), 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'inline; filename="ventas-asesores-whatsapp.png"',
+        ]);
+    }
+
+    public function sendAdvisorSalesWhatsappReport(
+        Request $request,
+        AdvisorSalesWhatsappImageService $imageService,
+        WhatsappNumberReportSender $sender
+    ) {
+        $report = $this->advisorSalesReportData($request);
+        $caption = sprintf('Ventas por asesor - %s', $report['date']);
+        $result = $sender->sendImage($imageService->make($report), $caption);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte de ventas por asesor enviado a WhatsApp.',
+            'whatsapp' => $result,
+        ]);
+    }
+
+    public function dailyWhatsappReportData(Request $request): array
     {
         $today = now('America/Bogota')->toDateString();
         $date = $request->query('date', $request->input('date', $today));
@@ -372,6 +454,133 @@ class VisualizationController extends Controller
         ]);
 
         return $this->cashRegisterClosure($dailyRequest)->getData(true);
+    }
+
+    public function storeSalesReportData(Request $request): array
+    {
+        $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $storeMap = [
+            'COLS2' => 'MDE DE ARRIVALS',
+            'COLS1' => 'MDE DE DEPARTURES',
+        ];
+
+        $base = $this->budgetDB()->table('sales as s')
+            ->whereDate('s.sale_date', $date)
+            ->whereIn('s.pdv', array_keys($storeMap));
+        $this->excludeGpwCategory($base);
+
+        $rows = (clone $base)
+            ->selectRaw("
+                s.pdv,
+                COALESCE(SUM(s.value_usd), 0) as total_usd,
+                COALESCE(SUM(s.quantity), 0) as units,
+                COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as trx
+            ")
+            ->groupBy('s.pdv')
+            ->get()
+            ->keyBy('pdv');
+
+        $stores = [];
+        foreach ($storeMap as $code => $label) {
+            $row = $rows->get($code);
+            $sales = (float) ($row->total_usd ?? 0);
+            $trx = (int) ($row->trx ?? 0);
+            $units = (float) ($row->units ?? 0);
+
+            $stores[] = [
+                'code' => $code,
+                'label' => $label,
+                'total_usd' => round($sales, 2),
+                'trx' => $trx,
+                'tkt_usd' => $trx > 0 ? round($sales / $trx, 2) : 0,
+                'units' => round($units, 2),
+                'units_per_ticket' => $trx > 0 ? round($units / $trx, 2) : 0,
+            ];
+        }
+
+        $totalSales = array_sum(array_column($stores, 'total_usd'));
+        $totalTrx = array_sum(array_column($stores, 'trx'));
+        $totalUnits = array_sum(array_column($stores, 'units'));
+        $meta = round((float) ($this->budgetDailyByDate($date, $date)[$date] ?? 0), 2);
+
+        return [
+            'date' => $date,
+            'stores' => $stores,
+            'totals' => [
+                'label' => 'Globales',
+                'total_usd' => round($totalSales, 2),
+                'trx' => $totalTrx,
+                'tkt_usd' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0,
+                'units' => round($totalUnits, 2),
+                'units_per_ticket' => $totalTrx > 0 ? round($totalUnits / $totalTrx, 2) : 0,
+            ],
+            'meta_usd' => $meta,
+            'compliance_pct' => $meta > 0 ? round(($totalSales / $meta) * 100, 2) : 0,
+        ];
+    }
+
+    public function advisorSalesReportData(Request $request): array
+    {
+        $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+
+        $base = $this->budgetDB()->table('sales as s')
+            ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
+            ->whereDate('s.sale_date', $date)
+            ->whereNotNull('s.seller_id')
+            ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) <> 'VENTAS MOSTRADOR'");
+        $this->excludeGpwCategory($base);
+
+        $advisors = (clone $base)
+            ->selectRaw("
+                s.seller_id as user_id,
+                COALESCE(NULLIF(TRIM(u.name), ''), CONCAT('Asesor ', s.seller_id)) as advisor,
+                u.codigo_vendedor as seller_code,
+                COALESCE(SUM(s.value_usd), 0) as total_usd,
+                COALESCE(SUM(s.quantity), 0) as units,
+                COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as trx
+            ")
+            ->groupBy('s.seller_id', 'u.name', 'u.codigo_vendedor')
+            ->havingRaw('COALESCE(SUM(s.value_usd), 0) <> 0')
+            ->orderByDesc('total_usd')
+            ->get()
+            ->map(function ($row) {
+                $sales = (float) ($row->total_usd ?? 0);
+                $trx = (int) ($row->trx ?? 0);
+                $units = (float) ($row->units ?? 0);
+
+                return [
+                    'user_id' => (int) $row->user_id,
+                    'advisor' => $row->advisor,
+                    'seller_code' => $row->seller_code,
+                    'total_usd' => round($sales, 2),
+                    'trx' => $trx,
+                    'tkt_usd' => $trx > 0 ? round($sales / $trx, 2) : 0,
+                    'units' => round($units, 2),
+                    'units_per_ticket' => $trx > 0 ? round($units / $trx, 2) : 0,
+                ];
+            })
+            ->values()
+            ->all();
+
+        $totalSales = array_sum(array_column($advisors, 'total_usd'));
+        $totalTrx = array_sum(array_column($advisors, 'trx'));
+        $totalUnits = array_sum(array_column($advisors, 'units'));
+
+        return [
+            'date' => $date,
+            'advisors' => $advisors,
+            'totals' => [
+                'label' => 'Total asesores',
+                'total_usd' => round($totalSales, 2),
+                'trx' => $totalTrx,
+                'tkt_usd' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0,
+                'units' => round($totalUnits, 2),
+                'units_per_ticket' => $totalTrx > 0 ? round($totalUnits / $totalTrx, 2) : 0,
+                'advisors_count' => count($advisors),
+            ],
+        ];
     }
 
     protected function normalizePdvs(Request $request): array

@@ -9,6 +9,20 @@ const dashboards = [
     icon: BarChart3,
     status: "Disponible",
   },
+  {
+    title: "Ventas por tiendas",
+    description: "Resumen ejecutivo diario de arrivals y departures con ventas, transacciones, ticket promedio y unidades por ticket.",
+    to: "/visualizaciones/ventas-tiendas",
+    icon: TrendingUp,
+    status: "Prueba",
+  },
+  {
+    title: "Ventas por asesor",
+    description: "Cierre diario por asesor con ventas, transacciones, ticket promedio y unidades por ticket para envio de fin de dia.",
+    to: "/visualizaciones/ventas-asesores",
+    icon: CalendarDays,
+    status: "23:59",
+  },
 ];
 
 export default function VisualizacionesHub() {

@@ -8,12 +8,13 @@ use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 class Kernel extends ConsoleKernel
 {
     /**
-     * Define el horario de los comandos de la aplicación.
+     * Define el horario de los comandos de la aplicacion.
      */
-    protected function schedule(\Illuminate\Console\Scheduling\Schedule $schedule)
-{
-    $schedule->command('inventory:metrics')->dailyAt('01:00');
-}
+    protected function schedule(Schedule $schedule)
+    {
+        $schedule->command('inventory:metrics')->dailyAt('01:00');
+        $schedule->command('reports:send-advisor-sales-whatsapp')->dailyAt('23:59');
+    }
 
     /**
      * Registra los comandos personalizados.
