@@ -63,7 +63,7 @@ export default function AdvisorSalesDashboard() {
       setError("");
       setMessage("");
       const result = await sendAdvisorSalesWhatsappReport({ date });
-      setMessage(result.message || "Reporte enviado a WhatsApp.");
+      setMessage(result.message || "Reporte encolado para WhatsApp.");
     } catch (err) {
       console.error(err);
       setError("No se pudo enviar a WhatsApp. Revisa que el servicio este conectado.");
@@ -100,7 +100,7 @@ export default function AdvisorSalesDashboard() {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             <Send size={16} />
-            {sending ? "Enviando..." : "WhatsApp numero"}
+            {sending ? "Encolando..." : "WhatsApp numero"}
           </button>
         </div>
       </section>

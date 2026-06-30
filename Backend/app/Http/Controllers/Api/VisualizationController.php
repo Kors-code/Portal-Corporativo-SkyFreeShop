@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\DailyWhatsappReportImageService;
 use App\Services\AdvisorSalesWhatsappImageService;
 use App\Services\StoreSalesWhatsappImageService;
+use App\Services\WhatsappReportJobService;
 use App\Services\WhatsappNumberReportSender;
 use App\Services\WhatsappReportSender;
 use Illuminate\Http\Request;
@@ -368,6 +369,27 @@ class VisualizationController extends Controller
         ]);
     }
 
+    public function queueWhatsappDailyReport(Request $request, WhatsappReportJobService $jobs)
+    {
+        $date = $request->query('date', $request->input('date', now('America/Bogota')->toDateString()));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+
+        $job = $jobs->enqueue('daily', $date, [
+            'pdvs' => $this->normalizePdvs($request),
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte diario encolado para WhatsApp.',
+            'job' => [
+                'id' => $job->id,
+                'type' => $job->type,
+                'status' => $job->status,
+                'report_date' => optional($job->report_date)->toDateString(),
+            ],
+        ]);
+    }
+
     public function storeSalesSummary(Request $request)
     {
         return response()->json($this->storeSalesReportData($request));
@@ -399,6 +421,24 @@ class VisualizationController extends Controller
         ]);
     }
 
+    public function queueStoreSalesWhatsappReport(Request $request, WhatsappReportJobService $jobs)
+    {
+        $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $job = $jobs->enqueue('store_sales', $date);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte de ventas por tiendas encolado para WhatsApp.',
+            'job' => [
+                'id' => $job->id,
+                'type' => $job->type,
+                'status' => $job->status,
+                'report_date' => optional($job->report_date)->toDateString(),
+            ],
+        ]);
+    }
+
     public function advisorSalesSummary(Request $request)
     {
         return response()->json($this->advisorSalesReportData($request));
@@ -427,6 +467,24 @@ class VisualizationController extends Controller
             'ok' => true,
             'message' => 'Reporte de ventas por asesor enviado a WhatsApp.',
             'whatsapp' => $result,
+        ]);
+    }
+
+    public function queueAdvisorSalesWhatsappReport(Request $request, WhatsappReportJobService $jobs)
+    {
+        $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
+        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $job = $jobs->enqueue('advisor_sales', $date);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reporte de ventas por asesor encolado para WhatsApp.',
+            'job' => [
+                'id' => $job->id,
+                'type' => $job->type,
+                'status' => $job->status,
+                'report_date' => optional($job->report_date)->toDateString(),
+            ],
         ]);
     }
 

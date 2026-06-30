@@ -224,9 +224,25 @@ private function deletePreviousBatch($file)
         return $date ? (new \DateTimeImmutable((string) $date))->format('Y-m-d') : null;
     }
 
-    private function tryQueueStoreSalesWhatsappForImportBatch(int $batchId): array
+    private function tryQueueStoreSalesWhatsappForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
     {
         try {
+            $quality = $this->importQualityForWhatsapp($batchId, $expectedRows, $lastSummary);
+
+            if (!$quality['ok']) {
+                Log::warning('IMPORT SALES STORE WHATSAPP NOT QUEUED', [
+                    'batch_id' => $batchId,
+                    'quality' => $quality,
+                ]);
+
+                return [
+                    'ok' => true,
+                    'queued' => false,
+                    'reason' => $quality['reason'],
+                    'quality' => $quality,
+                ];
+            }
+
             $date = $this->reportDateForImportBatch($batchId);
             $job = app(WhatsappReportJobService::class)->enqueue('store_sales', $date, [
                 'import_batch_id' => $batchId,
@@ -256,6 +272,67 @@ private function deletePreviousBatch($file)
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    private function importQualityForWhatsapp(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
+    {
+        $batch = DB::connection('budget')->table('import_batches')
+            ->select('status')
+            ->where('id', $batchId)
+            ->first();
+
+        $insertedRows = (int) DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->count();
+
+        $skippedRows = (int) ($lastSummary['skipped'] ?? 0);
+        $errorsCount = count($lastSummary['errors'] ?? []);
+
+        if (($batch->status ?? null) !== 'done') {
+            return [
+                'ok' => false,
+                'reason' => 'La importacion no quedo completada.',
+                'status' => $batch->status ?? null,
+                'expected_rows' => $expectedRows,
+                'inserted_rows' => $insertedRows,
+                'skipped_rows' => $skippedRows,
+                'errors_count' => $errorsCount,
+            ];
+        }
+
+        if ($errorsCount > 0) {
+            return [
+                'ok' => false,
+                'reason' => 'La importacion termino, pero tuvo errores de filas.',
+                'status' => $batch->status ?? null,
+                'expected_rows' => $expectedRows,
+                'inserted_rows' => $insertedRows,
+                'skipped_rows' => $skippedRows,
+                'errors_count' => $errorsCount,
+            ];
+        }
+
+        if ($insertedRows <= 0) {
+            return [
+                'ok' => false,
+                'reason' => 'La importacion no genero ventas para reportar.',
+                'status' => $batch->status ?? null,
+                'expected_rows' => $expectedRows,
+                'inserted_rows' => $insertedRows,
+                'skipped_rows' => $skippedRows,
+                'errors_count' => $errorsCount,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'reason' => 'Importacion completa.',
+            'status' => $batch->status ?? null,
+            'expected_rows' => $expectedRows,
+            'inserted_rows' => $insertedRows,
+            'skipped_rows' => $skippedRows,
+            'errors_count' => $errorsCount,
+        ];
     }
 
     protected function logSkip(int $row, string $reason, array $context = []): void
@@ -1253,7 +1330,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
 
         $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
-        $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch((int) $batchId);
+        $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch((int) $batchId, $totalRowsExcel, [
+            'skipped' => $skipped,
+            'errors' => $errors,
+        ]);
 
         return response()->json([
             'message' => 'Importación completada',
@@ -1505,7 +1585,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ]);
             Storage::delete($data['path']);
             $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
-            $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch($batchId);
+            $totalRows = max(0, $absoluteHighestRow - 1);
+            $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch($batchId, $totalRows, $result);
         } else {
             $commissionRecalc = null;
             $storeWhatsapp = null;

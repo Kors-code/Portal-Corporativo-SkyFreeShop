@@ -1142,7 +1142,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         }
 
         $roleId = $request->query('role_id') ? (int)$request->query('role_id') : null;
-        $tierByCode = $hasDateFilter ? $this->buildCommissionTierMap($budgetIds, $roleId) : [];
+        $tierByCode = $this->buildCommissionTierMap($budgetIds, $roleId);
 
         $commissionRows = $hasDateFilter
             ? collect()
@@ -1301,7 +1301,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 ? (float) $data['applied_pct']
                 : 0.0;
 
-            if ($hasDateFilter && $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY) {
+            if (($hasDateFilter || $appliedPct <= 0) && $pctOfCategoryUser !== null && $pctOfCategoryUser >= $this->MIN_PCT_TO_QUALIFY) {
                 $rates = $tierByCode[$classificationNorm] ?? ['base' => 0.0, 'pct100' => 0.0, 'pct120' => 0.0];
                 if ($pctOfCategoryUser >= 120) {
                     $appliedPct = $rates['pct120'] ?: ($rates['pct100'] ?: $rates['base']);
@@ -1313,7 +1313,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             }
 
             $commissionUsd = 0.0;
-            $calculatedCommissionCop = $hasDateFilter
+            $calculatedCommissionCop = ($hasDateFilter || ((float) $commissionCop <= 0 && (float) $appliedPct > 0))
                 ? round($salesCop * ((float) $appliedPct / 100), 2)
                 : round($commissionCop, 2);
             $trmUsed = null;
@@ -1398,8 +1398,11 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             $userTotals->total_commission_cop = $totalCommissionCopFromCats;
         }
 
+        $storedTotalCommissionCop = round((float) ($userTotals->total_commission_cop ?? 0), 2);
+        $displayTotalCommissionCop = max($storedTotalCommissionCop, $totalCommissionCopFromCats);
+
         $totals = [
-            'total_commission_cop' => round((float) ($userTotals->total_commission_cop ?? $totalCommissionCopFromCats), 2),
+            'total_commission_cop' => round($displayTotalCommissionCop, 2),
             'total_sales_cop' => $userTotals->total_sales_cop ?? 0,
             'total_sales_usd' => $userTotals->total_sales_usd ?? 0,
             'avg_trm' => $avgTrmForUser,

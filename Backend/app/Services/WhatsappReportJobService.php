@@ -20,16 +20,35 @@ class WhatsappReportJobService
 
     public function enqueueUniqueDaily(string $type, string $reportDate, array $payload = []): WhatsappReportJob
     {
-        return WhatsappReportJob::firstOrCreate(
-            [
+        $date = Carbon::parse($reportDate)->toDateString();
+
+        $job = WhatsappReportJob::query()
+            ->where('type', $type)
+            ->whereDate('report_date', $date)
+            ->first();
+
+        if (!$job) {
+            return WhatsappReportJob::create([
                 'type' => $type,
-                'report_date' => Carbon::parse($reportDate)->toDateString(),
                 'status' => 'pending',
-            ],
-            [
+                'report_date' => $date,
                 'payload' => $payload,
                 'available_at' => now(),
-            ]
-        );
+            ]);
+        }
+
+        if ($job->status === 'failed') {
+            $job->update([
+                'status' => 'pending',
+                'attempts' => 0,
+                'payload' => $payload,
+                'last_error' => null,
+                'available_at' => now(),
+                'locked_at' => null,
+                'sent_at' => null,
+            ]);
+        }
+
+        return $job;
     }
 }

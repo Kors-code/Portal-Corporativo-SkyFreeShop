@@ -107,6 +107,8 @@ class CommissionService
             $totalTurns = $this->TOTAL_TURNS;
         }
 
+        $commissionTargetAmount = $this->commissionTargetAmount($budget, $budgetId);
+
         // check column existence in budget connection
         $hasBudgetIdCol = false;
         try {
@@ -133,7 +135,7 @@ class CommissionService
         $totalUsd = (float) $totalUsdQuery->sum(new Expression('COALESCE(value_usd,0)'));
         $totalCop = (float) $totalCopQuery->sum(new Expression('COALESCE(amount_cop,0)'));
 
-        $pct = ($budget->target_amount > 0) ? ($totalUsd / $budget->target_amount) * 100 : 0;
+        $pct = ($commissionTargetAmount > 0) ? ($totalUsd / $commissionTargetAmount) * 100 : 0;
         $isProvisional = $pct < $this->MIN_PCT_TO_QUALIFY;
 
         Log::info('[COMMISSION] Budget progress', [
@@ -296,7 +298,7 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
             // 4) pctUserByGroup (usar categoryGroupMap)
             $pctUserByGroup = [];
             foreach ($assignedTurnsByUser as $uid => $assigned) {
-                $userBudgetUsd = $totalTurns > 0 ? round($budget->target_amount * ($assigned / $totalTurns), 2) : 0.0;
+                $userBudgetUsd = $totalTurns > 0 ? round($commissionTargetAmount * ($assigned / $totalTurns), 2) : 0.0;
 
                 foreach ($categoryGroupMap as $grp => $meta) {
                     $participation = $meta['participation_pct'] ?? 0;
@@ -584,6 +586,26 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
             ->value('id');
 
         return $id ? (int) $id : null;
+    }
+
+    private function commissionTargetAmount($budget, ?int $budgetId): float
+    {
+        $targetAmount = (float) ($budget->target_amount ?? 0);
+
+        if (!$budgetId || !Schema::connection('budget')->hasColumn('category_commissions', 'participation_value')) {
+            return $targetAmount;
+        }
+
+        $sellerRoleId = $this->sellerRoleId() ?? 1;
+        $discountAmount = (float) $this->budgetDB()
+            ->table('category_commissions as cc')
+            ->join('categories as c', 'c.id', '=', 'cc.category_id')
+            ->where('cc.budget_id', $budgetId)
+            ->where('cc.role_id', $sellerRoleId)
+            ->where('c.classification_code', '25')
+            ->sum('cc.participation_value');
+
+        return max(0.0, $targetAmount - $discountAmount);
     }
 
     /**

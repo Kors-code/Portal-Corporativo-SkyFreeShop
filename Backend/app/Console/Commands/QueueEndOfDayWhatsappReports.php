@@ -13,7 +13,7 @@ class QueueEndOfDayWhatsappReports extends Command
 
     public function handle(WhatsappReportJobService $jobs): int
     {
-        $date = $this->option('date') ?: now('America/Bogota')->toDateString();
+        $date = $this->option('date') ?: now('America/Bogota')->subDay()->toDateString();
 
         $daily = $jobs->enqueueUniqueDaily('daily', $date);
         $advisors = $jobs->enqueueUniqueDaily('advisor_sales', $date);

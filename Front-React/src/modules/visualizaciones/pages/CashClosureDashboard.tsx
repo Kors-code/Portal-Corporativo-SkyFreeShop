@@ -302,8 +302,8 @@ export default function CashClosureDashboard() {
       setSendingWhatsapp(true);
       setError("");
       setWhatsappMessage("");
-      const result = await sendDailyWhatsappReport({ pdvs: selectedPdvs });
-      setWhatsappMessage(result.message || "Reporte enviado a WhatsApp.");
+      const result = await sendDailyWhatsappReport({ date: rangeEnd || undefined, pdvs: selectedPdvs });
+      setWhatsappMessage(result.message || "Reporte encolado para WhatsApp.");
     } catch (err) {
       console.error(err);
       setError("No se pudo enviar el reporte a WhatsApp. Revisa que el servicio este conectado y configurado.");
@@ -329,7 +329,7 @@ export default function CashClosureDashboard() {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             <Send size={16} />
-            {sendingWhatsapp ? "Enviando..." : "WhatsApp"}
+            {sendingWhatsapp ? "Encolando..." : "WhatsApp"}
           </button>
           <button
             onClick={exportCsv}

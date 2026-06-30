@@ -368,6 +368,9 @@ Route::middleware('auth')->group(function () {
         Route::post('visualizaciones/ventas-tiendas/whatsapp/send', [VisualizationController::class, 'sendStoreSalesWhatsappReport'])
             ->middleware('permission:visualizations.view');
 
+        Route::post('visualizaciones/ventas-tiendas/whatsapp/queue', [VisualizationController::class, 'queueStoreSalesWhatsappReport'])
+            ->middleware('permission:visualizations.view');
+
         Route::get('visualizaciones/ventas-asesores', [VisualizationController::class, 'advisorSalesSummary'])
             ->middleware('permission:visualizations.view');
 
@@ -377,10 +380,16 @@ Route::middleware('auth')->group(function () {
         Route::post('visualizaciones/ventas-asesores/whatsapp/send', [VisualizationController::class, 'sendAdvisorSalesWhatsappReport'])
             ->middleware('permission:visualizations.view');
 
+        Route::post('visualizaciones/ventas-asesores/whatsapp/queue', [VisualizationController::class, 'queueAdvisorSalesWhatsappReport'])
+            ->middleware('permission:visualizations.view');
+
         Route::get('visualizaciones/daily-whatsapp/preview', [VisualizationController::class, 'whatsappDailyReportPreview'])
             ->middleware('permission:visualizations.view');
 
         Route::post('visualizaciones/daily-whatsapp/send', [VisualizationController::class, 'sendWhatsappDailyReport'])
+            ->middleware('permission:visualizations.view');
+
+        Route::post('visualizaciones/daily-whatsapp/queue', [VisualizationController::class, 'queueWhatsappDailyReport'])
             ->middleware('permission:visualizations.view');
 
         Route::post('visualizaciones/daily-whatsapp/send-to-recipients', [VisualizationController::class, 'sendWhatsappDailyNumberReport'])

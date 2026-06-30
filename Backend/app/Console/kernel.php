@@ -13,7 +13,7 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('inventory:metrics')->dailyAt('01:00');
-        $schedule->command('reports:send-advisor-sales-whatsapp')->dailyAt('23:59');
+        $schedule->command('reports:queue-end-of-day-whatsapp')->dailyAt('01:05');
     }
 
     /**

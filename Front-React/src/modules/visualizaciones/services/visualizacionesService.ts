@@ -164,10 +164,11 @@ export async function getCashRegisterClosure(params: {
 }
 
 export async function sendDailyWhatsappReport(params: {
+  date?: string;
   pdvs?: string[];
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/daily-whatsapp/send",
+    "/visualizaciones/daily-whatsapp/queue",
     {},
     { params }
   );
@@ -190,7 +191,7 @@ export async function sendStoreSalesWhatsappReport(params: {
   date?: string;
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/ventas-tiendas/whatsapp/send",
+    "/visualizaciones/ventas-tiendas/whatsapp/queue",
     {},
     { params }
   );
@@ -213,7 +214,7 @@ export async function sendAdvisorSalesWhatsappReport(params: {
   date?: string;
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/ventas-asesores/whatsapp/send",
+    "/visualizaciones/ventas-asesores/whatsapp/queue",
     {},
     { params }
   );
