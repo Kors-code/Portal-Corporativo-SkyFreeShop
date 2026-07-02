@@ -117,14 +117,6 @@ class InventoryImportController extends Controller
                     ->where('batch_id', $batchId)
                     ->count();
 
-            DB::connection('budget')->table('inventory')
-                ->where('store_id', $storeId)
-                ->where(function ($query) use ($batchId) {
-                    $query->where('batch_id', '!=', $batchId)
-                        ->orWhereNull('batch_id');
-                })
-                ->delete();
-
             DB::connection('budget')->table('inventory_import_batches')
                 ->where('store_id', $storeId)
                 ->where('id', '!=', $batchId)

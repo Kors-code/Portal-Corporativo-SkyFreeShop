@@ -2,6 +2,7 @@
 
 namespace App\Imports;
 
+use App\Models\Inventario\ProductInventoryConfig;
 use App\Models\Product;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\ToCollection;
@@ -15,6 +16,7 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
     private int $skipped = 0;
     private int $duplicates = 0;
     private int $warnings = 0;
+    private int $inventoryConfigsUpdated = 0;
     private array $seenProductCodes = [];
 
     public function collection(Collection $rows)
@@ -51,6 +53,22 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             $type = $this->pick($row, ['type', 'tipo']);
             $origin = $this->pick($row, ['origen', 'origin']);
             $line = $this->pick($row, ['line', 'linea']);
+            $factorCaja = $this->number($this->pick($row, [
+                'factor_caja',
+                'factor_cajas',
+                'f_c',
+                'fc',
+                'factor_conversion',
+                'factor_de_conversion',
+                'factor_covnersion',
+                'factor_de_covnersion',
+                'factor_conv',
+                'conversion',
+                'unidades_por_caja',
+                'unds_por_caja',
+                'units_per_box',
+                'case_pack',
+            ]));
 
             $incomingSnapshot = [
                 'upc' => $upc1,
@@ -97,6 +115,15 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             $product->currency = $product->currency ?: 'USD';
             $product->save();
 
+            if ($factorCaja !== null && $factorCaja > 0) {
+                $config = ProductInventoryConfig::firstOrNew(['product_id' => $product->id]);
+                if ((float) ($config->factor_caja ?? 0) !== (float) $factorCaja) {
+                    $config->factor_caja = $factorCaja;
+                    $config->save();
+                    $this->inventoryConfigsUpdated++;
+                }
+            }
+
             $wasRecentlyCreated ? $this->created++ : $this->updated++;
             $this->processed++;
         }
@@ -111,6 +138,7 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             'skipped' => $this->skipped,
             'duplicates' => $this->duplicates,
             'warnings' => $this->warnings,
+            'inventory_configs_updated' => $this->inventoryConfigsUpdated,
         ];
     }
 

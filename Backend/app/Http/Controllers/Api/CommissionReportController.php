@@ -194,6 +194,25 @@ class CommissionReportController extends Controller
         return $sum;
     }
 
+    private function adjustedSellerTargetAmount($budgets, array $budgetIds): float
+    {
+        $targetAmount = $this->aggregateTargetAmount($budgets);
+
+        if (empty($budgetIds) || !Schema::connection('budget')->hasColumn('category_commissions', 'participation_value')) {
+            return $targetAmount;
+        }
+
+        $discountAmount = (float) DB::connection('budget')
+            ->table('category_commissions as cc')
+            ->join('categories as c', 'c.id', '=', 'cc.category_id')
+            ->whereIn('cc.budget_id', $budgetIds)
+            ->where('cc.role_id', 1)
+            ->where('c.classification_code', '25')
+            ->sum('cc.participation_value');
+
+        return max(0.0, $targetAmount - $discountAmount);
+    }
+
     private function resolveReportDateRange(Request $request, $budgets): array
     {
         $budgetStart = Carbon::parse($budgets->min('start_date'))->toDateString();
@@ -430,6 +449,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     // canonical target amount (uses fallback)
     $targetAmount = $this->aggregateTargetAmount($budgets);
+    $sellerTargetAmount = $this->adjustedSellerTargetAmount($budgets, $budgetIds);
 
     // participation map and category totals (normalized)
     $participationByCode = $this->buildParticipationMap($budgetIds, $roleId);
@@ -665,11 +685,11 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         return $r;
     });
 
-    $rows = $rows->map(function ($r) use ($targetAmount, $totalTurns) {
+    $rows = $rows->map(function ($r) use ($sellerTargetAmount, $totalTurns) {
         $assignedTurns = (float) ($r->assignedTurns ?? 0);
         $salesUsd = (float) ($r->total_sales_usd ?? 0);
         $sellerTargetUsd = ($totalTurns > 0 && $assignedTurns > 0)
-            ? round($targetAmount * ($assignedTurns / $totalTurns), 2)
+            ? round($sellerTargetAmount * ($assignedTurns / $totalTurns), 2)
             : 0.0;
         $pct = $sellerTargetUsd > 0
             ? round(($salesUsd / $sellerTargetUsd) * 100, 2)
@@ -1201,22 +1221,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
         $totalTurns = $budgets->sum('total_turns') ?: $this->TOTAL_TURNS;
         $totalTarget = $this->aggregateTargetAmount($budgets);
-            $discountAmount = DB::connection('budget')
-                ->table('category_commissions as cc')
-                ->join('categories as c', 'c.id', '=', 'cc.category_id')
-                ->whereIn('cc.budget_id', $budgetIds)
-                ->where('cc.role_id', 1)
-                ->where('c.classification_code', '25')
-                ->sum('cc.participation_value');
-            
-            // target final
-            $adjustedTarget = $totalTarget - $discountAmount;
-            
-            Log::info("
-            Total Target: {$totalTarget}
-            Discount Amount: {$discountAmount}
-            Adjusted Target: {$adjustedTarget}
-            ");
+        $adjustedTarget = $this->adjustedSellerTargetAmount($budgets, $budgetIds);
 
         $userBudgetUsd = $totalTurns > 0
             ? round($adjustedTarget * ($assignedToUser / $totalTurns), 2)

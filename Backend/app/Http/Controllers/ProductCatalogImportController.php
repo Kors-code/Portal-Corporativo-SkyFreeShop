@@ -15,6 +15,26 @@ class ProductCatalogImportController extends Controller
     private const CHUNK_SIZE = 500;
     private const DIR = 'catalog-imports';
 
+    public function importAutomation(Request $request)
+    {
+        if (!$this->authorized($request)) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
+
+        $request->validate([
+            'file' => $this->spreadsheetFileRules(),
+        ]);
+
+        $import = new ProductCatalogImport();
+        Excel::import($import, $request->file('file'));
+
+        return response()->json([
+            'message' => 'Catalogo importado correctamente por automatizacion.',
+            'filename' => $request->file('file')->getClientOriginalName(),
+            'summary' => $import->summary(),
+        ]);
+    }
+
     public function import(Request $request)
     {
         $request->validate([
@@ -140,5 +160,27 @@ class ProductCatalogImportController extends Controller
         $header = preg_replace('/_+/', '_', $header);
 
         return trim($header, '_');
+    }
+
+    private function authorized(Request $request): bool
+    {
+        $token = (string) env('IMPORT_AUTOMATION_TOKEN');
+
+        return $token !== '' && hash_equals($token, (string) $request->header('X-Automation-Token'));
+    }
+
+    private function spreadsheetFileRules(): array
+    {
+        return [
+            'required',
+            'file',
+            function (string $attribute, $value, \Closure $fail): void {
+                $extension = strtolower($value->getClientOriginalExtension() ?: '');
+
+                if (!in_array($extension, ['xlsx', 'xls', 'xlsm', 'csv'], true)) {
+                    $fail('El archivo debe ser de tipo: xlsx, xls, xlsm o csv.');
+                }
+            },
+        ];
     }
 }

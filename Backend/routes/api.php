@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\WhatsappAutomationController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
+use App\Http\Controllers\ProductCatalogImportController;
 use App\Http\Controllers\EntregaController;
 
 
@@ -30,6 +31,7 @@ Route::get('/test-api', function () {
 });
 Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
 Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk']);
+Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation']);
 Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next']);
 Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete']);
 Route::get('/v1/ping', function () {
@@ -48,6 +50,10 @@ Route::get('/v1/ping', function () {
         Route::middleware('auth:sanctum')->group(function () {
             Route::get('me', [MobileAuthController::class, 'me']);
             Route::post('logout', [MobileAuthController::class, 'logout']);
+            Route::get('budgets', [BudgetController::class, 'index']);
+            Route::get('budgets/active', [BudgetController::class, 'active']);
+            Route::get('commissions/my', [CommissionReportController::class, 'myCommissions']);
+            Route::get('commissions/my/export', [CommissionReportController::class, 'myExport']);
         });
     });
 

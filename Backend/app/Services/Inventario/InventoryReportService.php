@@ -62,8 +62,10 @@ class InventoryReportService
 
         $metricKeys = DB::connection('budget')
             ->table('product_metrics as pm')
+            ->join('stores as pm_st', 'pm_st.id', '=', 'pm.store_id')
             ->select('pm.product_id', 'pm.store_id')
-            ->when(!empty($storeIds), fn ($q) => $q->whereIn('pm.store_id', $storeIds));
+            ->when(!empty($storeIds), fn ($q) => $q->whereIn('pm.store_id', $storeIds))
+            ->whereRaw($this->salesMetricStoreSql('pm_st.code'));
 
         $inventoryKeys = DB::connection('budget')
             ->table('inventory as i')
@@ -108,12 +110,14 @@ class InventoryReportService
             })
             ->leftJoin('product_metrics as pm', function ($join) {
                 $join->on('pm.product_id', '=', 'base.product_id')
+                    ->whereRaw($this->salesMetricStoreSql('st.code'))
                     ->on('pm.store_id', '=', DB::raw('COALESCE(sales_st.id, base.store_id)'));
             })
             ->leftJoinSub($latestInventory, 'inv', function ($join) {
                 $join->on('inv.product_id', '=', 'base.product_id')
                     ->on('inv.store_id', '=', 'base.store_id');
             })
+            ->leftJoin('product_inventory_configs as pic', 'pic.product_id', '=', 'base.product_id')
             ->select([
                 'p.id as product_id',
                 'base.store_id',
@@ -126,7 +130,7 @@ class InventoryReportService
                 'p.description',
                 'p.classification_desc',
                 DB::raw('COALESCE(inv.stock_actual, 0) as stock_actual'),
-                DB::raw('COALESCE(inv.factor_caja, 1) as factor_caja'),
+                DB::raw('COALESCE(NULLIF(pic.factor_caja, 0), NULLIF(inv.factor_caja, 0), 1) as factor_caja'),
                 DB::raw('COALESCE(pm.total_ventas, 0) as total_ventas'),
                 DB::raw('COALESCE(pm.maximo_mes, 0) as maximo_mes'),
                 DB::raw('COALESCE(pm.maximo_dia, 0) as maximo_dia'),
@@ -251,7 +255,8 @@ class InventoryReportService
                 }
 
                 $primary = $group->first(function ($row) {
-                    return $this->normalizeStoreCode((string) ($row->store_code ?? '')) ===
+                    return !$this->isInventoryOnlyWarehouseCode((string) ($row->store_code ?? '')) &&
+                        $this->normalizeStoreCode((string) ($row->store_code ?? '')) ===
                         $this->normalizeStoreCode((string) ($row->sales_store_code ?? ''));
                 }) ?? $group->first();
 
@@ -300,11 +305,14 @@ class InventoryReportService
 
     private function uniqueSalesMetricRows($rows)
     {
-        return collect($rows)->unique(function ($row) {
-            return $this->normalizeStoreCode(
-                (string) ($row->sales_store_code ?? $row->store_code ?? '')
-            );
-        })->values();
+        return collect($rows)
+            ->reject(fn ($row) => $this->isInventoryOnlyWarehouseCode((string) ($row->store_code ?? '')))
+            ->unique(function ($row) {
+                return $this->normalizeStoreCode(
+                    (string) ($row->sales_store_code ?? $row->store_code ?? '')
+                );
+            })
+            ->values();
     }
 
     private function mergeMonthlySales(array $monthlySalesJson): array
@@ -337,7 +345,7 @@ class InventoryReportService
     {
         $code = $this->inventoryGroupCode($storeCode);
 
-        return in_array($code, ['COLS1', 'COLS2'], true) ? 'COLS' : $code;
+        return in_array($code, ['COLS1', 'COLS2', 'COLZ1'], true) ? 'COLS' : $code;
     }
 
     private function salesStoreCodeFor(string $storeCode): ?string
@@ -355,14 +363,29 @@ class InventoryReportService
         };
     }
 
+    private function isInventoryOnlyWarehouseCode(string $storeCode): bool
+    {
+        return in_array($this->normalizeStoreCode($storeCode), ['COLZ1'], true);
+    }
+
     private function normalizeStoreCode(string $storeCode): string
     {
         return strtoupper(str_replace(' ', '', trim($storeCode)));
     }
 
+    private function normalizedStoreCodeSql(string $column): string
+    {
+        return 'UPPER(REPLACE(' . $column . ', " ", ""))';
+    }
+
+    private function salesMetricStoreSql(string $column): string
+    {
+        return 'COALESCE(' . $this->normalizedStoreCodeSql($column) . ', "") NOT IN ("COLZ1")';
+    }
+
     private function salesStoreCodeSql(string $column): string
     {
-        $normalized = 'UPPER(REPLACE(' . $column . ', " ", ""))';
+        $normalized = $this->normalizedStoreCodeSql($column);
 
         return 'CASE ' .
             'WHEN ' . $normalized . ' REGEXP "^COLB[0-9]+$" THEN CONCAT("COLS", SUBSTRING(' . $normalized . ', 5)) ' .

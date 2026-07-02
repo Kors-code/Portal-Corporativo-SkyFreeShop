@@ -39,7 +39,13 @@ class InventoryImport implements ToCollection, WithHeadingRow
                 }
 
                 $product = Product::on('budget')
-                    ->where('product_code', $productCode)
+                    ->where(function ($query) use ($productCode) {
+                        $query->where('product_code', $productCode)
+                            ->orWhere('sku_mia', $productCode)
+                            ->orWhere('upc', $productCode)
+                            ->orWhere('upc2', $productCode)
+                            ->orWhere('upc3', $productCode);
+                    })
                     ->first();
 
                 if (!$product) {
@@ -95,6 +101,7 @@ class InventoryImport implements ToCollection, WithHeadingRow
                     [
                         'product_id' => $product->id,
                         'store_id' => $this->store->id,
+                        'toDate' => $toDate,
                     ],
                     [
                         'batch_id' => $this->batchId,

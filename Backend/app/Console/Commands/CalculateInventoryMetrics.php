@@ -18,6 +18,7 @@ class CalculateInventoryMetrics extends Command
         $salesStoreId = $storeId ? $this->resolveSalesStoreId($storeId) : null;
 
         $dailySalesQuery = DB::connection('budget')->table('sales as s')
+            ->join('stores as st', 'st.id', '=', 's.store_id')
             ->selectRaw('
                 s.product_id,
                 s.store_id,
@@ -25,6 +26,7 @@ class CalculateInventoryMetrics extends Command
                 SUM(COALESCE(s.quantity, 0)) as daily_sales
             ')
             ->whereNotNull('s.sale_date')
+            ->whereRaw($this->salesMetricStoreSql('st.code'))
             ->when($salesStoreId, fn ($q) => $q->where('s.store_id', $salesStoreId))
             ->groupBy('s.product_id', 's.store_id', 's.sale_date');
 
@@ -142,5 +144,10 @@ class CalculateInventoryMetrics extends Command
             'ARRIVALS' => 'COLS2',
             default => $code ?: null,
         };
+    }
+
+    private function salesMetricStoreSql(string $column): string
+    {
+        return 'COALESCE(UPPER(REPLACE(' . $column . ', " ", "")), "") NOT IN ("COLZ1")';
     }
 }
