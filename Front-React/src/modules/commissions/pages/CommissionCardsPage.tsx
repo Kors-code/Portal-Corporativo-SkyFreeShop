@@ -54,6 +54,8 @@ export default function CommissionCardsPage() {
   const [categoriesSummaryGlobal, setCategoriesSummaryGlobal] = useState<CategoryRow[]>([]);
   const [rows, setRows] = useState<SellerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rectifyingRoles, setRectifyingRoles] = useState(false);
+  const [generatingCommissions, setGeneratingCommissions] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<number | null>(null);
   const selectedSeller = useMemo(
     () => rows.find(r => Number(r.user_id) === Number(selectedSellerId)) ?? null,
@@ -177,6 +179,7 @@ export default function CommissionCardsPage() {
     if (!confirm(`¿Deseas generar/actualizar las comisiones para ${budgetIds.length} presupuesto(s) seleccionado(s)?`)) return;
 
     try {
+      setGeneratingCommissions(true);
       const promises = [api.post(`commissions/generate?budget_id=${budgetIds[0]}`)];
       const results = await Promise.allSettled(promises);
       if (results[0]?.status === 'rejected') {
@@ -204,9 +207,48 @@ export default function CommissionCardsPage() {
     } catch (err) {
       console.error(err);
       alert('Error al generar comisiones');
+    } finally {
+      setGeneratingCommissions(false);
     }
   };
 
+  const onRectifyRoles = async () => {
+    if (!budgetIds || budgetIds.length === 0) {
+      alert('Selecciona al menos un presupuesto antes de rectificar roles.');
+      return;
+    }
+
+    try {
+      setRectifyingRoles(true);
+      const preview = await api.post('commissions/rectify-sales-roles', {
+        budget_ids: budgetIds,
+        dry_run: true,
+      });
+      const previewData = preview.data ?? {};
+      const apply = confirm(
+        `Previsualizacion lista. Presupuestos: ${previewData.budgets_count ?? budgetIds.length}. Usuarios: ${previewData.users_count ?? 0}. Rangos: ${previewData.ranges_count ?? 0}.\n\nAplicar cambios ahora en la BD local?`
+      );
+
+      if (!apply) return;
+
+      const res = await api.post('commissions/rectify-sales-roles', {
+        budget_ids: budgetIds,
+        apply: true,
+      });
+      const data = res.data ?? {};
+      const backupKeys = Array.isArray(data.results)
+        ? data.results.map((r: any) => r.backup_key).filter(Boolean)
+        : [];
+      alert(`Roles rectificados. Presupuestos: ${data.budgets_count ?? budgetIds.length}. Usuarios: ${data.users_count ?? 0}. Rangos: ${data.ranges_count ?? 0}. Insertados: ${data.inserted_rows ?? 0}. Fusionados: ${data.merged_rows ?? 0}. Backup filas: ${data.backup_rows ?? 0}.${backupKeys.length ? `\nBackups: ${backupKeys.join(', ')}` : ''}`);
+      await load();
+    } catch (err: any) {
+      console.error(err);
+      const message = err?.response?.data?.message ?? 'Error al rectificar roles';
+      alert(message);
+    } finally {
+      setRectifyingRoles(false);
+    }
+  };
   const moneyUSD = (v:number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0);
   const moneyCOP = (v:number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
   const pct = (v?: number | null) => `${Number(v ?? 0).toFixed(1)}%`;
@@ -367,7 +409,20 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
 
             <div className="mt-3 space-y-2">
               <button onClick={load} className="w-full text-sm px-3 py-2 bg-indigo-600 text-white rounded">Cargar selección</button>
-              <button onClick={onGenerate} className="w-full text-sm px-3 py-2 bg-green-600 text-white rounded">Generar comisiones</button>
+              <button
+                onClick={onRectifyRoles}
+                disabled={rectifyingRoles}
+                className="w-full text-sm px-3 py-2 bg-amber-600 text-white rounded disabled:opacity-60"
+              >
+                {rectifyingRoles ? 'Rectificando roles...' : 'Rectificar roles'}
+              </button>
+              <button
+                onClick={onGenerate}
+                disabled={generatingCommissions}
+                className="w-full text-sm px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60"
+              >
+                {generatingCommissions ? 'Generando...' : 'Generar comisiones'}
+              </button>
               <button onClick={downloadExcel} className="w-full text-sm px-3 py-2 bg-blue-600 text-white rounded">Exportar Excel</button>
             </div>
           </div>
@@ -425,7 +480,20 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
 
             <div className="flex gap-2 mt-2">
               <button onClick={load} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded">Cargar</button>
-              <button onClick={onGenerate} className="flex-1 px-3 py-2 bg-green-600 text-white rounded">Generar</button>
+              <button
+                onClick={onRectifyRoles}
+                disabled={rectifyingRoles}
+                className="flex-1 px-3 py-2 bg-amber-600 text-white rounded disabled:opacity-60"
+              >
+                {rectifyingRoles ? 'Roles...' : 'Roles'}
+              </button>
+              <button
+                onClick={onGenerate}
+                disabled={generatingCommissions}
+                className="flex-1 px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60"
+              >
+                {generatingCommissions ? 'Generando...' : 'Generar'}
+              </button>
               <button onClick={downloadExcel} className="flex-1 px-3 py-2 bg-blue-600 text-white rounded">Exportar</button>
             </div>
           </div>

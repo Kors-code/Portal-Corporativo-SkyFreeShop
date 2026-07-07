@@ -2,6 +2,8 @@ import type { InventoryMetricItem } from "../services/inventoryService";
 
 type CoverageRow = InventoryMetricItem & {
   suggested_purchase?: number | null;
+  suggested_purchase_cases?: number | null;
+  factor_conversion_error?: boolean | null;
 };
 
 type Props = {
@@ -60,6 +62,7 @@ export default function InventoryCoverageTable({
           ) : (
             rows.map((item) => {
               const monthEntries = getMonthEntries(item.month_columns);
+              const noSalesCodes = item.no_sales_store_codes ?? [];
 
               return (
                 <div
@@ -84,10 +87,20 @@ export default function InventoryCoverageTable({
                   </div>
 
                   <MetricBlock label="Auditoria mensual" className="lg:hidden">
-                    <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
+                    <MonthAudit
+                      entries={monthEntries}
+                      maxKey={item.maximo_mes_key}
+                      missingMonthStoreCodes={item.missing_month_store_codes}
+                    />
+                    <NoSalesNotice codes={noSalesCodes} />
                   </MetricBlock>
                   <div className="hidden min-w-0 lg:block">
-                    <MonthAudit entries={monthEntries} maxKey={item.maximo_mes_key} />
+                    <MonthAudit
+                      entries={monthEntries}
+                      maxKey={item.maximo_mes_key}
+                      missingMonthStoreCodes={item.missing_month_store_codes}
+                    />
+                    <NoSalesNotice codes={noSalesCodes} />
                   </div>
 
                   <MetricBlock label="Max mes">
@@ -105,6 +118,13 @@ export default function InventoryCoverageTable({
                     <div className="inline-flex rounded-xl bg-sky-100 px-3 py-2 text-lg font-bold text-sky-900">
                       {formatNumber(item.suggested_purchase)}
                     </div>
+                    {item.factor_conversion_error ? (
+                      <div className="mt-1 text-xs font-semibold text-rose-600">Sin factor</div>
+                    ) : (
+                      <div className="mt-1 text-xs text-slate-500">
+                        {formatNumber(item.suggested_purchase_cases)} cajas
+                      </div>
+                    )}
                   </MetricBlock>
 
                   <MetricBlock label="Estado">
@@ -158,9 +178,11 @@ function MetricBlock({
 function MonthAudit({
   entries,
   maxKey,
+  missingMonthStoreCodes,
 }: {
   entries: Array<[string, number]>;
   maxKey?: string | null;
+  missingMonthStoreCodes?: Record<string, string[]> | null;
 }) {
   if (entries.length === 0) {
     return <span className="text-slate-400">Sin ventas mensuales</span>;
@@ -171,6 +193,7 @@ function MonthAudit({
       <div className="flex flex-wrap gap-1.5">
       {entries.map(([monthKey, value]) => {
         const active = monthKey === maxKey;
+        const missingCodes = missingMonthStoreCodes?.[monthKey] ?? [];
         return (
           <span
             key={monthKey}
@@ -179,14 +202,36 @@ function MonthAudit({
                 ? "bg-slate-900 font-semibold text-white"
                 : "bg-slate-100 text-slate-600"
             }`}
-            title={`${monthKey}: ${formatNumber(value)}`}
+            title={`${monthKey}: ${formatNumber(value)}${
+              missingCodes.length > 0 ? ` | Sin ventas ${missingCodes.join(", ")}` : ""
+            }`}
           >
             <span>{monthKey}</span>
             <span>{formatNumber(value)}</span>
+            {missingCodes.map((code) => (
+              <span
+                key={code}
+                className={`rounded-full px-1.5 text-[10px] font-bold ${
+                  active ? "bg-rose-100 text-rose-700" : "bg-rose-50 text-rose-600"
+                }`}
+              >
+                {code}
+              </span>
+            ))}
           </span>
         );
       })}
       </div>
+    </div>
+  );
+}
+
+function NoSalesNotice({ codes }: { codes: string[] }) {
+  if (codes.length === 0) return null;
+
+  return (
+    <div className="mt-1 text-xs font-medium text-rose-600">
+      Sin ventas {codes.join(", ")}
     </div>
   );
 }

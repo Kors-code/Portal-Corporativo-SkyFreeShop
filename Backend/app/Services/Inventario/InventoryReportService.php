@@ -2,10 +2,14 @@
 
 namespace App\Services\Inventario;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class InventoryReportService
 {
+    private const DEFAULT_MAX_MONTHS = 12;
+    private const MAX_ALLOWED_MONTHS = 20;
+
     public function getStores(): array
     {
         return DB::connection('budget')
@@ -16,8 +20,10 @@ class InventoryReportService
             ->toArray();
     }
 
-    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null): array
+    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null, ?int $maxMonths = null): array
     {
+        $maxMonths = $this->normalizeMaxMonths($maxMonths);
+        $metricRange = $this->resolveMetricDateRange($asOfDate, $maxMonths);
         $storeIds = collect($storeIds ?? [])
             ->filter(fn ($value) => $value !== null && $value !== '')
             ->map(fn ($value) => (int) $value)
@@ -130,7 +136,7 @@ class InventoryReportService
                 'p.description',
                 'p.classification_desc',
                 DB::raw('COALESCE(inv.stock_actual, 0) as stock_actual'),
-                DB::raw('COALESCE(NULLIF(pic.factor_caja, 0), NULLIF(inv.factor_caja, 0), 1) as factor_caja'),
+                DB::raw('COALESCE(NULLIF(pic.factor_caja, 0), p.factor_caja, 0) as factor_caja'),
                 DB::raw('COALESCE(pm.total_ventas, 0) as total_ventas'),
                 DB::raw('COALESCE(pm.maximo_mes, 0) as maximo_mes'),
                 DB::raw('COALESCE(pm.maximo_dia, 0) as maximo_dia'),
@@ -172,7 +178,7 @@ class InventoryReportService
             ->orderByDesc('pm.maximo_mes')
             ->get();
 
-        return $this->mergeLinkedLocations($query)->map(function ($row) {
+        return $this->mergeLinkedLocations($query)->map(function ($row) use ($metricRange) {
             $monthColumns = json_decode($row->monthly_sales_json ?? '{}', true);
             if (!is_array($monthColumns)) {
                 $monthColumns = [];
@@ -185,8 +191,11 @@ class InventoryReportService
                 })
                 ->all();
 
+            $monthColumns = $this->filterMonthColumnsByRange($monthColumns, $metricRange);
             $totalGeneral = array_sum($monthColumns);
-            $maximoMes = !empty($monthColumns) ? max($monthColumns) : (float) ($row->maximo_mes ?? 0);
+            $maximoMes = !empty($monthColumns)
+                ? max($monthColumns)
+                : ($metricRange ? 0 : (float) ($row->maximo_mes ?? 0));
             $maximoMesKey = null;
             foreach ($monthColumns as $monthKey => $monthValue) {
                 if ((float) $monthValue === (float) $maximoMes) {
@@ -239,6 +248,8 @@ class InventoryReportService
                 'stock_alert_label' => $alerta['label'],
                 'stock_alert_color' => $alerta['color'],
                 'month_columns' => $monthColumns,
+                'missing_month_store_codes' => $this->decodeArrayProperty($row->missing_month_store_codes ?? null),
+                'no_sales_store_codes' => $this->decodeArrayProperty($row->no_sales_store_codes ?? null),
             ];
         })->values()->all();
     }
@@ -263,6 +274,7 @@ class InventoryReportService
                 $stock = $group->sum(fn ($row) => (float) ($row->stock_actual ?? 0));
                 $salesMetricRows = $this->uniqueSalesMetricRows($group);
                 $monthColumns = $this->mergeMonthlySales($salesMetricRows->pluck('monthly_sales_json')->all());
+                $storeSalesAudit = $this->storeSalesAudit($salesMetricRows, $monthColumns);
                 $storeLabels = $group
                     ->map(fn ($row) => $this->inventoryGroupCode((string) ($row->store_code ?? '')))
                     ->filter()
@@ -271,9 +283,12 @@ class InventoryReportService
 
                 $primary->stock_actual = $stock;
                 $primary->total_ventas = $salesMetricRows->sum(fn ($row) => (float) ($row->total_ventas ?? 0));
+                $primary->maximo_mes = !empty($monthColumns) ? max($monthColumns) : 0;
                 $primary->maximo_dia = $salesMetricRows->sum(fn ($row) => (float) ($row->maximo_dia ?? 0));
                 $primary->promedio_diario = $salesMetricRows->sum(fn ($row) => (float) ($row->promedio_diario ?? 0));
                 $primary->monthly_sales_json = json_encode($monthColumns);
+                $primary->missing_month_store_codes = json_encode($storeSalesAudit['missing_month_store_codes']);
+                $primary->no_sales_store_codes = json_encode($storeSalesAudit['no_sales_store_codes']);
 
                 if ($storeLabels->count() > 1) {
                     $label = $storeLabels->implode(' + ');
@@ -336,6 +351,55 @@ class InventoryReportService
         return $months;
     }
 
+    private function storeSalesAudit($rows, array $monthColumns): array
+    {
+        $stores = collect($rows)
+            ->mapWithKeys(function ($row) {
+                $storeCode = $this->salesStoreCodeFor((string) ($row->sales_store_code ?? $row->store_code ?? ''));
+                if (!$storeCode || !$this->isSalesColsCode($storeCode)) {
+                    return [];
+                }
+
+                $decoded = json_decode($row->monthly_sales_json ?? '{}', true);
+
+                return [$storeCode => is_array($decoded) ? $decoded : []];
+            })
+            ->all();
+
+        if (count($stores) < 2) {
+            return [
+                'missing_month_store_codes' => [],
+                'no_sales_store_codes' => collect($stores)
+                    ->filter(fn (array $months) => array_sum(array_map('floatval', $months)) <= 0)
+                    ->keys()
+                    ->map(fn (string $code) => $this->shortSalesCode($code))
+                    ->values()
+                    ->all(),
+            ];
+        }
+
+        $missingByMonth = [];
+        foreach (array_keys($monthColumns) as $monthKey) {
+            foreach ($stores as $storeCode => $months) {
+                if ((float) ($months[$monthKey] ?? 0) <= 0) {
+                    $missingByMonth[$monthKey][] = $this->shortSalesCode($storeCode);
+                }
+            }
+        }
+
+        $noSalesStores = collect($stores)
+            ->filter(fn (array $months) => array_sum(array_map('floatval', $months)) <= 0)
+            ->keys()
+            ->map(fn (string $code) => $this->shortSalesCode($code))
+            ->values()
+            ->all();
+
+        return [
+            'missing_month_store_codes' => $missingByMonth,
+            'no_sales_store_codes' => $noSalesStores,
+        ];
+    }
+
     private function inventoryGroupCode(string $storeCode): string
     {
         return $this->salesStoreCodeFor($storeCode) ?? $this->normalizeStoreCode($storeCode);
@@ -366,6 +430,22 @@ class InventoryReportService
     private function isInventoryOnlyWarehouseCode(string $storeCode): bool
     {
         return in_array($this->normalizeStoreCode($storeCode), ['COLZ1'], true);
+    }
+
+    private function isSalesColsCode(string $storeCode): bool
+    {
+        return (bool) preg_match('/^COLS\d+$/', $this->normalizeStoreCode($storeCode));
+    }
+
+    private function shortSalesCode(string $storeCode): string
+    {
+        $code = $this->normalizeStoreCode($storeCode);
+
+        if (preg_match('/^COLS(\d+)$/', $code, $matches)) {
+            return 'S' . $matches[1];
+        }
+
+        return $code;
     }
 
     private function normalizeStoreCode(string $storeCode): string
@@ -452,5 +532,74 @@ class InventoryReportService
         $year += $year < 100 ? 2000 : 0;
 
         return (int) sprintf('%04d%02d', $year, $month);
+    }
+
+    private function filterMonthColumnsByRange(array $monthColumns, ?array $metricRange): array
+    {
+        if (!$metricRange) {
+            return $monthColumns;
+        }
+
+        $startKey = (int) Carbon::parse($metricRange['start_date'])->format('Ym');
+        $endKey = (int) Carbon::parse($metricRange['end_date'])->format('Ym');
+
+        return collect($monthColumns)
+            ->filter(function ($value, string $monthKey) use ($startKey, $endKey) {
+                $key = $this->monthKeyTimestamp($monthKey);
+
+                return $key >= $startKey && $key <= $endKey;
+            })
+            ->all();
+    }
+
+    private function normalizeMaxMonths(?int $value): int
+    {
+        if (!$value || $value < 1) {
+            return self::DEFAULT_MAX_MONTHS;
+        }
+
+        return min($value, self::MAX_ALLOWED_MONTHS);
+    }
+
+    private function resolveMetricDateRange(?string $asOfDate = null, ?int $maxMonths = null): ?array
+    {
+        $maxMonths = $this->normalizeMaxMonths($maxMonths);
+        $date = $asOfDate ? Carbon::parse($asOfDate) : Carbon::today();
+        $budget = DB::connection('budget')
+            ->table('budgets')
+            ->where('start_date', '<=', $date->toDateString())
+            ->where('end_date', '>=', $date->toDateString())
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (!$budget) {
+            return null;
+        }
+
+        $previousBudget = DB::connection('budget')
+            ->table('budgets')
+            ->where('start_date', '<', $budget->start_date)
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (!$previousBudget) {
+            return null;
+        }
+
+        return [
+            'start_date' => Carbon::parse($previousBudget->start_date)->subMonths($maxMonths - 1)->toDateString(),
+            'end_date' => Carbon::parse($previousBudget->end_date)->toDateString(),
+        ];
+    }
+
+    private function decodeArrayProperty($value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        $decoded = json_decode($value ?? '[]', true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 }

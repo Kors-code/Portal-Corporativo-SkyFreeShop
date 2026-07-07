@@ -69,6 +69,8 @@ export interface InventoryItem {
   sales_store_id?: number | null;
   sales_store_code?: string | null;
   sales_store_name?: string | null;
+  missing_month_store_codes?: Record<string, string[]>;
+  no_sales_store_codes?: string[];
 }
 
 export interface InventoryMetricItem extends InventoryItem {
@@ -123,7 +125,8 @@ export const getInventoryMetrics = async (
   storeId?: number,
   search?: string,
   storeIds?: number[],
-  asOfDate?: string
+  asOfDate?: string,
+  maxMonths?: number
 ): Promise<InventoryMetricItem[]> => {
   const params: Record<string, string | number | number[]> = {};
 
@@ -131,6 +134,7 @@ export const getInventoryMetrics = async (
   if (search && search.trim()) params.search = search.trim();
   if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
   if (asOfDate) params.as_of_date = asOfDate;
+  if (maxMonths) params.max_months = maxMonths;
 
   const response = await api.get("inventory/metrics", { params });
   return response.data;
@@ -140,7 +144,8 @@ export const runInventoryMetrics = async (
   storeId?: number,
   search?: string,
   storeIds?: number[],
-  asOfDate?: string
+  asOfDate?: string,
+  maxMonths?: number
 ) => {
   const params: Record<string, string | number | number[]> = {};
 
@@ -148,12 +153,14 @@ export const runInventoryMetrics = async (
   if (search && search.trim()) params.search = search.trim();
   if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
   if (asOfDate) params.as_of_date = asOfDate;
+  if (maxMonths) params.max_months = maxMonths;
 
   const response = await api.post("inventory/metrics/run", null, { params });
 
   return response.data as {
     message?: string;
     executed_at?: string;
+    max_months?: number;
     processed_products?: number;
     rows?: InventoryMetricItem[];
   };

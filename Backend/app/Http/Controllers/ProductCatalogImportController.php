@@ -5,14 +5,19 @@ namespace App\Http\Controllers;
 use App\Imports\ProductCatalogImport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
 
 class ProductCatalogImportController extends Controller
 {
-    private const CHUNK_SIZE = 500;
+    private const CHUNK_SIZE = 100;
     private const DIR = 'catalog-imports';
 
     public function importAutomation(Request $request)
@@ -21,24 +26,55 @@ class ProductCatalogImportController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $request->validate([
-            'file' => $this->spreadsheetFileRules(),
-        ]);
-
-        $import = new ProductCatalogImport();
-        Excel::import($import, $request->file('file'));
-
         return response()->json([
-            'message' => 'Catalogo importado correctamente por automatizacion.',
-            'filename' => $request->file('file')->getClientOriginalName(),
-            'summary' => $import->summary(),
-        ]);
+            'message' => 'La importacion automatica de catalogo debe ejecutarse por bloques para evitar timeouts.',
+            'start_endpoint' => '/' . trim($request->path(), '/') . '/start',
+            'chunk_endpoint' => '/' . trim($request->path(), '/') . '/chunk',
+        ], 422);
+    }
+
+    public function startAutomation(Request $request)
+    {
+        if (!$this->authorized($request)) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
+
+        try {
+            return $this->start($request);
+        } catch (ValidationException $error) {
+            throw $error;
+        } catch (HttpExceptionInterface $error) {
+            return $this->automationHttpErrorResponse($error);
+        } catch (Throwable $error) {
+            return $this->automationErrorResponse($error, 'start');
+        }
+    }
+
+    public function chunkAutomation(Request $request)
+    {
+        if (!$this->authorized($request)) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
+
+        try {
+            return $this->chunk($request);
+        } catch (ValidationException $error) {
+            throw $error;
+        } catch (HttpExceptionInterface $error) {
+            return $this->automationHttpErrorResponse($error);
+        } catch (Throwable $error) {
+            return $this->automationErrorResponse($error, 'chunk', [
+                'path' => $request->input('path'),
+                'next_row' => $request->input('next_row'),
+                'chunk_size' => $request->input('chunk_size'),
+            ]);
+        }
     }
 
     public function import(Request $request)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => $this->spreadsheetFileRules(),
         ]);
 
         $import = new ProductCatalogImport();
@@ -53,7 +89,7 @@ class ProductCatalogImportController extends Controller
     public function start(Request $request)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => $this->spreadsheetFileRules(),
         ]);
 
         $file = $request->file('file');
@@ -64,9 +100,16 @@ class ProductCatalogImportController extends Controller
 
         $reader = IOFactory::createReaderForFile($fullPath);
         $reader->setReadDataOnly(true);
+        $highestRow = $this->detectHighestRow($reader, $fullPath);
+        $reader->setReadFilter(new class implements IReadFilter {
+            public function readCell($columnAddress, $row, $worksheetName = ''): bool
+            {
+                return $row === 1;
+            }
+        });
         $spreadsheet = $reader->load($fullPath);
         $sheet = $spreadsheet->getActiveSheet();
-        $highestRow = (int) $sheet->getHighestDataRow();
+        $highestRow ??= (int) $sheet->getHighestDataRow();
         $headers = $this->headersFromRow($sheet->rangeToArray('1:1', null, true, false)[0] ?? []);
         $spreadsheet->disconnectWorksheets();
 
@@ -85,7 +128,8 @@ class ProductCatalogImportController extends Controller
         $data = $request->validate([
             'path' => ['required', 'string'],
             'next_row' => ['required', 'integer', 'min:2'],
-            'chunk_size' => ['nullable', 'integer', 'min:50', 'max:1000'],
+            'total_rows' => ['nullable', 'integer', 'min:0'],
+            'chunk_size' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
 
         abort_unless(str_starts_with($data['path'], self::DIR . '/'), 422, 'Ruta de catalogo invalida.');
@@ -109,13 +153,16 @@ class ProductCatalogImportController extends Controller
 
         $spreadsheet = $reader->load($fullPath);
         $sheet = $spreadsheet->getActiveSheet();
-        $highestRow = (int) $sheet->getHighestDataRow();
+        $highestRow = isset($data['total_rows']) && (int) $data['total_rows'] > 0
+            ? (int) $data['total_rows'] + 1
+            : (int) $sheet->getHighestDataRow();
         $headers = $this->headersFromRow($sheet->rangeToArray('1:1', null, true, false)[0] ?? []);
+        $highestColumn = Coordinate::stringFromColumnIndex(max(1, count($headers)));
         $lastRow = min($endRow, $highestRow);
 
         $rows = new Collection();
         if ($lastRow >= $startRow) {
-            $dataRows = $sheet->rangeToArray("A{$startRow}:{$sheet->getHighestDataColumn()}{$lastRow}", null, true, false);
+            $dataRows = $sheet->rangeToArray("A{$startRow}:{$highestColumn}{$lastRow}", null, true, false);
             foreach ($dataRows as $row) {
                 $assoc = [];
                 foreach ($headers as $index => $header) {
@@ -148,7 +195,25 @@ class ProductCatalogImportController extends Controller
 
     private function headersFromRow(array $row): array
     {
-        return array_map(fn ($header) => $this->normalizeHeader((string) $header), $row);
+        $headers = array_map(fn ($header) => $this->normalizeHeader((string) $header), $row);
+
+        while ($headers !== [] && end($headers) === '') {
+            array_pop($headers);
+        }
+
+        return $headers;
+    }
+
+    private function detectHighestRow($reader, string $fullPath): ?int
+    {
+        if (!method_exists($reader, 'listWorksheetInfo')) {
+            return null;
+        }
+
+        $worksheets = $reader->listWorksheetInfo($fullPath);
+        $firstSheet = $worksheets[0] ?? null;
+
+        return isset($firstSheet['totalRows']) ? (int) $firstSheet['totalRows'] : null;
     }
 
     private function normalizeHeader(string $header): string
@@ -182,5 +247,29 @@ class ProductCatalogImportController extends Controller
                 }
             },
         ];
+    }
+
+    private function automationErrorResponse(Throwable $error, string $stage, array $context = [])
+    {
+        Log::error('CATALOG AUTOMATION IMPORT FAILED', [
+            'stage' => $stage,
+            'context' => $context,
+            'error' => $error->getMessage(),
+            'trace' => $error->getTraceAsString(),
+        ]);
+
+        return response()->json([
+            'message' => 'Error importando catalogo por automatizacion.',
+            'stage' => $stage,
+            'error' => $error->getMessage(),
+            'context' => $context,
+        ], 500);
+    }
+
+    private function automationHttpErrorResponse(HttpExceptionInterface $error)
+    {
+        return response()->json([
+            'message' => $error->getMessage() ?: 'Error importando catalogo por automatizacion.',
+        ], $error->getStatusCode(), $error->getHeaders());
     }
 }

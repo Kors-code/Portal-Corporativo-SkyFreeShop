@@ -3,12 +3,16 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class CalculateInventoryMetrics extends Command
 {
-    protected $signature = 'inventory:metrics {--store_id=}';
+    private const DEFAULT_MAX_MONTHS = 12;
+    private const MAX_ALLOWED_MONTHS = 20;
+
+    protected $signature = 'inventory:metrics {--store_id=} {--max_months=12}';
     protected $description = 'Calculate and cache inventory metrics by store';
 
     public function handle()
@@ -16,6 +20,8 @@ class CalculateInventoryMetrics extends Command
         $storeId = $this->option('store_id');
         $storeId = $storeId !== null && $storeId !== '' ? (int) $storeId : null;
         $salesStoreId = $storeId ? $this->resolveSalesStoreId($storeId) : null;
+        $maxMonths = $this->normalizeMaxMonths($this->option('max_months'));
+        $metricRange = $this->resolveMetricDateRange($maxMonths);
 
         $dailySalesQuery = DB::connection('budget')->table('sales as s')
             ->join('stores as st', 'st.id', '=', 's.store_id')
@@ -27,6 +33,7 @@ class CalculateInventoryMetrics extends Command
             ')
             ->whereNotNull('s.sale_date')
             ->whereRaw($this->salesMetricStoreSql('st.code'))
+            ->when($metricRange, fn ($q) => $q->whereBetween('s.sale_date', [$metricRange['start_date'], $metricRange['end_date']]))
             ->when($salesStoreId, fn ($q) => $q->where('s.store_id', $salesStoreId))
             ->groupBy('s.product_id', 's.store_id', 's.sale_date');
 
@@ -101,9 +108,55 @@ class CalculateInventoryMetrics extends Command
             );
         }
 
-        $this->info('Inventory metrics calculated successfully.');
+        $message = 'Inventory metrics calculated successfully.';
+        if ($metricRange) {
+            $message .= " Range: {$metricRange['start_date']} to {$metricRange['end_date']}. Max months: {$maxMonths}.";
+        }
+
+        $this->info($message);
 
         return self::SUCCESS;
+    }
+
+    private function normalizeMaxMonths($value): int
+    {
+        $months = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        if (!$months) {
+            return self::DEFAULT_MAX_MONTHS;
+        }
+
+        return min($months, self::MAX_ALLOWED_MONTHS);
+    }
+
+    private function resolveMetricDateRange(int $maxMonths): ?array
+    {
+        $today = Carbon::today();
+        $activeBudget = DB::connection('budget')
+            ->table('budgets')
+            ->where('start_date', '<=', $today->toDateString())
+            ->where('end_date', '>=', $today->toDateString())
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (!$activeBudget) {
+            return null;
+        }
+
+        $previousBudget = DB::connection('budget')
+            ->table('budgets')
+            ->where('start_date', '<', $activeBudget->start_date)
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (!$previousBudget) {
+            return null;
+        }
+
+        return [
+            'start_date' => Carbon::parse($previousBudget->start_date)->subMonths($maxMonths - 1)->toDateString(),
+            'end_date' => Carbon::parse($previousBudget->end_date)->toDateString(),
+        ];
     }
 
     private function resolveSalesStoreId(int $storeId): int

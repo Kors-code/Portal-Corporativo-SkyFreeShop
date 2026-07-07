@@ -95,9 +95,16 @@ if ($WithTunnel) {
     if ([string]::IsNullOrWhiteSpace($vpsDbHost)) { $vpsDbHost = "127.0.0.1" }
     $vpsDbPort = $envValues["VPS_DB_PORT"]
     if ([string]::IsNullOrWhiteSpace($vpsDbPort)) { $vpsDbPort = "3306" }
+    $sshKey = $envValues["VPS_SSH_KEY"]
 
     $sshTarget = "$($envValues['VPS_SSH_USER'])@$($envValues['VPS_SSH_HOST'])"
-    $sshCommand = "ssh -N -L ${localDbPort}:${vpsDbHost}:${vpsDbPort} -p $sshPort $sshTarget"
+    $sshKeyArg = ""
+    if (-not [string]::IsNullOrWhiteSpace($sshKey)) {
+        $sshKey = [Environment]::ExpandEnvironmentVariables($sshKey)
+        $sshKeyArg = "-i `"$sshKey`" "
+    }
+
+    $sshCommand = "ssh -N ${sshKeyArg}-L ${localDbPort}:${vpsDbHost}:${vpsDbPort} -p $sshPort $sshTarget"
     Start-DevWindow -Title "VPS MySQL tunnel" -WorkingDirectory $Root -Command $sshCommand
 }
 

@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)] [string] $VpsSshHost,
     [Parameter(Mandatory = $true)] [string] $VpsSshUser,
     [int] $VpsSshPort = 22,
+    [string] $VpsSshKey,
     [string] $VpsDbHost = "127.0.0.1",
     [int] $VpsDbPort = 3306,
     [int] $LocalDbPort = 3307,
@@ -104,6 +105,10 @@ $values = @{
     VPS_DB_HOST = $VpsDbHost
     VPS_DB_PORT = [string] $VpsDbPort
     LOCAL_DB_PORT = [string] $LocalDbPort
+}
+
+if ($PSBoundParameters.ContainsKey("VpsSshKey")) {
+    $values.VPS_SSH_KEY = $VpsSshKey
 }
 
 foreach ($key in $values.Keys) {

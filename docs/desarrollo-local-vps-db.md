@@ -60,10 +60,13 @@ DB_BUDGET_PASSWORD=
 VPS_SSH_HOST=IP_O_HOST_DEL_VPS
 VPS_SSH_USER=usuario_ssh
 VPS_SSH_PORT=22
+VPS_SSH_KEY=C:\Users\Usuario\.ssh\skyfree_vps_ed25519
 VPS_DB_HOST=127.0.0.1
 VPS_DB_PORT=3306
 LOCAL_DB_PORT=3307
 ```
+
+`VPS_SSH_KEY` es opcional. Si existe, `tools\dev-local.ps1 -WithTunnel` abre el tunel sin pedir contrasena SSH.
 
 ## 2. Instalar dependencias
 

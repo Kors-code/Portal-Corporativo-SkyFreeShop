@@ -5,6 +5,7 @@ namespace App\Imports;
 use App\Models\Inventario\ProductInventoryConfig;
 use App\Models\Product;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
@@ -38,6 +39,7 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             $upc1 = $this->pick($row, ['upc1', 'upc', 'barcode', 'ean']);
             $upc2 = $this->pick($row, ['upc2']);
             $upc3 = $this->pick($row, ['upc3']);
+            $ref = $this->pick($row, ['ref', 'referencia']);
             $description = $this->pick($row, ['product_description', 'description', 'descripcion', 'producto', 'product']);
             $classification = $this->pick($row, ['category_code', 'classification', 'clasificacion', 'codigo_categoria']);
             $classificationDesc = $this->pick($row, ['category_description', 'classification_desc', 'category', 'categoria', 'descripcion_categoria']);
@@ -53,6 +55,32 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             $type = $this->pick($row, ['type', 'tipo']);
             $origin = $this->pick($row, ['origen', 'origin']);
             $line = $this->pick($row, ['line', 'linea']);
+            $codigoSat = $this->pick($row, ['codigo_sat']);
+            $purchaseUnit = $this->pick($row, ['purchase_unit', 'unidad_compra']);
+            $salesUnit = $this->pick($row, ['sales_unit', 'unidad_venta']);
+            $productUse = $this->pick($row, ['product_use', 'uso_producto']);
+            $fraction = $this->pick($row, ['fraction', 'fraccion']);
+            $brandCode = $this->pick($row, ['brand_code', 'codigo_marca']);
+            $color = $this->pick($row, ['color']);
+            $size = $this->pick($row, ['size', 'tamano']);
+            $origine = $this->pick($row, ['origine']);
+            $prepak = $this->pick($row, ['prepak']);
+            $cumt = $this->number($this->pick($row, ['cumt']));
+            $umt = $this->pick($row, ['umt']);
+            $aduanaDescription = $this->pick($row, ['aduana_description', 'descripcion_aduana']);
+            $noConstancia = $this->pick($row, ['no_constancia']);
+            $tamanoEtiqueta = $this->pick($row, [
+                'tamano_de_etiqueta',
+                'tamano_etiqueta',
+            ]);
+            $completeClassification = $this->pick($row, [
+                'complete_clasification',
+                'complete_classification',
+                'clasificacion_completa',
+            ]);
+            $makeCountry = $this->pick($row, ['make_country', 'pais_fabricacion']);
+            $ivaVenta = $this->number($this->pick($row, ['iva_venta']));
+            $objetoImpuesto = $this->pick($row, ['objeto_de_impuesto']);
             $factorCaja = $this->number($this->pick($row, [
                 'factor_caja',
                 'factor_cajas',
@@ -110,6 +138,30 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
                 'status' => $productStatus,
                 'origin' => $origin,
                 'line' => $line,
+                'ref' => $ref,
+                'cost_unit' => $costUnit,
+                'retail_price_cop' => $retailCop,
+                'precio_mx' => $precioMx,
+                'codigo_sat' => $codigoSat,
+                'purchase_unit' => $purchaseUnit,
+                'sales_unit' => $salesUnit,
+                'product_use' => $productUse,
+                'fraction' => $fraction,
+                'brand_code' => $brandCode,
+                'color' => $color,
+                'size' => $size,
+                'origine' => $origine,
+                'prepak' => $prepak,
+                'cumt' => $cumt,
+                'umt' => $umt,
+                'aduana_description' => $aduanaDescription,
+                'no_constancia' => $noConstancia,
+                'tamano_etiqueta' => $tamanoEtiqueta,
+                'complete_classification' => $completeClassification,
+                'factor_caja' => $factorCaja,
+                'make_country' => $makeCountry,
+                'iva_venta' => $ivaVenta,
+                'objeto_de_impuesto' => $objetoImpuesto,
             ]);
 
             $product->currency = $product->currency ?: 'USD';
@@ -155,7 +207,33 @@ class ProductCatalogImport implements ToCollection, WithHeadingRow
             }
         }
 
+        $normalizedRow = [];
+        foreach ($row as $key => $value) {
+            $normalizedRow[$this->normalizeKey((string) $key)] = $value;
+        }
+
+        foreach ($keys as $key) {
+            $normalizedKey = $this->normalizeKey($key);
+            if (!array_key_exists($normalizedKey, $normalizedRow)) {
+                continue;
+            }
+
+            $value = $this->str($normalizedRow[$normalizedKey]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
         return '';
+    }
+
+    private function normalizeKey(string $key): string
+    {
+        $key = Str::ascii(mb_strtolower(trim($key)));
+        $key = preg_replace('/[^a-z0-9]+/', '_', $key);
+        $key = preg_replace('/_+/', '_', (string) $key);
+
+        return trim((string) $key, '_');
     }
 
     private function fillWhenPresent(Product $product, array $values): void

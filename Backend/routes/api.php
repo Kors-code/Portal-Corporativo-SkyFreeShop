@@ -32,6 +32,14 @@ Route::get('/test-api', function () {
 Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
 Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk']);
 Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation']);
+Route::post('/automation/import-catalog/start', [ProductCatalogImportController::class, 'startAutomation']);
+Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
+Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation']);
+Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation']);
+Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
+Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation']);
+Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation']);
+Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
 Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next']);
 Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete']);
 Route::get('/v1/ping', function () {
@@ -136,6 +144,7 @@ Route::get('/v1/ping', function () {
     Route::post('commissions/categories/bulk', [CategoryCommissionController::class, 'bulkUpdate']);
     
     Route::post('/commissions/generate', [CommissionController::class, 'generate']);
+    Route::post('/commissions/rectify-sales-roles', [CommissionController::class, 'rectifySalesRoles']);
 
     // INVENTORY IMPORT 
  Route::post('/inventory/import', [InventoryImportController::class, 'import']);

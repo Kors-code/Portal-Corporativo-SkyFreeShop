@@ -30,6 +30,7 @@ import {
 type RunResponse = {
   message?: string;
   executed_at?: string;
+  max_months?: number;
   processed_products?: number;
   rows?: InventoryMetricItem[];
 };
@@ -47,6 +48,7 @@ export default function InventoryCoveragePage() {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [targetDays, setTargetDays] = useState(60);
   const [leadTimeDays, setLeadTimeDays] = useState(15);
+  const [maxMonths, setMaxMonths] = useState(12);
   const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [joinSelectedStores, setJoinSelectedStores] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -71,7 +73,7 @@ export default function InventoryCoveragePage() {
 
     return () => window.clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreIds, asOfDate, search]);
+  }, [selectedStoreIds, asOfDate, search, maxMonths]);
 
   const loadStores = async () => {
     try {
@@ -94,7 +96,8 @@ export default function InventoryCoveragePage() {
         undefined,
         search,
         selectedStoreIds.length > 0 ? selectedStoreIds : undefined,
-        asOfDate || undefined
+        asOfDate || undefined,
+        maxMonths
       );
 
       setData({
@@ -121,7 +124,8 @@ export default function InventoryCoveragePage() {
         undefined,
         search,
         selectedStoreIds.length > 0 ? selectedStoreIds : undefined,
-        asOfDate || undefined
+        asOfDate || undefined,
+        maxMonths
       );
 
       setData(response);
@@ -162,7 +166,7 @@ export default function InventoryCoveragePage() {
           ? Array.from(new Set([...selectedStoreIds, Number(importStoreId)]))
           : [Number(importStoreId)];
 
-      const rows = await getInventoryMetrics(undefined, search, nextStoreIds, asOfDate || undefined);
+      const rows = await getInventoryMetrics(undefined, search, nextStoreIds, asOfDate || undefined, maxMonths);
 
       setData({
         message: "Cobertura cargada correctamente.",
@@ -231,10 +235,13 @@ export default function InventoryCoveragePage() {
         const rotationBase = monthlyRate > 0 ? monthlyRate : fallbackRate;
         const suggestedPurchase =
           rotationBase > 0 ? Math.max(0, Math.ceil(rotationBase * planningDays - stockActual)) : 0;
+        const factorCaja = Number(row.factor_caja ?? 0);
 
         return {
           ...row,
           suggested_purchase: suggestedPurchase,
+          suggested_purchase_cases: factorCaja > 0 ? Math.ceil(suggestedPurchase / factorCaja) : null,
+          factor_conversion_error: factorCaja <= 0,
         };
       })
       .filter((row) => {
@@ -273,6 +280,7 @@ export default function InventoryCoveragePage() {
     selectedProvider ? { key: "provider", label: `Proveedor: ${selectedProvider}`, clear: () => setSelectedProvider("") } : null,
     selectedCategory ? { key: "category", label: `Categoría: ${selectedCategory}`, clear: () => setSelectedCategory("") } : null,
     asOfDate ? { key: "date", label: `Fecha: ${asOfDate}`, clear: () => setAsOfDate("") } : null,
+    maxMonths !== 12 ? { key: "max-months", label: `Meses para maximo: ${maxMonths}`, clear: () => setMaxMonths(12) } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
 
   return (
@@ -403,7 +411,18 @@ export default function InventoryCoveragePage() {
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
+                <FieldCard label="Meses para maximo">
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={maxMonths}
+                    onChange={(e) => setMaxMonths(clampInteger(e.target.value, 1, 20, 12))}
+                    className="h-[54px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white"
+                  />
+                </FieldCard>
                 <FieldCard label="Días objetivo de stock">
                   <NumberStepper value={targetDays} onChange={setTargetDays} suffix="días" />
                 </FieldCard>
@@ -415,6 +434,8 @@ export default function InventoryCoveragePage() {
               <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-white px-5 py-4 shadow-sm">
                 <div className="text-sm text-slate-500">Cobertura total planeada</div>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold text-slate-900">
+                  <span>{maxMonths} meses maximo</span>
+                  <ChevronRight className="h-5 w-5 text-slate-300" />
                   {targetDays + leadTimeDays} días
                   <ChevronRight className="h-5 w-5 text-slate-300" />
                   <span className="text-base font-medium text-slate-500">
@@ -701,6 +722,13 @@ function FieldCard({
   );
 }
 
+function clampInteger(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
 function FilterSelect({
   label,
   icon,
@@ -915,12 +943,13 @@ function ModeChip({
 }
 
 function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] {
-  const grouped = new Map<number, InventoryMetricItem[]>();
+  const grouped = new Map<string, InventoryMetricItem[]>();
 
   rows.forEach((row) => {
-    const current = grouped.get(row.product_id) ?? [];
+    const key = productGroupKey(row);
+    const current = grouped.get(key) ?? [];
     current.push(row);
-    grouped.set(row.product_id, current);
+    grouped.set(key, current);
   });
 
   return Array.from(grouped.values()).map((group) => {
@@ -936,6 +965,7 @@ function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] 
     const diasDisponibles = rotacionDiariaMes > 0 ? stockActual / rotacionDiariaMes : 0;
     const alert = resolveStockAlert(diasDisponibles, stockActual, rotacionDiariaMes);
     const storeCodes = uniqueText(group.map((row) => row.store_code ?? row.store_name));
+    const salesAudit = buildGroupedSalesAudit(group, monthColumns);
 
     return {
       ...first,
@@ -956,6 +986,14 @@ function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] 
       ind_rot_stock: 0,
       ind_rot_promedio: 0,
       month_columns: monthColumns,
+      missing_month_store_codes: mergeMissingMonthStoreCodes(
+        group.map((row) => row.missing_month_store_codes),
+        salesAudit.missing_month_store_codes
+      ),
+      no_sales_store_codes: uniqueText([
+        ...group.flatMap((row) => row.no_sales_store_codes ?? []),
+        ...(salesAudit.no_sales_store_codes ?? []),
+      ]),
       dias_disponibles: diasDisponibles,
       stock_alert_level: alert.level,
       stock_alert_label: alert.label,
@@ -964,6 +1002,80 @@ function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] 
       batch_id: null,
     };
   });
+}
+
+function productGroupKey(row: InventoryMetricItem): string {
+  const code = (row.product_code ?? "").trim();
+  if (code) return code;
+
+  return String(row.product_id);
+}
+
+function buildGroupedSalesAudit(
+  rows: InventoryMetricItem[],
+  monthColumns: Record<string, number>
+): Pick<InventoryMetricItem, "missing_month_store_codes" | "no_sales_store_codes"> {
+  const stores = rows
+    .map((row) => ({
+      code: shortSalesCode(row.sales_store_code ?? row.store_code ?? ""),
+      months: row.month_columns ?? {},
+    }))
+    .filter((row) => /^S\d+$/.test(row.code));
+
+  if (stores.length < 2) {
+    return {
+      missing_month_store_codes: {},
+      no_sales_store_codes: stores
+        .filter((store) => sumObjectValues(store.months) <= 0)
+        .map((store) => store.code),
+    };
+  }
+
+  const missing_month_store_codes: Record<string, string[]> = {};
+  Object.keys(monthColumns).forEach((monthKey) => {
+    stores.forEach((store) => {
+      if (Number(store.months[monthKey] ?? 0) <= 0) {
+        missing_month_store_codes[monthKey] = [
+          ...(missing_month_store_codes[monthKey] ?? []),
+          store.code,
+        ];
+      }
+    });
+  });
+
+  return {
+    missing_month_store_codes,
+    no_sales_store_codes: stores
+      .filter((store) => sumObjectValues(store.months) <= 0)
+      .map((store) => store.code),
+  };
+}
+
+function mergeMissingMonthStoreCodes(
+  sources: Array<Record<string, string[]> | null | undefined>,
+  fallback: Record<string, string[]> | null | undefined
+): Record<string, string[]> {
+  return [...sources, fallback].reduce<Record<string, string[]>>((acc, source) => {
+    Object.entries(source ?? {}).forEach(([monthKey, codes]) => {
+      acc[monthKey] = uniqueText([...(acc[monthKey] ?? []), ...(codes ?? [])]);
+    });
+    return acc;
+  }, {});
+}
+
+function shortSalesCode(value: string): string {
+  const normalized = value.toUpperCase().replace(/\s+/g, "").trim();
+  const cols = normalized.match(/^COLS(\d+)$/);
+  const colb = normalized.match(/^COLB(\d+)$/);
+
+  if (cols) return `S${cols[1]}`;
+  if (colb) return `S${colb[1]}`;
+
+  return normalized;
+}
+
+function sumObjectValues(values: Record<string, number>): number {
+  return Object.values(values).reduce((total, value) => total + Number(value ?? 0), 0);
 }
 
 function mergeMonthColumns(monthGroups: Array<Record<string, number> | null | undefined>): Record<string, number> {

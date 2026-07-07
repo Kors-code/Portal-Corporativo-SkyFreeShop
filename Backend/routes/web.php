@@ -470,6 +470,9 @@ Route::middleware('auth')->group(function () {
             Route::post('/generate', [CommissionController::class, 'generate'])
                 ->middleware('permission:budget.commissions.manage');
 
+            Route::post('/rectify-sales-roles', [CommissionController::class, 'rectifySalesRoles'])
+                ->middleware('permission:budget.commissions.manage');
+
             Route::post('/finalize', [CommissionController::class, 'finalize'])
                 ->middleware('permission:budget.commissions.manage');
 
