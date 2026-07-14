@@ -20,11 +20,17 @@ class InventoryReportService
             ->toArray();
     }
 
-    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null, ?int $maxMonths = null): array
+    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null, ?int $maxMonths = null, ?array $productIds = null): array
     {
         $maxMonths = $this->normalizeMaxMonths($maxMonths);
         $metricRange = $this->resolveMetricDateRange($asOfDate, $maxMonths);
         $storeIds = collect($storeIds ?? [])
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->map(fn ($value) => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+        $productIds = collect($productIds ?? [])
             ->filter(fn ($value) => $value !== null && $value !== '')
             ->map(fn ($value) => (int) $value)
             ->unique()
@@ -38,6 +44,7 @@ class InventoryReportService
                 MAX(i.toDate) as last_inventory_date
             ')
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
+            ->when(!empty($productIds), fn ($q) => $q->whereIn('i.product_id', $productIds))
             ->when($asOfDate, fn ($q) => $q->whereDate('i.toDate', '<=', $asOfDate))
             ->groupBy('i.product_id', 'i.store_id');
 
@@ -71,12 +78,14 @@ class InventoryReportService
             ->join('stores as pm_st', 'pm_st.id', '=', 'pm.store_id')
             ->select('pm.product_id', 'pm.store_id')
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('pm.store_id', $storeIds))
+            ->when(!empty($productIds), fn ($q) => $q->whereIn('pm.product_id', $productIds))
             ->whereRaw($this->salesMetricStoreSql('pm_st.code'));
 
         $inventoryKeys = DB::connection('budget')
             ->table('inventory as i')
             ->select('i.product_id', 'i.store_id')
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
+            ->when(!empty($productIds), fn ($q) => $q->whereIn('i.product_id', $productIds))
             ->groupBy('i.product_id', 'i.store_id');
 
         $basePairs = $metricKeys->union($inventoryKeys);
@@ -89,6 +98,7 @@ class InventoryReportService
                 ->crossJoin('stores as st_search')
                 ->select('p_search.id as product_id', 'st_search.id as store_id')
                 ->when(!empty($storeIds), fn ($q) => $q->whereIn('st_search.id', $storeIds))
+                ->when(!empty($productIds), fn ($q) => $q->whereIn('p_search.id', $productIds))
                 ->where(function ($q) use ($term) {
                     $q->where('p_search.product_code', 'like', $term)
                         ->orWhere('p_search.sku_mia', 'like', $term)
@@ -174,6 +184,7 @@ class InventoryReportService
                         ->orWhere('inv.proveedor', 'like', $term);
                 });
             })
+            ->when(!empty($productIds), fn ($q) => $q->whereIn('p.id', $productIds))
             ->orderBy('st.name')
             ->orderByDesc('pm.maximo_mes')
             ->get();

@@ -511,7 +511,7 @@ public function storeMasivo(Request $request)
     // Validamos al menos la vacante (dejamos cvs opcional aquí para manejar manualmente)
     $request->validate([
         'vacante_id' => 'required|exists:vacantes,slug',
-        'cvs.*'      => 'file|mimes:pdf,doc,docx|max:2048',
+        'cvs.*'      => 'file|mimes:pdf,doc,docx|max:8000',
     ]);
 
     // Si PHP/servidor truncó el POST (post_max_size) no habrá archivos en $request->files

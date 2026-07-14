@@ -20,6 +20,8 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('inventory:metrics')->dailyAt('01:00');
+        $schedule->command('inventory:alerts-cache-top --force')->dailyAt('07:00');
+        $schedule->command('inventory:alerts-send')->dailyAt('07:15');
         $schedule->command('reports:queue-end-of-day-whatsapp')->dailyAt('01:05');
     })
     ->withExceptions(function (Exceptions $exceptions): void {

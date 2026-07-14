@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryController;
 use App\Http\Controllers\ApiInventarios\InventoryMetricsController;
+use App\Http\Controllers\ApiInventarios\InventoryAlertController;
 use App\Http\Controllers\ProductCatalogImportController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\Api\AdvisorBudgetController;
@@ -120,11 +121,11 @@ Route::middleware('auth')->group(function () {
     /* ----------------------------- Importaciones --------------------------- */
     Route::post('/masivo/subircv', [CandidatoController::class, 'storeMasivo'])
         ->name('storeMasivo.subir')
-        ->middleware(['permission:imports.create|imports.manage']);
+        ->middleware(['permission:candidates.manage']);
 
     Route::get('/carga-masiva', [CandidatoController::class, 'subirAllCv'])
         ->name('subirAllCv')
-        ->middleware(['permission:imports.manage']);
+        ->middleware(['permission:candidates.manage']);
 
     /* -------------------------------- Usuarios ---------------------------- */
     Route::get('/usuarios/crear', [UserController::class, 'create'])
@@ -631,6 +632,27 @@ Route::middleware('auth')->group(function () {
 
         Route::get('me', [WishItemController::class, 'me']);
 
+        /* ------------------------ Inventory alerts ------------------------ */
+        Route::middleware(['permission:inventory-alerts.view'])->prefix('inventory-alerts')->group(function () {
+            Route::get('/', [InventoryAlertController::class, 'index']);
+            Route::get('/history', [InventoryAlertController::class, 'history']);
+            Route::get('/products', [InventoryAlertController::class, 'products']);
+            Route::post('/top', [InventoryAlertController::class, 'top']);
+            Route::get('/{id}/current-alerts', [InventoryAlertController::class, 'current']);
+            Route::get('/{id}', [InventoryAlertController::class, 'show']);
+        });
+
+        Route::middleware(['permission:inventory-alerts.manage'])->prefix('inventory-alerts')->group(function () {
+            Route::post('/', [InventoryAlertController::class, 'store']);
+            Route::put('/{id}', [InventoryAlertController::class, 'update']);
+            Route::delete('/{id}', [InventoryAlertController::class, 'destroy']);
+            Route::post('/{id}/top', [InventoryAlertController::class, 'addTop']);
+            Route::post('/{id}/products', [InventoryAlertController::class, 'addProduct']);
+            Route::delete('/{id}/products/{productId}', [InventoryAlertController::class, 'removeProduct']);
+            Route::post('/{id}/send', [InventoryAlertController::class, 'send']);
+            Route::post('/{id}/test', [InventoryAlertController::class, 'test']);
+        });
+
         /* -------------------------- Imports / batches ---------------------- */
         Route::middleware(['permission:imports.create'])->group(function () {
             Route::post('import-turns', [TurnsImportController::class, 'import']);
@@ -688,6 +710,9 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/panel/inventarios/cobertura', fn () => view('panel'))
         ->middleware(['permission:panel.view']);
+
+    Route::get('/panel/inventarios/alertas', fn () => view('panel'))
+        ->middleware(['permission:inventory-alerts.view']);
 
     Route::get('/panel/visualizaciones', fn () => view('panel'))
         ->middleware(['permission:visualizations.view']);

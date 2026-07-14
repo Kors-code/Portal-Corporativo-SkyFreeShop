@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Role;
+use App\Services\RolePermissionPresetService;
 
 class UserController extends Controller
 {
@@ -21,7 +22,7 @@ class UserController extends Controller
      */
 public function indexForManagedRoles(Request $request)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
+    $allowedRoles = $this->allowedRoles;
 
     $query = User::whereIn('role', $allowedRoles);
 
@@ -43,9 +44,9 @@ public function indexForManagedRoles(Request $request)
     /**
      * Crear un usuario — solo permite asignar roles dentro de allowedRoles.
      * POST /api/v1/manage/users
-     */public function storeManagedUser(Request $request)
+     */public function storeManagedUser(Request $request, RolePermissionPresetService $presets)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
+    $allowedRoles = $this->allowedRoles;
 
     $request->validate([
         'name' => 'required|string|max:255',
@@ -56,7 +57,7 @@ public function indexForManagedRoles(Request $request)
         'seller_code' => 'nullable|string|max:50',
     ]);
     
-    $role = Role::where('name', $request->role)->first();
+    $role = Role::firstOrCreate(['name' => $request->role]);
 
     $user = User::create([
         'name' => $request->name,
@@ -68,6 +69,9 @@ public function indexForManagedRoles(Request $request)
         'seller_code' => $request->seller_code,
     ]);
 
+    $presets->syncUserToRolePreset($user);
+    $user->load('permissions:id,name');
+
     return response()->json([
         'message' => 'Usuario creado correctamente',
         'user' => $user
@@ -78,11 +82,12 @@ public function indexForManagedRoles(Request $request)
      * Actualizar usuario (PUT) — puede actualizar contraseña opcionalmente.
      * PUT /api/v1/manage/users/{id}
      */
-public function updateManagedUser(Request $request, $id)
+public function updateManagedUser(Request $request, $id, RolePermissionPresetService $presets)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
+    $allowedRoles = $this->allowedRoles;
 
     $user = User::findOrFail($id);
+    $previousRole = $user->role;
 
     $request->validate([
         'name' => 'sometimes|required|string|max:255',
@@ -96,7 +101,11 @@ public function updateManagedUser(Request $request, $id)
     if ($request->has('name')) $user->name = $request->name;
     if ($request->has('email')) $user->email = $request->email;
     if ($request->has('username')) $user->username = $request->username;
-    if ($request->has('role')) $user->role = $request->role;
+    if ($request->has('role')) {
+        $user->role = $request->role;
+        $role = Role::firstOrCreate(['name' => $request->role]);
+        $user->role_id = $role->id;
+    }
     if ($request->has('seller_code')) $user->seller_code = $request->seller_code;
 
     if ($request->filled('password')) {
@@ -105,6 +114,12 @@ public function updateManagedUser(Request $request, $id)
 
     $user->save();
 
+    if ($request->has('role') && $previousRole !== $user->role) {
+        $presets->syncUserToRolePreset($user);
+    }
+
+    $user->load('permissions:id,name');
+
     return response()->json([
         'message' => 'Usuario actualizado correctamente',
         'user' => $user
@@ -112,7 +127,7 @@ public function updateManagedUser(Request $request, $id)
 }
 public function destroyManagedUser($id)
 {
-    $allowedRoles = ['seller','cashier','adminpresupuesto','lider'];
+    $allowedRoles = $this->allowedRoles;
 
     $user = User::whereIn('role', $allowedRoles)->findOrFail($id);
 
@@ -120,6 +135,29 @@ public function destroyManagedUser($id)
 
     return response()->json([
         'message' => 'Usuario eliminado correctamente'
+    ]);
+}
+
+public function assignRole(Request $request, $id, RolePermissionPresetService $presets)
+{
+    $data = $request->validate([
+        'role_id' => ['required', 'integer', 'exists:roles,id'],
+    ]);
+
+    $role = Role::findOrFail($data['role_id']);
+    abort_unless(in_array($role->name, $this->allowedRoles, true), 422, 'Rol no permitido.');
+
+    $user = User::findOrFail($id);
+    $user->role = $role->name;
+    $user->role_id = $role->id;
+    $user->save();
+
+    $presets->syncUserToRolePreset($user);
+    $user->load('permissions:id,name');
+
+    return response()->json([
+        'message' => 'Rol asignado y permisos actualizados correctamente',
+        'user' => $user,
     ]);
 }
 }
