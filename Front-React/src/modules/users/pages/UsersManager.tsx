@@ -11,6 +11,12 @@ type ManagedUser = {
 };
 
 const ALLOWED_ROLES = ['seller','cashier','adminpresupuesto','lider'];
+const ROLE_LABELS: Record<string, string> = {
+  seller: 'Seller',
+  cashier: 'Cashier',
+  adminpresupuesto: 'Admin Presupuesto',
+  lider: 'Lider',
+};
 
 export default function UsersManager() {
   const [loading, setLoading] = useState(true);
@@ -228,7 +234,7 @@ export default function UsersManager() {
                       u.role === 'lider' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-gray-100 text-gray-700'
                     }`
-                  }>{u.role}</span>
+                  }>{ROLE_LABELS[u.role] ?? u.role}</span>
                 </td>
                 <td className="p-3 text-right space-x-2">
                   <button
@@ -324,7 +330,7 @@ export default function UsersManager() {
                       onChange={() => setField('role', r)}
                       className="hidden"
                     />
-                    <span className="capitalize">{r}</span>
+                    <span>{ROLE_LABELS[r] ?? r}</span>
                   </label>
                 ))}
               </div>

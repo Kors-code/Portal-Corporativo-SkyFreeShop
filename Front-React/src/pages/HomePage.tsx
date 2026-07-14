@@ -50,6 +50,7 @@ export default function HomePage() {
           <ModuleCard title="Seguimiento de Comisiones de Lideres" to="/commissions/CommissionLeadersPage" description="Seguimiento de Comisiones de Lideres" />
           <ModuleCard title="Entrega de Lideres" to="/entregas" description="Crear, recibir y consultar actas de turno" />
           <ModuleCard title="Cobertura de Inventario" to="/inventarios/cobertura" description="Alertas, dias disponibles y riesgo por SKU" />
+          <ModuleCard title="Alertas de Inventario" to="/inventarios/alertas" description="Listas, top de ventas y notificaciones por correo" />
         </div>
       </section>
 

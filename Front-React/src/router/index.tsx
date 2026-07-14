@@ -26,6 +26,7 @@ import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
 import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
 import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
+import InventoryAlertsPage from "../modules/inventory/pages/InventoryAlertsPage";
 import InventoryImportsManagerPage from "../modules/imports/pages/InventoryImportsManagerPage";
 import CrearEntregaPage from "../modules/entregas/pages/CrearEntregaPage";
 import DetalleEntregaPage from "../modules/entregas/pages/DetalleEntregaPage";
@@ -74,6 +75,7 @@ export default function AppRouter() {
           <Route path="/InventoryDashboardPro" element={<InventoryDashboardPro />} />
           <Route path="/InventoryMetricsRunner" element={<InventoryMetricsRunner />} />
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
+          <Route path="/inventarios/alertas" element={<InventoryAlertsPage />} />
           <Route path="/visualizaciones" element={<VisualizacionesGuard><VisualizacionesHub /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/cierre-caja" element={<VisualizacionesGuard><CashClosureDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/ventas-tiendas" element={<VisualizacionesGuard><StoreSalesDashboard /></VisualizacionesGuard>} />

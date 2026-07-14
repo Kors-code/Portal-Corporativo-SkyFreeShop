@@ -81,6 +81,15 @@ const MODULES: ModuleDef[] = [
     match: (name) => name.toLowerCase().startsWith('imports.'),
   },
   {
+    key: 'alerts',
+    label: 'Alertas',
+    description: 'Alertas de inventario, listas, productos y envíos',
+    match: (name) => {
+      const n = name.toLowerCase();
+      return n.startsWith('inventory-alerts.') || n.startsWith('alerts.');
+    },
+  },
+  {
     key: 'wishlist',
     label: 'Wish list',
     description: 'Catálogo, selección y administración',
@@ -148,6 +157,19 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
       'budget.cashier.view',
       'candidates.view',
       'wishlist.view',
+    ],
+  },
+  adminpresupuesto: {
+    label: 'Admin Presupuesto (lectura de comisiones, cajeros y especialistas)',
+    match: [
+      'portal.view',
+      'panel.view',
+      'budget.view',
+      'budget.commissions.view',
+      'budget.cashier.view',
+      'budget.advisors.view',
+      'budget.specialists.view',
+      'commissions.asesorSpecialist.view',
     ],
   },
 };
@@ -218,6 +240,12 @@ function getSubgroupLabel(moduleKey: string, permissionName: string) {
 
   if (moduleKey === 'imports') {
     if (n.includes('create')) return 'Carga';
+    if (n.includes('manage')) return 'Gestión';
+    if (n.includes('view')) return 'Consulta';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'alerts') {
     if (n.includes('manage')) return 'Gestión';
     if (n.includes('view')) return 'Consulta';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
@@ -349,7 +377,7 @@ export default function AdminPermissionsPanel(): JSX.Element {
 
   const subgroupKeys = useMemo(() => {
     const keys = Object.keys(subgroups);
-    const order = ['Acceso', 'General', 'Lectura', 'Gestión', 'Comisiones', 'Cajeros', 'Reportes', 'Asesores', 'Ventas', 'Roles', 'Usuarios', 'Carga', 'Eliminación', 'Edición', 'Creación'];
+    const order = ['Acceso', 'General', 'Lectura', 'Consulta', 'Gestión', 'Comisiones', 'Cajeros', 'Reportes', 'Asesores', 'Ventas', 'Roles', 'Usuarios', 'Carga', 'Eliminación', 'Edición', 'Creación'];
     return keys.sort((a, b) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
@@ -622,6 +650,7 @@ export default function AdminPermissionsPanel(): JSX.Element {
               <option value="lider">Líder</option>
               <option value="seller">Seller</option>
               <option value="cashier">Cashier</option>
+              <option value="adminpresupuesto">Admin Presupuesto</option>
             </select>
           </div>
         </div>

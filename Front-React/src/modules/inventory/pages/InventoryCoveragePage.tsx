@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import {
   AlertTriangle,
   BarChart3,
@@ -6,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CloudUpload,
+  Download,
   Filter,
   Package,
   RefreshCw,
@@ -48,7 +50,7 @@ export default function InventoryCoveragePage() {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [targetDays, setTargetDays] = useState(60);
   const [leadTimeDays, setLeadTimeDays] = useState(15);
-  const [maxMonths, setMaxMonths] = useState(12);
+  const [maxMonths, setMaxMonths] = useState(6);
   const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [joinSelectedStores, setJoinSelectedStores] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -64,16 +66,13 @@ export default function InventoryCoveragePage() {
   }, []);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(
-      () => {
-        void loadMetrics();
-      },
-      search.trim() ? 350 : 0
-    );
+    const timeoutId = window.setTimeout(() => {
+      void loadMetrics();
+    }, 650);
 
     return () => window.clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreIds, asOfDate, search, maxMonths]);
+  }, [selectedStoreIds, asOfDate, search]);
 
   const loadStores = async () => {
     try {
@@ -96,8 +95,7 @@ export default function InventoryCoveragePage() {
         undefined,
         search,
         selectedStoreIds.length > 0 ? selectedStoreIds : undefined,
-        asOfDate || undefined,
-        maxMonths
+        asOfDate || undefined
       );
 
       setData({
@@ -166,7 +164,7 @@ export default function InventoryCoveragePage() {
           ? Array.from(new Set([...selectedStoreIds, Number(importStoreId)]))
           : [Number(importStoreId)];
 
-      const rows = await getInventoryMetrics(undefined, search, nextStoreIds, asOfDate || undefined, maxMonths);
+      const rows = await getInventoryMetrics(undefined, search, nextStoreIds, asOfDate || undefined);
 
       setData({
         message: "Cobertura cargada correctamente.",
@@ -179,6 +177,36 @@ export default function InventoryCoveragePage() {
       setError(err?.response?.data?.message || err?.message || "No se pudo importar el inventario.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleExportAnalysis = () => {
+    if (selectedStoreIds.length === 0) {
+      setError("Selecciona al menos una tienda para exportar el analisis.");
+      return;
+    }
+
+    try {
+      setError("");
+      setMessage("");
+
+      const result = exportInventoryAnalysisWorkbook({
+        rows: filteredRows.filter((row) => matchesViewMode(row, viewMode)),
+        stores,
+        selectedStoreIds,
+        targetDays,
+        leadTimeValue: leadTimeDays,
+      });
+
+      if (!result.exported) {
+        setError(result.message);
+        return;
+      }
+
+      setMessage(result.message);
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || "No se pudo exportar el analisis de inventario.");
     }
   };
 
@@ -225,7 +253,7 @@ export default function InventoryCoveragePage() {
   }, [filteredRows, joinSelectedStores, selectedStoreIds.length]);
 
   const enrichedRows = useMemo(() => {
-    const planningDays = Math.max(0, targetDays) + Math.max(0, leadTimeDays);
+    const planningDays = Math.max(0, targetDays) + normalizeLeadTimeMonths(leadTimeDays) * 30;
 
     return planningRows
       .map((row) => {
@@ -280,7 +308,6 @@ export default function InventoryCoveragePage() {
     selectedProvider ? { key: "provider", label: `Proveedor: ${selectedProvider}`, clear: () => setSelectedProvider("") } : null,
     selectedCategory ? { key: "category", label: `Categoría: ${selectedCategory}`, clear: () => setSelectedCategory("") } : null,
     asOfDate ? { key: "date", label: `Fecha: ${asOfDate}`, clear: () => setAsOfDate("") } : null,
-    maxMonths !== 12 ? { key: "max-months", label: `Meses para maximo: ${maxMonths}`, clear: () => setMaxMonths(12) } : null,
   ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
 
   return (
@@ -302,23 +329,42 @@ export default function InventoryCoveragePage() {
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  onClick={loadMetrics}
-                  disabled={loading || loadingStores}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  Actualizar vista
-                </button>
-                <button
-                  onClick={handleRun}
-                  disabled={loading}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                  {loading ? "Procesando..." : "Recalcular"}
-                </button>
+              <div className="w-full max-w-md space-y-3">
+                <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
+                  <label className="block text-sm font-semibold text-white">Meses para maximo</label>
+                  <div className="mt-2 flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={maxMonths}
+                      onChange={(e) => setMaxMonths(clampInteger(e.target.value, 1, 20, 12))}
+                      className="h-12 w-28 rounded-xl border border-white/20 bg-white px-4 text-base font-semibold text-slate-900 outline-none transition focus:border-white"
+                    />
+                    <div className="min-w-0 text-xs leading-5 text-slate-300">
+                      Se aplica cuando presionas Recalcular.
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    onClick={loadMetrics}
+                    disabled={loading || loadingStores}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    Actualizar vista
+                  </button>
+                  <button
+                    onClick={handleRun}
+                    disabled={loading}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                    {loading ? "Procesando..." : "Recalcular"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -411,23 +457,12 @@ export default function InventoryCoveragePage() {
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <FieldCard label="Meses para maximo">
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    step={1}
-                    value={maxMonths}
-                    onChange={(e) => setMaxMonths(clampInteger(e.target.value, 1, 20, 12))}
-                    className="h-[54px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white"
-                  />
-                </FieldCard>
+              <div className="grid gap-4 md:grid-cols-2">
                 <FieldCard label="Días objetivo de stock">
                   <NumberStepper value={targetDays} onChange={setTargetDays} suffix="días" />
                 </FieldCard>
                 <FieldCard label="Lead time del proveedor">
-                  <NumberStepper value={leadTimeDays} onChange={setLeadTimeDays} suffix="días" />
+                  <NumberStepper value={leadTimeDays} onChange={setLeadTimeDays} suffix="dias o meses" step={0.05} />
                 </FieldCard>
               </div>
 
@@ -436,10 +471,10 @@ export default function InventoryCoveragePage() {
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold text-slate-900">
                   <span>{maxMonths} meses maximo</span>
                   <ChevronRight className="h-5 w-5 text-slate-300" />
-                  {targetDays + leadTimeDays} días
+                  {Math.round((targetDays + normalizeLeadTimeMonths(leadTimeDays) * 30) * 10) / 10} dias
                   <ChevronRight className="h-5 w-5 text-slate-300" />
                   <span className="text-base font-medium text-slate-500">
-                    {Math.round((((targetDays + leadTimeDays) / 30) * 10)) / 10} meses aprox.
+                    {Math.round(((targetDays / 30 + normalizeLeadTimeMonths(leadTimeDays)) * 10)) / 10} meses aprox.
                   </span>
                 </div>
               </div>
@@ -469,6 +504,15 @@ export default function InventoryCoveragePage() {
                   disabled={selectedStoreIds.length < 2}
                   onClick={() => setJoinSelectedStores((current) => !current)}
                 />
+                <button
+                  type="button"
+                  onClick={handleExportAnalysis}
+                  disabled={loading || loadingStores}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar analisis
+                </button>
               </div>
             </div>
 
@@ -875,40 +919,59 @@ function NumberStepper({
   value,
   onChange,
   suffix,
+  step = 1,
 }: {
   value: number;
   onChange: (value: number) => void;
   suffix: string;
+  step?: number;
 }) {
+  const sliderMax = Math.max(180, value);
+  const updateValue = (nextValue: number) => {
+    if (!Number.isFinite(nextValue)) {
+      onChange(0);
+      return;
+    }
+
+    onChange(Math.max(0, Math.round(nextValue * 100) / 100));
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5">
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => onChange(Math.max(0, value - 5))}
+          onClick={() => updateValue(value - 1)}
           className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
         >
-          -5
+          -1
         </button>
-        <div className="text-center">
-          <div className="text-2xl font-semibold text-slate-900">{value}</div>
+        <div className="min-w-0 text-center">
+          <input
+            type="number"
+            min={0}
+            step={step}
+            value={value}
+            onChange={(e) => updateValue(Number.parseFloat(e.target.value))}
+            className="h-10 w-24 rounded-xl border border-slate-200 bg-slate-50 text-center text-2xl font-semibold text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white"
+          />
           <div className="text-xs text-slate-500">{suffix}</div>
         </div>
         <button
           type="button"
-          onClick={() => onChange(value + 5)}
+          onClick={() => updateValue(value + 1)}
           className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
         >
-          +5
+          +1
         </button>
       </div>
       <input
         type="range"
         min={0}
-        max={180}
-        step={5}
+        max={sliderMax}
+        step={step}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => updateValue(Number(e.target.value))}
         className="mt-4 w-full accent-slate-900"
       />
     </div>
@@ -940,6 +1003,399 @@ function ModeChip({
       {label}
     </button>
   );
+}
+
+type AnalysisWorkbookInput = {
+  rows: InventoryMetricItem[];
+  stores: Store[];
+  selectedStoreIds: number[];
+  targetDays: number;
+  leadTimeValue: number;
+};
+
+type AnalysisSheetGroup = {
+  key: string;
+  name: string;
+  rows: InventoryMetricItem[];
+};
+
+function exportInventoryAnalysisWorkbook({
+  rows,
+  stores,
+  selectedStoreIds,
+  targetDays,
+  leadTimeValue,
+}: AnalysisWorkbookInput): { exported: boolean; message: string } {
+  const groups = buildAnalysisSheetGroups(rows, stores, selectedStoreIds);
+
+  if (groups.length === 0) {
+    return {
+      exported: false,
+      message: "No hay tiendas validas para exportar. COLZ1 solo se exporta cuando acompana a COLS1 o COLS2.",
+    };
+  }
+
+  const workbook = XLSX.utils.book_new();
+  workbook.Workbook = { CalcPr: { fullCalcOnLoad: true } } as any;
+
+  const objectiveMonths = round2(Math.max(0, targetDays) / 30);
+  const leadTimeMonths = round2(normalizeLeadTimeMonths(leadTimeValue));
+  const usedSheetNames = new Set<string>();
+
+  groups.forEach((group) => {
+    const sheet = buildAnalysisWorksheet(group.rows, {
+      targetDays,
+      objectiveMonths,
+      leadTimeMonths,
+    });
+    const safeName = uniqueSheetName(group.name, usedSheetNames);
+    XLSX.utils.book_append_sheet(workbook, sheet, safeName);
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(workbook, `analisis-inventario-${date}.xlsx`);
+
+  return {
+    exported: true,
+    message: `Analisis exportado correctamente (${groups.length} hoja${groups.length === 1 ? "" : "s"}).`,
+  };
+}
+
+function buildAnalysisSheetGroups(
+  rows: InventoryMetricItem[],
+  stores: Store[],
+  selectedStoreIds: number[]
+): AnalysisSheetGroup[] {
+  const storesById = new Map(stores.map((store) => [store.id, store]));
+  const storesByCode = new Map(stores.map((store) => [normalizeStoreCode(store.code), store]));
+  const selectedCodes = new Set(
+    selectedStoreIds
+      .map((id) => storesById.get(id)?.code)
+      .filter((code): code is string => Boolean(code))
+      .map(normalizeStoreCode)
+  );
+  const mdeSelected = selectedCodes.has("COLS1") || selectedCodes.has("COLS2");
+  const groups = new Map<string, AnalysisSheetGroup>();
+
+  rows.forEach((row) => {
+    const codes = rowStoreCodes(row);
+    const hasMdeStore = codes.some((code) => code === "COLS1" || code === "COLS2");
+    const hasZonaFranca = codes.includes("COLZ1");
+
+    if (hasMdeStore) {
+      if (mdeSelected) {
+        pushAnalysisRow(groups, "MDE", "ANALISIS DFP MDE", row);
+      }
+      return;
+    }
+
+    if (hasZonaFranca && mdeSelected) {
+      pushAnalysisRow(groups, "MDE", "ANALISIS DFP MDE", row);
+      return;
+    }
+
+    if (hasZonaFranca) {
+      return;
+    }
+
+    const code = codes.find((value) => selectedCodes.has(value)) ?? "";
+    if (!code) {
+      return;
+    }
+
+    const store = storesByCode.get(code);
+    pushAnalysisRow(groups, code, `ANALISIS ${store?.name ?? row.store_name ?? code}`, row);
+  });
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    rows: combineRowsBySku(group.rows),
+  }));
+}
+
+function pushAnalysisRow(
+  groups: Map<string, AnalysisSheetGroup>,
+  key: string,
+  name: string,
+  row: InventoryMetricItem
+) {
+  const current = groups.get(key) ?? { key, name, rows: [] };
+  current.rows.push(row);
+  groups.set(key, current);
+}
+
+function combineRowsBySku(rows: InventoryMetricItem[]): InventoryMetricItem[] {
+  const grouped = new Map<string, InventoryMetricItem[]>();
+
+  rows.forEach((row) => {
+    const key = productGroupKey(row);
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  });
+
+  return Array.from(grouped.values()).map((group) => {
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    const first = group[0];
+    const monthColumns = mergeMonthColumns(group.map((row) => row.month_columns));
+    const monthValues = Object.values(monthColumns);
+    const maximoMes = monthValues.length > 0
+      ? Math.max(...monthValues)
+      : Math.max(...group.map((row) => Number(row.maximo_mes ?? 0)));
+
+    return {
+      ...first,
+      stock_actual: sumNumbers(group, (row) => row.stock_actual),
+      month_columns: monthColumns,
+      maximo_mes: maximoMes,
+      factor_caja: group.find((row) => Number(row.factor_caja ?? 0) > 0)?.factor_caja ?? first.factor_caja,
+    };
+  });
+}
+
+function buildAnalysisWorksheet(
+  rows: InventoryMetricItem[],
+  context: { targetDays: number; objectiveMonths: number; leadTimeMonths: number }
+): XLSX.WorkSheet {
+  const monthKeys = uniqueText(rows.flatMap((row) => Object.keys(row.month_columns ?? {})))
+    .sort((left, right) => monthKeyValue(left) - monthKeyValue(right));
+  const monthHeaders = monthKeys.map(formatMonthKey);
+  const headers = [
+    "SKU",
+    "DESCRIPCION",
+    ...monthHeaders,
+    "Proyectado",
+    "INVEN",
+    "MESES DISP",
+    "LEAD TIME",
+    "DISPO REAL",
+    "UNIDADES SUGER",
+    "FC",
+    "CAJAS",
+  ];
+  const projectedCol = 2 + monthKeys.length;
+  const inventoryCol = projectedCol + 1;
+  const mesesDispCol = projectedCol + 2;
+  const leadTimeCol = projectedCol + 3;
+  const dispoRealCol = projectedCol + 4;
+  const unitsCol = projectedCol + 5;
+  const fcCol = projectedCol + 6;
+  const aoa: any[][] = [
+    [
+      "DIAS OBJETIVO:",
+      Math.max(0, context.targetDays),
+      "MESES OBJETIVO:",
+      context.objectiveMonths,
+      "LEAD TIME:",
+      context.leadTimeMonths,
+    ],
+    headers,
+  ];
+
+  rows.forEach((row, index) => {
+    const rowIndex = index + 2;
+    const projectedCell = XLSX.utils.encode_cell({ r: rowIndex, c: projectedCol });
+    const inventoryCell = XLSX.utils.encode_cell({ r: rowIndex, c: inventoryCol });
+    const mesesDispCell = XLSX.utils.encode_cell({ r: rowIndex, c: mesesDispCol });
+    const leadTimeCell = XLSX.utils.encode_cell({ r: rowIndex, c: leadTimeCol });
+    const dispoRealCell = XLSX.utils.encode_cell({ r: rowIndex, c: dispoRealCol });
+    const unitsCell = XLSX.utils.encode_cell({ r: rowIndex, c: unitsCol });
+    const fcCell = XLSX.utils.encode_cell({ r: rowIndex, c: fcCol });
+
+    aoa.push([
+      row.product_code ?? "",
+      row.description ?? "",
+      ...monthKeys.map((key) => {
+        const value = Number(row.month_columns?.[key] ?? 0);
+        return value > 0 ? value : null;
+      }),
+      numberOrZero(row.maximo_mes),
+      numberOrZero(row.stock_actual),
+      { t: "n", f: `IFERROR(${inventoryCell}/${projectedCell},0)`, z: "0.00" },
+      context.leadTimeMonths,
+      { t: "n", f: `${mesesDispCell}-${leadTimeCell}`, z: "0.00" },
+      {
+        t: "n",
+        f: `IF(${dispoRealCell}<=${context.objectiveMonths},ROUNDUP(${projectedCell}*(${context.objectiveMonths}-${dispoRealCell}),0),0)`,
+        z: "0",
+      },
+      numberOrZero(row.factor_caja),
+      { t: "n", f: `IFERROR(ROUNDUP(${unitsCell}/${fcCell},0),0)`, z: "0" },
+    ]);
+
+  });
+
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  const lastCol = headers.length - 1;
+  const lastRow = aoa.length;
+  sheet["!autofilter"] = {
+    ref: XLSX.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: Math.max(1, lastRow - 1), c: lastCol } }),
+  };
+  sheet["!cols"] = [
+    { wch: 14 },
+    { wch: 44 },
+    ...monthHeaders.map(() => ({ wch: 11 })),
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 11 },
+    { wch: 11 },
+    { wch: 15 },
+    { wch: 8 },
+    { wch: 9 },
+  ];
+
+  styleAnalysisWorksheet(sheet, headers.length, monthHeaders.length, aoa.length);
+
+  return sheet;
+}
+
+function styleAnalysisWorksheet(
+  sheet: XLSX.WorkSheet,
+  columnCount: number,
+  monthCount: number,
+  rowCount: number
+) {
+  const headerStyle = {
+    font: { bold: true, color: { rgb: "FFFFFF" } },
+    fill: { fgColor: { rgb: "156082" } },
+    alignment: { horizontal: "center", vertical: "center" },
+  };
+  const contextStyle = {
+    font: { bold: true, color: { rgb: "0F172A" } },
+    fill: { fgColor: { rgb: "E2E8F0" } },
+  };
+  const inventoryFill = { fill: { fgColor: { rgb: "B7E1A1" } } };
+  const planningFill = { fill: { fgColor: { rgb: "F4B6CA" } } };
+  const unitsFill = { fill: { fgColor: { rgb: "9FE3A5" } } };
+  const casesFill = { fill: { fgColor: { rgb: "B7DDF6" } } };
+
+  for (let c = 0; c < columnCount; c += 1) {
+    setCellStyle(sheet, 1, c, headerStyle);
+  }
+
+  for (let c = 0; c < 6; c += 1) {
+    setCellStyle(sheet, 0, c, contextStyle);
+  }
+
+  const projectedCol = 2 + monthCount;
+  const inventoryCol = projectedCol + 1;
+  const mesesDispCol = projectedCol + 2;
+  const leadTimeCol = projectedCol + 3;
+  const dispoRealCol = projectedCol + 4;
+  const unitsCol = projectedCol + 5;
+  const fcCol = projectedCol + 6;
+  const casesCol = projectedCol + 7;
+
+  for (let r = 2; r < rowCount; r += 1) {
+    [projectedCol, inventoryCol, fcCol].forEach((col) => setCellStyle(sheet, r, col, inventoryFill));
+    [mesesDispCol, leadTimeCol, dispoRealCol].forEach((col) => setCellStyle(sheet, r, col, planningFill));
+    setCellStyle(sheet, r, unitsCol, unitsFill);
+    setCellStyle(sheet, r, casesCol, casesFill);
+  }
+}
+
+function setCellStyle(sheet: XLSX.WorkSheet, row: number, col: number, style: Record<string, unknown>) {
+  const ref = XLSX.utils.encode_cell({ r: row, c: col });
+  if (!sheet[ref]) {
+    return;
+  }
+
+  (sheet[ref] as any).s = {
+    ...((sheet[ref] as any).s ?? {}),
+    ...style,
+  };
+}
+
+function rowStoreCodes(row: InventoryMetricItem): string[] {
+  return uniqueText([
+    ...(row.store_code ?? "").split("+"),
+    row.sales_store_code,
+  ]).map(normalizeStoreCode);
+}
+
+function normalizeStoreCode(value: string): string {
+  return value.toUpperCase().replace(/\s+/g, "").trim();
+}
+
+function normalizeLeadTimeMonths(value: number): number {
+  const safeValue = Math.max(0, Number(value) || 0);
+  return safeValue <= 3 ? safeValue : safeValue / 30;
+}
+
+function matchesViewMode(row: InventoryMetricItem, viewMode: ViewMode): boolean {
+  if (viewMode === "critical") {
+    return row.stock_alert_level === "critico" || row.stock_alert_level === "sin_stock";
+  }
+
+  if (viewMode === "attention") {
+    return row.stock_alert_level === "alto" || row.stock_alert_level === "medio";
+  }
+
+  if (viewMode === "healthy") {
+    return row.stock_alert_level === "estable" || row.stock_alert_level === "sin_rotacion";
+  }
+
+  return true;
+}
+
+function formatMonthKey(monthKey: string): string {
+  const { month, year } = parseMonthKey(monthKey);
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+}
+
+function monthKeyValue(monthKey: string): number {
+  const { month, year } = parseMonthKey(monthKey);
+  return year * 100 + month;
+}
+
+function parseMonthKey(monthKey: string): { month: number; year: number } {
+  const [left, right] = monthKey.includes("-")
+    ? monthKey.split("-")
+    : monthKey.split(".");
+  const first = Number(left) || 1;
+  const second = Number(right) || 0;
+
+  if (monthKey.includes("-")) {
+    return {
+      month: Math.max(1, Math.min(12, second || 1)),
+      year: first < 100 ? 2000 + first : first,
+    };
+  }
+
+  return {
+    month: Math.max(1, Math.min(12, first)),
+    year: second < 100 ? 2000 + second : second,
+  };
+}
+
+function uniqueSheetName(name: string, used: Set<string>): string {
+  const base = (name || "ANALISIS")
+    .replace(/[\\/?*[\]:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 31) || "ANALISIS";
+  let candidate = base;
+  let counter = 2;
+
+  while (used.has(candidate)) {
+    const suffix = ` ${counter}`;
+    candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    counter += 1;
+  }
+
+  used.add(candidate);
+  return candidate;
+}
+
+function numberOrZero(value: number | null | undefined): number {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] {
