@@ -58,6 +58,7 @@
 
 <script src="{{ asset('js/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ asset('js/logout.js') }}"></script>
+<script src="{{ asset('js/confirm-actions.js') }}"></script>
 
 
 

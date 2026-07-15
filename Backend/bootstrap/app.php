@@ -13,10 +13,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-         $middleware->alias([
-        'ensure.role' => \App\Http\Middleware\EnsureRole::class,
-        'permission' => \App\Http\Middleware\CheckPermission::class,
-    ]);
+        $middleware->trustHosts();
+        $middleware->statefulApi();
+        $middleware->throttleApi();
+        $middleware->authenticateSessions();
+        $middleware->append(\App\Http\Middleware\SecureHeaders::class);
+
+        $middleware->alias([
+            'ensure.role' => \App\Http\Middleware\EnsureRole::class,
+            'permission' => \App\Http\Middleware\CheckPermission::class,
+        ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('inventory:metrics')->dailyAt('01:00');

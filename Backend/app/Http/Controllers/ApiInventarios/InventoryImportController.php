@@ -16,9 +16,10 @@ class InventoryImportController extends Controller
 {
     public function importAutomation(Request $request): JsonResponse
     {
-        $token = $request->header('X-Automation-Token');
+        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $token = (string) $request->header('X-Automation-Token');
 
-        if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+        if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {
             return response()->json([
                 'message' => 'No autorizado',
             ], 403);

@@ -54,5 +54,5 @@
 </div>
 
 {{-- Script para mostrar "Reenviar código" tras unos segundos --}}
-<script src ="{{asset('js/2fa-email.js')}}"></script>
+<script src="{{ asset('js/2fa-email.js') }}"></script>
 @endsection

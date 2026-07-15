@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Photo;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use MailerSend\MailerSend;
 use MailerSend\Helpers\Builder\EmailParams;
 use MailerSend\Helpers\Builder\Recipient;
@@ -30,7 +31,7 @@ public function store(Request $request)
         'name'     => 'required|string|max:255',
         'username' => 'required|string|max:255|unique:users',
         'email'    => 'required|string|email|unique:users',
-        'password' => 'required|string|min:8|confirmed',
+        'password' => ['required', 'string', 'confirmed', Password::min(12)->mixedCase()->numbers()->symbols()->uncompromised()],
         'role'     => 'required|string|in:super_admin,admin,user,user_portal,user_disciplina,seller',
         'imagenes' => 'nullable|string',
         'auth_correo' => 'nullable|boolean',
@@ -154,7 +155,7 @@ public function store(Request $request)
             Rule::unique('users','email')->ignore($id),
         ],
 
-            'password'       => 'nullable|min:6',
+            'password'       => ['nullable', 'string', Password::min(12)->mixedCase()->numbers()->symbols()->uncompromised()],
             'role'     => 'required|string|in:super_admin,admin,user',
             'auth_correo'    => 'required|in:0,1',
             'imagenes'       => 'nullable|string',  
@@ -179,8 +180,14 @@ public function store(Request $request)
 public function enviarVerificacion()
 {
     $user = Auth::user();
+    $apiKey = (string) config('services.mailersend.api_key');
+
+    if ($apiKey === '') {
+        return back()->with('error', 'MailerSend no esta configurado.');
+    }
+
     $mailersend = new MailerSend([
-        'api_key' => 'mlsn.608054d02d63a90ad67cab94e7cdf80ca366b43675588065dfb86fae3d0a5ba0'
+        'api_key' => $apiKey,
     ]);
 
     $recipients = [

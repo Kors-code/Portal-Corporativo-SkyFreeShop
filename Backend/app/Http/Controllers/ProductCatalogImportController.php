@@ -132,10 +132,10 @@ class ProductCatalogImportController extends Controller
             'chunk_size' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
 
-        abort_unless(str_starts_with($data['path'], self::DIR . '/'), 422, 'Ruta de catalogo invalida.');
+        abort_unless(preg_match('/^' . preg_quote(self::DIR, '/') . '\/catalog_[A-Za-z0-9_.-]+\.(xlsx|xls|csv)$/i', $data['path']), 422, 'Ruta de catalogo invalida.');
         abort_unless(Storage::exists($data['path']), 404, 'Archivo de catalogo no encontrado.');
 
-        $fullPath = Storage::path($data['path']);
+        $fullPath = $this->safeStoragePath($data['path']);
         $startRow = (int) $data['next_row'];
         $chunkSize = (int) ($data['chunk_size'] ?? self::CHUNK_SIZE);
         $endRow = $startRow + $chunkSize - 1;
@@ -232,6 +232,16 @@ class ProductCatalogImportController extends Controller
         $token = (string) env('IMPORT_AUTOMATION_TOKEN');
 
         return $token !== '' && hash_equals($token, (string) $request->header('X-Automation-Token'));
+    }
+
+    private function safeStoragePath(string $path): string
+    {
+        $basePath = realpath(Storage::path(self::DIR));
+        $filePath = realpath(Storage::path($path));
+
+        abort_unless($basePath && $filePath && str_starts_with($filePath, $basePath . DIRECTORY_SEPARATOR), 422, 'Ruta de catalogo invalida.');
+
+        return $filePath;
     }
 
     private function spreadsheetFileRules(): array

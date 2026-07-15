@@ -20,7 +20,7 @@
         <a id="downloadLink" href="{{ route('descargar.pdf', ['path' => session('pdf_path')]) }}" class="hidden">Descargar</a>
       @endif
     </div>
-    <button class="close" onclick="document.getElementById('flash-success')?.remove()">×</button>
+    <button class="close" data-dismiss-target="flash-success">×</button>
   </div>
 @endif
 
@@ -36,7 +36,7 @@
         <a href="{{ route('descargar.pdf', ['path' => session('pdf_pathLink')]) }}">Descargar PDF</a>
       @endif
     </div>
-    <button class="close" onclick="document.getElementById('flash-success')?.remove()">×</button>
+    <button class="close" data-dismiss-target="flash-success">×</button>
   </div>
 @endif
 
@@ -50,7 +50,7 @@
       @endforeach
     </ul>
     <div class="errors-footer">
-      <button class="btn secondary btn-small" onclick="document.getElementById('flash-errors')?.remove()">Cerrar</button>
+      <button class="btn secondary btn-small" data-dismiss-target="flash-errors">Cerrar</button>
     </div>
   </div>
 @endif

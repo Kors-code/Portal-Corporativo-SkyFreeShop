@@ -82,7 +82,7 @@
       </div>
       
       <div class="form-group" style="text-align: center;">
-        <button type="button" onclick="toggleImagenes()">Seleccionar Foto Perfil</button>
+        <button type="button" id="toggle-imagenes">Seleccionar Foto Perfil</button>
       </div>
       
       <!-- Contenedor de selección de imagen y subida drag & drop -->

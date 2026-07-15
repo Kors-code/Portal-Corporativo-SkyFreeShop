@@ -1477,7 +1477,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'total_rows' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        abort_unless(str_starts_with($data['path'], 'sales-imports/'), 422, 'Ruta de importacion invalida.');
+        abort_unless(preg_match('/^sales-imports\/sales_[A-Za-z0-9_.-]+\.(xlsx|xls|xlsm|csv)$/i', $data['path']), 422, 'Ruta de importacion invalida.');
         abort_unless(Storage::exists($data['path']), 404, 'Archivo de importacion no encontrado.');
 
         $batchId = (int) $data['batch_id'];
@@ -1488,7 +1488,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
         $absoluteHighestRow = isset($data['total_rows'])
             ? ((int) $data['total_rows']) + 1
             : null;
-        $fullPath = Storage::path($data['path']);
+        $fullPath = $this->safeStoragePath($data['path'], 'sales-imports');
 
         $batch = DB::connection('budget')->table('import_batches')->where('id', $batchId)->first();
 
@@ -1862,9 +1862,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
     }
     public function importAutomation(Request $request)
     {
-        $token = $request->header('X-Automation-Token');
+        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $token = (string) $request->header('X-Automation-Token');
 
-        if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+        if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {
             return response()->json([
                 'message' => 'No autorizado',
             ], 403);
@@ -1902,14 +1903,25 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     public function importAutomationChunk(Request $request)
     {
-        $token = $request->header('X-Automation-Token');
+        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $token = (string) $request->header('X-Automation-Token');
 
-        if ($token !== env('IMPORT_AUTOMATION_TOKEN')) {
+        if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {
             return response()->json([
                 'message' => 'No autorizado',
             ], 403);
         }
 
         return $this->chunk($request);
+    }
+
+    private function safeStoragePath(string $path, string $directory): string
+    {
+        $basePath = realpath(Storage::path($directory));
+        $filePath = realpath(Storage::path($path));
+
+        abort_unless($basePath && $filePath && str_starts_with($filePath, $basePath . DIRECTORY_SEPARATOR), 422, 'Ruta de importacion invalida.');
+
+        return $filePath;
     }
 }

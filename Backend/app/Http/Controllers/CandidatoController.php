@@ -28,8 +28,7 @@ public function index(Request $request)
     $query = Candidato::query();
 
     if ($request->filled('q')) {
-        $search = $request->input('q');
-        $query->where('cv_text', 'LIKE', "%$search%");
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm($request->input('q')));
     }
 
     $candidatos = $query->get();
@@ -40,9 +39,9 @@ public function index(Request $request)
     public function mostrarCandidatos(Request $request)
     {
         if ($request->filled('q')) {
-        $search = $request->input('q');
+        $search = trim((string) $request->input('q'));
         $vacantes = Vacante::where('slug', $search)
-            ->orWhere('titulo', 'LIKE', "%$search%")
+            ->orWhere('titulo', 'LIKE', $this->likeSearchTerm($search))
             ->get();
         } else {
             $vacantes = Vacante::all();
@@ -222,8 +221,7 @@ if ($extension === 'pdf') {
 
     
     if ($request->filled('q')) {
-        $search = $request->input('q');
-        $query->where('cv_text', 'LIKE', "%$search%");
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm($request->input('q')));
     }
     if ($request->filled('puntaje_min') && $request->filled('puntaje_max')) {
         $puntaje_max = $request->input('puntaje_max');
@@ -254,7 +252,7 @@ if ($request->input('contador') == 1) {
     // Esta condición se añadirá AL LADO de cualquier condición anterior
     $query->where(function ($q) use ($keywords) {
         foreach ($keywords as $keyword) {
-            $q->orWhereRaw('LOWER(cv_text) LIKE ?', ['%' . strtolower($keyword) . '%']);
+            $q->orWhereRaw('LOWER(cv_text) LIKE ?', [$this->lowerLikeSearchTerm($keyword)]);
         }
     });
     // Si $request->filled('q') fue true, $query ahora representa:
@@ -276,7 +274,7 @@ if ($request->input('ventas') == 1) {
     // Esta condición se añadirá AL LADO de cualquier condición anterior
     $query->where(function ($q) use ($keywords) {
         foreach ($keywords as $keyword) {
-            $q->orWhereRaw('LOWER(cv_text) LIKE ?', ['%' . strtolower($keyword) . '%']);
+            $q->orWhereRaw('LOWER(cv_text) LIKE ?', [$this->lowerLikeSearchTerm($keyword)]);
         }
     });
     // Si $request->filled('q') fue true, $query ahora representa:
@@ -290,7 +288,7 @@ if ($request->input('cajero') == 1) {
     // Esta condición se añadirá AL LADO de cualquier condición anterior
     $query->where(function ($q) use ($keywords) {
         foreach ($keywords as $keyword) {
-            $q->orWhereRaw('LOWER(cv_text) LIKE ?', ['%' . strtolower($keyword) . '%']);
+            $q->orWhereRaw('LOWER(cv_text) LIKE ?', [$this->lowerLikeSearchTerm($keyword)]);
         }
     });
     // Si $request->filled('q') fue true, $query ahora representa:
@@ -389,9 +387,14 @@ public function enviarCorreo(Request $request,$id)
 {
     $estado = $request->action;
     $candidato = Candidato::findOrFail($id);
+    $apiKey = (string) config('services.mailersend.api_key');
+
+    if ($apiKey === '') {
+        return redirect()->back()->with('error', 'MailerSend no esta configurado.');
+    }
 
     $mailersend = new MailerSend([
-        'api_key' => 'mlsn.608054d02d63a90ad67cab94e7cdf80ca366b43675588065dfb86fae3d0a5ba0'
+        'api_key' => $apiKey,
     ]);
 
     $recipients = [
@@ -471,7 +474,7 @@ public function export(Request $request, $slug)
 
     // Aplica filtros igual que en show
     if ($request->filled('q')) {
-        $query->where('cv_text', 'LIKE', "%{$request->q}%");
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm($request->q));
     }
     if ($request->filled('puntaje_min') && $request->filled('puntaje_max')) {
         $query->whereBetween('puntaje', [$request->puntaje_min, $request->puntaje_max]);
@@ -483,13 +486,13 @@ public function export(Request $request, $slug)
         ]);
     }
     if ($request->filled('contador')) {
-        $query->where('cv_text', 'LIKE', '%contador%');
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm('contador'));
     }
     if ($request->filled('cajero')) {
-        $query->where('cv_text', 'LIKE', '%cajero%');
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm('cajero'));
     }
     if ($request->filled('ventas')) {
-        $query->where('cv_text', 'LIKE', '%ventas%');
+        $query->where('cv_text', 'LIKE', $this->likeSearchTerm('ventas'));
     }
     if ($request->filled('ordenar')) {
         if ($request->ordenar == 'puntaje_asc') {
@@ -627,6 +630,18 @@ public function subirAllCv()
 {
     $vacantes = \App\Models\Vacante::all();
     return view('candidatos.subirAllCv', compact('vacantes'));
+}
+
+private function likeSearchTerm(mixed $value): string
+{
+    $term = mb_substr(trim((string) $value), 0, 100);
+
+    return '%' . addcslashes($term, '\\%_') . '%';
+}
+
+private function lowerLikeSearchTerm(mixed $value): string
+{
+    return mb_strtolower($this->likeSearchTerm($value));
 }
 
 

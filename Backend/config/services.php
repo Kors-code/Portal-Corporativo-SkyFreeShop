@@ -35,10 +35,18 @@ return [
         ],
     ],
 
-    'whatsapp' => [
-        'url' => env('WHATSAPP_SERVICE_URL', 'http://127.0.0.1:3001'),
-        'token' => env('WHATSAPP_SERVICE_TOKEN'),
-        'group_id' => env('WHATSAPP_GROUP_ID'),
+    'mailersend' => [
+        'api_key' => env('MAILERSEND_API_KEY'),
+    ],
+
+    'whatsapp_cloud' => [
+        'api_version' => env('WHATSAPP_CLOUD_API_VERSION', 'v23.0'),
+        'access_token' => env('WHATSAPP_CLOUD_ACCESS_TOKEN'),
+        'phone_number_id' => env('WHATSAPP_CLOUD_PHONE_NUMBER_ID'),
+        'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+        'webhook_app_secret' => env('WHATSAPP_WEBHOOK_APP_SECRET'),
+        'default_country_code' => env('WHATSAPP_DEFAULT_COUNTRY_CODE', '57'),
+        'recipient_numbers' => env('WHATSAPP_RECIPIENT_NUMBERS', ''),
     ],
 
 ];

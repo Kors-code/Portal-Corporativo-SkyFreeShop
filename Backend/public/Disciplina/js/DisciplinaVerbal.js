@@ -1,4 +1,11 @@
 document.addEventListener("DOMContentLoaded", async () => {
+  document.querySelectorAll('[data-dismiss-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = document.getElementById(button.getAttribute('data-dismiss-target'));
+      target?.remove();
+    });
+  });
+
     try {
     const response = await fetch('/api/firmas');
     const data = await response.json();

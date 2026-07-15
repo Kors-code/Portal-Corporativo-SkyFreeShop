@@ -143,6 +143,16 @@ class ImportBatchController extends Controller
             return;
         }
 
+        $filename = basename($filename);
+
+        if (!preg_match('/^[A-Za-z0-9_.-]+\.(xlsx|xls|xlsm|csv)$/i', $filename)) {
+            Log::warning('Nombre de archivo de importacion invalido, no se borra fisicamente', [
+                'filename' => $filename,
+            ]);
+
+            return;
+        }
+
         try {
             foreach (['imports/' . $filename, 'sales-imports/' . $filename] as $path) {
                 if (Storage::exists($path)) {

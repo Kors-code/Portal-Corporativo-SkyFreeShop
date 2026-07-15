@@ -32,7 +32,7 @@ public function store(LoginRequest $request): RedirectResponse
     $login = $request->input('login');
     $fieldType = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
 
-    if (Auth::attempt([$fieldType => $login, 'password' => $request->password], $request->boolean('remember'))) {
+    if (Auth::attempt([$fieldType => $login, 'password' => $request->password], false)) {
         $request->session()->regenerate();
 
         $user = Auth::user();

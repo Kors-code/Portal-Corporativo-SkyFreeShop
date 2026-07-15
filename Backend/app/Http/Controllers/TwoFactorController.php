@@ -40,6 +40,10 @@ class TwoFactorController extends Controller
     
     public function showVerifyForm()
     {
+        if (! session()->has('2fa:user:id')) {
+            return redirect()->route('login')->withErrors(['login' => 'Debes iniciar sesion primero.']);
+        }
+
         return view('auth.2fa-verify');
     }
     
@@ -65,6 +69,10 @@ class TwoFactorController extends Controller
         $request->validate(['code' => 'required']);
         
         $userId = $request->session()->get('2fa:user:id');
+        if (! $userId) {
+            return redirect()->route('login')->withErrors(['login' => 'Debes iniciar sesion primero.']);
+        }
+
         $user = \App\Models\User::findOrFail($userId);
         
         // ✅ Recrear TOTP desde el secret almacenado

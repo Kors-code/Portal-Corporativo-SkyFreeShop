@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Sky Free Shop | Portal Corporativo</title>
   <link rel="stylesheet" href="{{ asset('css/portal.css') }}">
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://kit.fontawesome.com/a2b5f6babc.js" crossorigin="anonymous" defer></script>
 </head>
 
 <body>

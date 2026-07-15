@@ -43,23 +43,23 @@
                 <a href="{{ route('vacantes.edit', $vacante->slug) }}" class="btn-editar">✏️ Editar</a>
                 </td>
                 <td>
-                <form action="{{ route('vacantes.destroy', $vacante->slug) }}" method="POST" onsubmit="return confirm('¿Estás seguro de eliminar esta vacante?');">
+                <form action="{{ route('vacantes.destroy', $vacante->slug) }}" method="POST" class="js-confirm-action" data-confirm-message="Eliminar esta vacante?">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="btn-eliminar">🗑️ Eliminar</button>
                 </form>
                 </td>
                <td>
-                <form action="{{ route('vacantes.habilitar', $vacante->slug) }}" method="POST" 
-                      onsubmit="return confirm('¿Estás seguro de habilitar esta vacante?');">
+                    <form action="{{ route('vacantes.habilitar', $vacante->slug) }}" method="POST"
+                      class="js-confirm-action" data-confirm-message="Habilitar esta vacante?">
                     @csrf
                     <input type="hidden" name="habilitado" value="habilitado">
                     <button type="submit" class="btn-eliminar">Habilitar</button>
                 </form>
             </td>
             <td>
-                <form action="{{ route('vacantes.habilitar', $vacante->slug) }}" method="POST" 
-                      onsubmit="return confirm('¿Estás seguro de deshabilitar esta vacante?');">
+                    <form action="{{ route('vacantes.habilitar', $vacante->slug) }}" method="POST"
+                      class="js-confirm-action" data-confirm-message="Deshabilitar esta vacante?">
                     @csrf
                     <input type="hidden" name="habilitado" value="deshabilitar">
                     <button type="submit" class="btn-eliminar">Deshabilitar</button>

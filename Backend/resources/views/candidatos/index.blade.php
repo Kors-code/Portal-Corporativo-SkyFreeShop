@@ -38,7 +38,7 @@
                         <form action="{{ route('candidatos.destroy', $candidato) }}" method="POST" style="display:inline">
                             @csrf
                             @method('DELETE')
-                            <button onclick="return confirm('¿Eliminar este candidato?')" type="submit">🗑️ Eliminar</button>
+                            <button class="js-confirm-action" data-confirm-message="Eliminar este candidato?" type="submit">Eliminar</button>
                         </form>
                     </td>
                 </tr>

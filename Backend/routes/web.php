@@ -64,44 +64,76 @@ Route::get('/presupuesto', [ShowInicioController::class, 'showPortal'])
     ->defaults('type', 'presupuesto')
     ->middleware(['auth', 'permission:portal.view']);
 
-Route::post('/usuarios', [UserController::class, 'store'])->name('usuarios.store');
-Route::get('/verify-email/{id}/{token}', [UserController::class, 'verifyEmail'])->name('verify.email');
-Route::post('/usuarios/{id}/enviar-verificacion', [UserController::class, 'enviarVerificacion'])->name('usuarios.enviarVerificacion');
+Route::post('/usuarios', [UserController::class, 'store'])
+    ->middleware(['auth', 'permission:users.manage', 'throttle:10,1'])
+    ->name('usuarios.store');
+Route::get('/verify-email/{id}/{token}', [UserController::class, 'verifyEmail'])
+    ->middleware(['throttle:6,1'])
+    ->name('verify.email');
+Route::post('/usuarios/{id}/enviar-verificacion', [UserController::class, 'enviarVerificacion'])
+    ->middleware(['auth', 'permission:users.manage', 'throttle:6,1'])
+    ->name('usuarios.enviarVerificacion');
 
 Route::post('/login', [AuthenticatedSessionController::class, 'store'])->middleware(['throttle:5,1']);
-Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->middleware('auth')->name('logout');
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
 
 /* Rutas públicas de inventarios */
-Route::prefix('api/v1')->group(function () {
-    Route::get('/stores', [InventoryImportController::class, 'stores']);
-    Route::post('/inventory/import', [InventoryImportController::class, 'import']);
-    Route::get('/inventory', [InventoryController::class, 'index']);
-    Route::post('/import-sales/start', [ImportSalesController::class, 'startChunked']);
-    Route::post('/import-sales/chunk', [ImportSalesController::class, 'chunk']);
-    Route::post('/catalog/import', [ProductCatalogImportController::class, 'import']);
-    Route::post('/catalog/import/start', [ProductCatalogImportController::class, 'start']);
-    Route::post('/catalog/import/chunk', [ProductCatalogImportController::class, 'chunk']);
-    Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run']);
-    Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index']);
+Route::prefix('api/v1')->middleware(['auth', 'throttle:api'])->group(function () {
+    Route::get('/stores', [InventoryImportController::class, 'stores'])
+        ->middleware('permission:imports.create');
+    Route::post('/inventory/import', [InventoryImportController::class, 'import'])
+        ->middleware('permission:imports.create');
+    Route::get('/inventory', [InventoryController::class, 'index'])
+        ->middleware('permission:panel.view');
+    Route::post('/import-sales/start', [ImportSalesController::class, 'startChunked'])
+        ->middleware('permission:imports.create');
+    Route::post('/import-sales/chunk', [ImportSalesController::class, 'chunk'])
+        ->middleware('permission:imports.create');
+    Route::post('/catalog/import', [ProductCatalogImportController::class, 'import'])
+        ->middleware('permission:imports.create');
+    Route::post('/catalog/import/start', [ProductCatalogImportController::class, 'start'])
+        ->middleware('permission:imports.create');
+    Route::post('/catalog/import/chunk', [ProductCatalogImportController::class, 'chunk'])
+        ->middleware('permission:imports.create');
+    Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run'])
+        ->middleware('permission:imports.create');
+    Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index'])
+        ->middleware('permission:panel.view');
 });
 
 /* Public candidate form */
 Route::get('postular/{vacante}', [CandidatoController::class, 'formularioPostulacion'])->name('postular');
 Route::post('postular/{slug}', [CandidatoController::class, 'store'])->middleware(['throttle:5,1'])->name('postular.store');
 Route::get('/vervacantes/{localidad}', [VacanteController::class, 'vervacantes'])->name('vacantes.vacantes');
-Route::post('/vacantes/{slug}/postulacion', [CandidatoController::class, 'store'])->name('vacante.postular');
+Route::post('/vacantes/{slug}/postulacion', [CandidatoController::class, 'store'])
+    ->middleware(['throttle:5,1'])
+    ->name('vacante.postular');
 Route::get('/vacantes/{slug}', [VacanteController::class, 'show'])->name('vacantes.show');
 
 /* 2FA */
-Route::get('/2fa/setup', [TwoFactorController::class, 'enable'])->name('2fa.setup');
-Route::get('/2fa/verify', [TwoFactorController::class, 'showVerifyForm'])->name('2fa.verify');
-Route::post('/2fa/verify', [TwoFactorController::class, 'verify'])->name('2fa.verify.post');
-Route::post('/2fa/setup', [TwoFactorController::class, 'setup'])->name('2fa.setup.post');
+Route::get('/2fa/setup', [TwoFactorController::class, 'enable'])
+    ->middleware(['auth', 'throttle:3,1'])
+    ->name('2fa.setup');
+Route::get('/2fa/verify', [TwoFactorController::class, 'showVerifyForm'])
+    ->middleware(['throttle:10,1'])
+    ->name('2fa.verify');
+Route::post('/2fa/verify', [TwoFactorController::class, 'verify'])
+    ->middleware(['throttle:5,1'])
+    ->name('2fa.verify.post');
+Route::post('/2fa/setup', [TwoFactorController::class, 'setup'])
+    ->middleware(['auth', 'throttle:5,1'])
+    ->name('2fa.setup.post');
 
-Route::get('/2fa-email/setup', [TwoFactorEmailController::class, 'showSetupForm'])->name('2fa.email.setup');
-Route::post('/email2fa/setup', [TwoFactorEmailController::class, 'setup'])->name('email2fa.setup.post');
-Route::post('/email2fa/verify', [TwoFactorEmailController::class, 'verify'])->name('email2fa.verify.post');
+Route::get('/2fa-email/setup', [TwoFactorEmailController::class, 'showSetupForm'])
+    ->middleware(['throttle:10,1'])
+    ->name('2fa.email.setup');
+Route::post('/email2fa/setup', [TwoFactorEmailController::class, 'setup'])
+    ->middleware(['throttle:3,1'])
+    ->name('email2fa.setup.post');
+Route::post('/email2fa/verify', [TwoFactorEmailController::class, 'verify'])
+    ->middleware(['throttle:5,1'])
+    ->name('email2fa.verify.post');
 
 /* Política */
 Route::get('/politica-tratamiento', [VacanteController::class, 'politica-tratamiento'])->name('politica-tratamiento');
@@ -755,7 +787,8 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:budget.specialists.view']);
 
     Route::get('/panel/{any?}', fn () => view('panel'))
-        ->where('any', '.*');
+        ->where('any', '.*')
+        ->middleware(['permission:panel.view']);
 
 
 

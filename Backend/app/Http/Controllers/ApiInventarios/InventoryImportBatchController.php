@@ -224,10 +224,7 @@ class InventoryImportBatchController extends Controller
             $batch->delete();
 
             try {
-                $path1 = 'imports/inventory/' . $filename;
-                if ($filename && Storage::exists($path1)) {
-                    Storage::delete($path1);
-                }
+                $this->deletePhysicalInventoryFile($filename);
             } catch (\Throwable $e) {
                 Log::warning("No se pudo borrar archivo físico de inventario: " . $e->getMessage());
             }
@@ -262,10 +259,7 @@ class InventoryImportBatchController extends Controller
                 Inventory::where('batch_id', $batch->id)->delete();
 
                 try {
-                    $path = 'imports/inventory/' . $batch->filename;
-                    if ($batch->filename && Storage::exists($path)) {
-                        Storage::delete($path);
-                    }
+                    $this->deletePhysicalInventoryFile($batch->filename);
                 } catch (\Throwable $e) {
                     Log::warning("No se pudo borrar archivo del batch {$batch->id}: " . $e->getMessage());
                 }
@@ -392,5 +386,28 @@ class InventoryImportBatchController extends Controller
     private function normalizeLookupValue(mixed $value): string
     {
         return trim((string) ($value ?? ''));
+    }
+
+    private function deletePhysicalInventoryFile(?string $filename): void
+    {
+        if (!$filename) {
+            return;
+        }
+
+        $filename = basename($filename);
+
+        if (!preg_match('/^[A-Za-z0-9_.-]+\.(xlsx|xls|xlsm|csv)$/i', $filename)) {
+            Log::warning('Nombre de archivo de inventario invalido, no se borra fisicamente', [
+                'filename' => $filename,
+            ]);
+
+            return;
+        }
+
+        $path = 'imports/inventory/' . $filename;
+
+        if (Storage::exists($path)) {
+            Storage::delete($path);
+        }
     }
 }

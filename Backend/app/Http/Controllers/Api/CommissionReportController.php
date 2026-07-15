@@ -768,6 +768,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             $sellerId = (int) $r->user_id;
             $sellerTargetUsd = (float) ($r->target_usd ?? 0);
             $sellerCommissionCop = 0.0;
+            $sellerCommissionUsd = 0.0;
 
             foreach (($salesBySellerCategory[$sellerId] ?? []) as $category => $totals) {
                 $participation = (float) ($participationByCode[$category] ?? 0);
@@ -790,10 +791,15 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
                 $commissionCop = round(((float) $totals['sales_cop']) * ((float) $appliedPct / 100), 2);
                 $sellerCommissionCop += $commissionCop;
+                if ($commissionCop > 0 && (float) $totals['sales_usd'] > 0 && (float) $totals['sales_cop'] > 0) {
+                    $categoryTrm = (float) $totals['sales_cop'] / (float) $totals['sales_usd'];
+                    $sellerCommissionUsd += round($commissionCop / $categoryTrm, 2);
+                }
                 $categoryTotalsRaw[$category]['commission_cop'] += $commissionCop;
             }
 
             $r->total_commission_cop = round($sellerCommissionCop, 2);
+            $r->total_commission_usd = round($sellerCommissionUsd, 2);
             return $r;
         });
     }
@@ -861,6 +867,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             $commissionUsd = null;
 
             if (
+                !isset($r->total_commission_usd) &&
                 isset($r->total_commission_cop) &&
                 $r->total_commission_cop > 0 &&
                 isset($r->avg_trm) &&
@@ -869,7 +876,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 $commissionUsd = round($r->total_commission_cop / $r->avg_trm, 2);
             }
 
-            $r->total_commission_usd = $commissionUsd;
+            if (!isset($r->total_commission_usd)) {
+                $r->total_commission_usd = $commissionUsd;
+            }
             return $r;
         });
     }

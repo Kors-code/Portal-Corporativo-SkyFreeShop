@@ -206,13 +206,24 @@ return back()
 
     public function descargarPDF(Request $request)
     {
-        $path = $request->query('path');
+        $path = (string) $request->query('path', '');
 
-        if (!$path || !Storage::disk('local')->exists($path)) {
+        if (!preg_match('/^llamados\/llamado_[A-Za-z0-9_-]+_[0-9]{8}_[0-9]{6}\.pdf$/', $path)) {
             abort(404, 'Archivo no encontrado');
         }
 
-        return response()->download(Storage::disk('local')->path($path));
+        if (!Storage::disk('local')->exists($path)) {
+            abort(404, 'Archivo no encontrado');
+        }
+
+        $basePath = realpath(Storage::disk('local')->path('llamados'));
+        $filePath = realpath(Storage::disk('local')->path($path));
+
+        if (!$basePath || !$filePath || !str_starts_with($filePath, $basePath . DIRECTORY_SEPARATOR)) {
+            abort(404, 'Archivo no encontrado');
+        }
+
+        return response()->download($filePath);
     }
 public function importarExcel(Request $request)
 {

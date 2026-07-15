@@ -127,48 +127,37 @@ class WhatsappAutomationController extends Controller
         $date = optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString();
         $payload = is_array($job->payload) ? $job->payload : [];
         $request = Request::create('/', 'GET', array_merge($payload, ['date' => $date]));
-        $destination = $this->destinationPayload($payload);
-
         if ($job->type === 'daily') {
             $report = $visualizations->dailyWhatsappReportData($request);
 
-            return array_map(fn ($image) => array_merge([
+            return array_map(fn ($image) => [
                 'caption' => (string) ($image['caption'] ?? ''),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode((string) ($image['bytes'] ?? '')),
-            ], $destination), $dailyImages->makeImages($report));
+            ], $dailyImages->makeImages($report));
         }
 
         if ($job->type === 'store_sales') {
             $report = $visualizations->storeSalesReportData($request);
 
-            return [array_merge([
+            return [[
                 'caption' => sprintf('Ventas por tiendas - %s', $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($storeImages->make($report)),
-            ], $destination)];
+            ]];
         }
 
         if ($job->type === 'advisor_sales') {
             $report = $visualizations->advisorSalesReportData($request);
 
-            return [array_merge([
+            return [[
                 'caption' => sprintf('Ventas por asesor - %s', $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($advisorImages->make($report)),
-            ], $destination)];
+            ]];
         }
 
         throw new \RuntimeException('Tipo de tarea WhatsApp no soportado: ' . $job->type);
-    }
-
-    private function destinationPayload(array $payload): array
-    {
-        if (!empty($payload['groupId']) && is_string($payload['groupId'])) {
-            return ['groupId' => $payload['groupId']];
-        }
-
-        return [];
     }
 
     private function authorized(Request $request): bool

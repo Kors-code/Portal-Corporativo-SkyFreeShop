@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CommissionActionController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\Api\WhatsappAutomationController;
+use App\Http\Controllers\Api\WhatsappWebhookController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
@@ -28,20 +29,23 @@ Route::get('/test-api', function () {
     return response()->json([
         'ok' => true
     ]);
-});
-Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation']);
-Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk']);
-Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation']);
-Route::post('/automation/import-catalog/start', [ProductCatalogImportController::class, 'startAutomation']);
-Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
-Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation']);
-Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation']);
-Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
-Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation']);
-Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation']);
-Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation']);
-Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next']);
-Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete']);
+})->middleware('auth:sanctum');
+Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk'])->middleware('throttle:automation');
+Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
+Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
+Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
+Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
+Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
+Route::post('/v1/inventory/import-automation', [InventoryImportController::class, 'importAutomation'])->middleware('throttle:automation');
+Route::get('/webhooks/whatsapp', [WhatsappWebhookController::class, 'verify'])->middleware('throttle:automation');
+Route::post('/webhooks/whatsapp', [WhatsappWebhookController::class, 'receive'])->middleware('throttle:automation');
+Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next'])->middleware('throttle:automation');
+Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete'])->middleware('throttle:automation');
 Route::get('/v1/ping', function () {
     return response()->json([
         'status' => 'ok',
@@ -65,6 +69,7 @@ Route::get('/v1/ping', function () {
         });
     });
 
+    Route::middleware('auth:sanctum')->group(function () {
 
             Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
     Route::get   ('inventory-imports/{id}',          [InventoryImportBatchController::class, 'show']);
@@ -148,7 +153,6 @@ Route::get('/v1/ping', function () {
 
     // INVENTORY IMPORT 
  Route::post('/inventory/import', [InventoryImportController::class, 'import']);
-Route::post('/inventory/import-automation', [InventoryImportController::class, 'importAutomation']);
 Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
 Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
     
@@ -187,5 +191,5 @@ Route::patch(
     [CommissionReportController::class, 'exportSellerDetail']
 );
 
-
+    });
 });
