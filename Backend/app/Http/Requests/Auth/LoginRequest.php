@@ -28,8 +28,9 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'login' => ['required', 'string'],
-            'password' => ['required', 'string'],
+            'login' => ['required', 'string', 'max:150'],
+            'password' => ['required', 'string', 'max:200'],
+            'remember' => ['sometimes', 'accepted'],
         ];
     }
     
@@ -46,7 +47,7 @@ class LoginRequest extends FormRequest
         $login = $this->input('login');
         $fieldType = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'usuario'; // ← usa tu columna "usuario"
     
-        if (! Auth::attempt([$fieldType => $login, 'password' => $this->password], $this->boolean('remember'))) {
+        if (! Auth::attempt([$fieldType => $login, 'password' => $this->password], false)) {
             RateLimiter::hit($this->throttleKey());
     
             throw ValidationException::withMessages([

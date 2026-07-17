@@ -41,6 +41,7 @@ use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\Api\AdvisorBudgetController;
 use App\Http\Controllers\Api\VisualizationController;
 use App\Http\Controllers\EntregaController;
+use App\Http\Controllers\PublicDavibankConverterController;
 
 
 /*
@@ -77,6 +78,9 @@ Route::post('/usuarios/{id}/enviar-verificacion', [UserController::class, 'envia
 Route::post('/login', [AuthenticatedSessionController::class, 'store'])->middleware(['throttle:5,1']);
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->middleware('auth')->name('logout');
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
+Route::get('/panel/davibank-converter', fn () => view('panel'))
+    ->middleware(['auth', 'throttle:30,1'])
+    ->name('davibank.converter');
 
 /* Rutas públicas de inventarios */
 Route::prefix('api/v1')->middleware(['auth', 'throttle:api'])->group(function () {
@@ -100,13 +104,20 @@ Route::prefix('api/v1')->middleware(['auth', 'throttle:api'])->group(function ()
         ->middleware('permission:imports.create');
     Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index'])
         ->middleware('permission:panel.view');
+    Route::post('/davibank/convert', [PublicDavibankConverterController::class, 'convert']);
 });
 
 /* Public candidate form */
-Route::get('postular/{vacante}', [CandidatoController::class, 'formularioPostulacion'])->name('postular');
-Route::post('postular/{slug}', [CandidatoController::class, 'store'])->middleware(['throttle:5,1'])->name('postular.store');
+Route::get('postular/{vacante}', [CandidatoController::class, 'formularioPostulacion'])
+    ->where('vacante', '[A-Za-z0-9-]+')
+    ->name('postular');
+Route::post('postular/{slug}', [CandidatoController::class, 'store'])
+    ->where('slug', '[A-Za-z0-9-]+')
+    ->middleware(['throttle:5,1'])
+    ->name('postular.store');
 Route::get('/vervacantes/{localidad}', [VacanteController::class, 'vervacantes'])->name('vacantes.vacantes');
 Route::post('/vacantes/{slug}/postulacion', [CandidatoController::class, 'store'])
+    ->where('slug', '[A-Za-z0-9-]+')
     ->middleware(['throttle:5,1'])
     ->name('vacante.postular');
 Route::get('/vacantes/{slug}', [VacanteController::class, 'show'])->name('vacantes.show');
@@ -598,7 +609,7 @@ Route::middleware('auth')->group(function () {
                 ->middleware('permission:budget.cashier.view');
 
             Route::get('specialistCheck', [AdvisorController::class, 'specialistCheck'])
-                ->middleware('permission:budget.advisors.view');
+                ->middleware(['permission:commissions.asesorSpecialist.view']);
 
             Route::get('budget-sellers', [AdvisorController::class, 'budgetSellers'])
                 ->middleware('permission:budget.advisors.view');

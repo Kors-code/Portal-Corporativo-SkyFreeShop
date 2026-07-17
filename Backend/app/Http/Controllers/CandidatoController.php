@@ -62,11 +62,11 @@ public function store(Request $request, $slug)
 
         // ✅ Validación de datos
         $data = $request->validate([
-            'nombre' => 'required|string|min:3|max:100|regex:/^[\pL\s\-]+$/u',
-            'email' => 'required|email|max:150',
-            'cv' => 'nullable|file|mimes:pdf,doc,docx|max:4096',
-            'celular' => 'required|string|min:7|max:15|regex:/^[0-9+\-\s]+$/',
-            'autorizacion' => 'required|boolean',
+            'nombre' => ['bail', 'required', 'string', 'min:3', 'max:100', 'regex:/^[\pL\s\-]+$/u'],
+            'email' => ['bail', 'required', 'email:rfc,dns', 'max:150'],
+            'cv' => ['bail', 'required', 'file', 'mimes:pdf,doc,docx', 'max:4096'],
+            'celular' => ['bail', 'required', 'string', 'min:7', 'max:20', 'regex:/^\+?[0-9](?:[0-9\s-]{5,18}[0-9])$/'],
+            'autorizacion' => ['accepted'],
         ]);
 
         // 📁 Subir archivo

@@ -37,7 +37,9 @@ class ProcessWhatsappReportJobs extends Command
 
             try {
                 $images = $this->imagesForJob($job, $visualizations, $dailyImages, $storeImages, $advisorImages);
-                $result = $sender->sendImages($images);
+                $result = $job->type === 'daily'
+                    ? $sender->sendDailyTemplateImages($images, 'Equipo Sky', optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString())
+                    : $sender->sendImages($images);
 
                 $job->update([
                     'status' => 'sent',

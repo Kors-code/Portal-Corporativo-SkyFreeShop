@@ -30,6 +30,7 @@ Route::get('/test-api', function () {
         'ok' => true
     ]);
 })->middleware('auth:sanctum');
+
 Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation'])->middleware('throttle:automation');
 Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk'])->middleware('throttle:automation');
 Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');

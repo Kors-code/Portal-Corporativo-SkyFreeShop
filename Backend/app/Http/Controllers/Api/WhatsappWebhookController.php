@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\WhatsappReportConversationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -28,7 +29,7 @@ class WhatsappWebhookController extends Controller
         return response('Forbidden', 403);
     }
 
-    public function receive(Request $request)
+    public function receive(Request $request, WhatsappReportConversationService $conversation)
     {
         if (! $this->hasValidSignature($request)) {
             Log::warning('WHATSAPP WEBHOOK SIGNATURE FAILED', [
@@ -42,6 +43,8 @@ class WhatsappWebhookController extends Controller
         Log::info('WHATSAPP WEBHOOK RECEIVED', [
             'payload' => $request->all(),
         ]);
+
+        $conversation->handle($request->all());
 
         return response()->json(['ok' => true]);
     }

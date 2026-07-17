@@ -36,6 +36,47 @@ class WhatsappCloudApiClient
         return $results;
     }
 
+    public function sendImageTemplateToRecipients(
+        string $pngBytes,
+        array $bodyParameters = [],
+        ?array $recipients = null,
+        ?string $templateName = null,
+        ?string $language = null
+    ): array {
+        $numbers = $recipients ? $this->normalizePhoneNumbers($recipients) : $this->recipientNumbers();
+
+        if ($numbers === []) {
+            throw new \RuntimeException('WHATSAPP_RECIPIENT_NUMBERS no esta configurado.');
+        }
+
+        $media = $this->uploadMedia($pngBytes);
+        $mediaId = (string) ($media['id'] ?? '');
+
+        if ($mediaId === '') {
+            throw new \RuntimeException('WhatsApp Cloud API no devolvio media id.');
+        }
+
+        $results = [];
+
+        foreach ($numbers as $number) {
+            $message = $this->sendImageTemplateMessage(
+                $number,
+                $mediaId,
+                $bodyParameters,
+                $templateName,
+                $language
+            );
+
+            $results[] = [
+                'to' => $number,
+                'media' => $media,
+                'message' => $message,
+            ];
+        }
+
+        return $results;
+    }
+
     public function uploadMedia(string $bytes, string $mimeType = 'image/png', string $filename = 'whatsapp-report.png'): array
     {
         if ($bytes === '') {
@@ -90,11 +131,163 @@ class WhatsappCloudApiClient
         return $response->json() ?? [];
     }
 
+    public function sendImageTemplateMessage(
+        string $to,
+        string $mediaId,
+        array $bodyParameters = [],
+        ?string $templateName = null,
+        ?string $language = null
+    ): array {
+        if ($mediaId === '') {
+            throw new \RuntimeException('WhatsApp Cloud API no devolvio media id.');
+        }
+
+        $components = [
+            [
+                'type' => 'header',
+                'parameters' => [
+                    [
+                        'type' => 'image',
+                        'image' => ['id' => $mediaId],
+                    ],
+                ],
+            ],
+        ];
+
+        if ($bodyParameters !== []) {
+            $components[] = [
+                'type' => 'body',
+                'parameters' => $this->templateBodyParameters($bodyParameters),
+            ];
+        }
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $this->normalizePhoneNumber($to),
+            'type' => 'template',
+            'template' => [
+                'name' => $templateName ?: (string) config('services.whatsapp_cloud.daily_report_template', 'reporte_diario_sky'),
+                'language' => [
+                    'code' => $language ?: (string) config('services.whatsapp_cloud.template_language', 'es'),
+                ],
+                'components' => $components,
+            ],
+        ];
+
+        $response = Http::timeout(45)
+            ->withToken($this->accessToken())
+            ->acceptJson()
+            ->post($this->endpoint('messages'), $payload);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException('WhatsApp Cloud API template respondio ' . $response->status() . ': ' . $response->body());
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function sendTextMessage(string $to, string $message): array
+    {
+        $response = Http::timeout(45)
+            ->withToken($this->accessToken())
+            ->acceptJson()
+            ->post($this->endpoint('messages'), [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => $this->normalizePhoneNumber($to),
+                'type' => 'text',
+                'text' => [
+                    'preview_url' => false,
+                    'body' => $message,
+                ],
+            ]);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException('WhatsApp Cloud API text respondio ' . $response->status() . ': ' . $response->body());
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function sendButtonMenu(string $to): array
+    {
+        $response = Http::timeout(45)
+            ->withToken($this->accessToken())
+            ->acceptJson()
+            ->post($this->endpoint('messages'), [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => $this->normalizePhoneNumber($to),
+                'type' => 'interactive',
+                'interactive' => [
+                    'type' => 'button',
+                    'header' => [
+                        'type' => 'text',
+                        'text' => 'Portal Sky Free Shop',
+                    ],
+                    'body' => [
+                        'text' => 'Elige el reporte que quieres recibir.',
+                    ],
+                    'footer' => [
+                        'text' => 'Tambien puedes escribir una fecha YYYY-MM-DD.',
+                    ],
+                    'action' => [
+                        'buttons' => [
+                            [
+                                'type' => 'reply',
+                                'reply' => ['id' => 'daily_today', 'title' => 'Ventas hoy'],
+                            ],
+                            [
+                                'type' => 'reply',
+                                'reply' => ['id' => 'advisor_today', 'title' => 'Asesores hoy'],
+                            ],
+                            [
+                                'type' => 'reply',
+                                'reply' => ['id' => 'ask_date', 'title' => 'Otra fecha'],
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException('WhatsApp Cloud API menu respondio ' . $response->status() . ': ' . $response->body());
+        }
+
+        return $response->json() ?? [];
+    }
+
     public function recipientNumbers(): array
     {
         $raw = (string) config('services.whatsapp_cloud.recipient_numbers', '');
 
         return $this->normalizePhoneNumbers(preg_split('/[\s,;]+/', $raw) ?: []);
+    }
+
+    private function templateBodyParameters(array $parameters): array
+    {
+        $names = collect(preg_split('/[\s,;]+/', (string) config('services.whatsapp_cloud.daily_report_template_body_param_names', '')) ?: [])
+            ->map(fn ($name) => trim((string) $name))
+            ->filter()
+            ->values()
+            ->all();
+
+        return collect(array_values($parameters))
+            ->map(function ($value, $index) use ($names) {
+                $parameter = [
+                    'type' => 'text',
+                    'text' => (string) $value,
+                ];
+
+                if (!empty($names[$index])) {
+                    $parameter['parameter_name'] = $names[$index];
+                }
+
+                return $parameter;
+            })
+            ->values()
+            ->all();
     }
 
     private function normalizePhoneNumbers(array $numbers): array

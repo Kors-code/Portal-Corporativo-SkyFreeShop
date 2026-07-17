@@ -339,9 +339,17 @@ class VisualizationController extends Controller
         );
 
         if (count($images) === 1) {
-            $result = [$sender->sendImage((string) $images[0]['bytes'], $caption)];
+            $result = [$sender->sendDailyTemplateImage(
+                (string) $images[0]['bytes'],
+                'Equipo Sky',
+                (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+            )];
         } else {
-            $result = $sender->sendImages($images);
+            $result = $sender->sendDailyTemplateImages(
+                $images,
+                'Equipo Sky',
+                (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+            );
         }
 
         return response()->json([
@@ -359,7 +367,11 @@ class VisualizationController extends Controller
     ) {
         $report = $this->dailyWhatsappReportData($request);
         $images = $imageService->makeImages($report);
-        $result = $sender->sendImages($images);
+        $result = $sender->sendDailyTemplateImages(
+            $images,
+            'Equipo Sky',
+            (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+        );
 
         return response()->json([
             'ok' => true,

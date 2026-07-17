@@ -47,6 +47,10 @@ return [
         'webhook_app_secret' => env('WHATSAPP_WEBHOOK_APP_SECRET'),
         'default_country_code' => env('WHATSAPP_DEFAULT_COUNTRY_CODE', '57'),
         'recipient_numbers' => env('WHATSAPP_RECIPIENT_NUMBERS', ''),
+        'daily_report_template' => env('WHATSAPP_DAILY_REPORT_TEMPLATE', 'reporte_diario_sky'),
+        'template_language' => env('WHATSAPP_TEMPLATE_LANGUAGE', 'es'),
+        'daily_report_template_body_params' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAMS', 2),
+        'daily_report_template_body_param_names' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAM_NAMES', 'nombre,fecha'),
     ],
 
 ];

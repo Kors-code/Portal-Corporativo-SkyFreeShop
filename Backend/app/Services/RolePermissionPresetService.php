@@ -28,6 +28,13 @@ class RolePermissionPresetService
             'commissions.user.view',
             'wishlist.view',
         ],
+        'especializado' => [
+            'portal.view',
+            'panel.view',
+            'budget.view',
+            'budget.specialists.view',
+            'commissions.asesorSpecialist.view',
+        ],
         'cashier' => [
             'portal.view',
             'panel.view',
