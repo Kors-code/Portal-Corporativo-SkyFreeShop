@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class ProcessWhatsappReportJobs extends Command
 {
-    protected $signature = 'reports:process-whatsapp-jobs {--limit=10}';
+    protected $signature = 'reports:process-whatsapp-jobs {--limit=10} {--batch-id=} {--include-legacy-store-sales}';
 
     protected $description = 'Procesa y envia desde Laravel los reportes WhatsApp pendientes usando Cloud API.';
 
@@ -26,10 +26,12 @@ class ProcessWhatsappReportJobs extends Command
         WhatsappNumberReportSender $sender
     ): int {
         $limit = max(1, (int) $this->option('limit'));
+        $batchId = $this->option('batch-id') !== null ? (int) $this->option('batch-id') : null;
+        $includeLegacyStoreSales = (bool) $this->option('include-legacy-store-sales');
         $processed = 0;
 
         while ($processed < $limit) {
-            $job = $this->lockNextJob();
+            $job = $this->lockNextJob($batchId, $includeLegacyStoreSales);
 
             if (!$job) {
                 break;
@@ -37,7 +39,7 @@ class ProcessWhatsappReportJobs extends Command
 
             try {
                 $images = $this->imagesForJob($job, $visualizations, $dailyImages, $storeImages, $advisorImages);
-                $result = $job->type === 'daily'
+                $result = in_array($job->type, ['daily', 'advisor_sales', 'store_sales'], true)
                     ? $sender->sendDailyTemplateImages($images, 'Equipo Sky', optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString())
                     : $sender->sendImages($images);
 
@@ -71,23 +73,44 @@ class ProcessWhatsappReportJobs extends Command
         return self::SUCCESS;
     }
 
-    private function lockNextJob(): ?WhatsappReportJob
+    private function lockNextJob(?int $batchId = null, bool $includeLegacyStoreSales = false): ?WhatsappReportJob
     {
-        WhatsappReportJob::query()
+        $staleProcessing = WhatsappReportJob::query()
             ->where('status', 'processing')
-            ->where('locked_at', '<=', now()->subMinutes(10))
-            ->update([
-                'status' => 'pending',
-                'available_at' => now(),
-                'locked_at' => null,
-            ]);
+            ->where('locked_at', '<=', now()->subMinutes(10));
 
-        return DB::transaction(function () {
+        if ($batchId !== null) {
+            $staleProcessing->where('payload->import_batch_id', $batchId);
+        } elseif (!$includeLegacyStoreSales) {
+            $staleProcessing->where(function ($query) {
+                $query->where('type', '!=', 'store_sales')
+                    ->orWhereNotNull('payload->import_batch_id');
+            });
+        }
+
+        $staleProcessing->update([
+            'status' => 'pending',
+            'available_at' => now(),
+            'locked_at' => null,
+        ]);
+
+        return DB::transaction(function () use ($batchId, $includeLegacyStoreSales) {
             $job = WhatsappReportJob::query()
                 ->where('status', 'pending')
                 ->where(function ($query) {
                     $query->whereNull('available_at')->orWhere('available_at', '<=', now());
-                })
+                });
+
+            if ($batchId !== null) {
+                $job->where('payload->import_batch_id', $batchId);
+            } elseif (!$includeLegacyStoreSales) {
+                $job->where(function ($query) {
+                    $query->where('type', '!=', 'store_sales')
+                        ->orWhereNotNull('payload->import_batch_id');
+                });
+            }
+
+            $job = $job
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->first();

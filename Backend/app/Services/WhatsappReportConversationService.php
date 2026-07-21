@@ -13,7 +13,8 @@ class WhatsappReportConversationService
         private readonly WhatsappNumberReportSender $sender,
         private readonly VisualizationController $visualizations,
         private readonly DailyWhatsappReportImageService $dailyImages,
-        private readonly AdvisorSalesWhatsappImageService $advisorImages
+        private readonly AdvisorSalesWhatsappImageService $advisorImages,
+        private readonly StoreSalesWhatsappImageService $storeImages
     ) {
     }
 
@@ -22,6 +23,14 @@ class WhatsappReportConversationService
         foreach ($this->incomingMessages($payload) as $message) {
             $from = (string) ($message['from'] ?? '');
             if ($from === '') {
+                continue;
+            }
+
+            if (! in_array($this->normalizePhoneNumber($from), $this->client->recipientNumbers(), true)) {
+                Log::info('WHATSAPP REPORT CONVERSATION SKIPPED UNAUTHORIZED NUMBER', [
+                    'from' => $from,
+                ]);
+
                 continue;
             }
 
@@ -52,6 +61,11 @@ class WhatsappReportConversationService
             return;
         }
 
+        if ($command === 'store_today') {
+            $this->sendStoreReport($from, now('America/Bogota')->toDateString());
+            return;
+        }
+
         if ($command === 'ask_date') {
             $this->client->sendTextMessage($from, 'Escribe la fecha que quieres consultar en formato YYYY-MM-DD. Ejemplo: 2026-07-16');
             return;
@@ -62,12 +76,15 @@ class WhatsappReportConversationService
             return;
         }
 
-        $this->client->sendButtonMenu($from);
+        $this->client->sendMenuTemplateMessage($from);
     }
 
     private function sendDailyReport(string $to, string $date): void
     {
-        $request = Request::create('/', 'GET', ['date' => $date]);
+        $request = Request::create('/', 'GET', [
+            'date' => $date,
+            'pdvs' => ['COLS1', 'COLS2'],
+        ]);
         $report = $this->visualizations->dailyWhatsappReportData($request);
 
         $this->sender->sendImagesToNumbers($this->dailyImages->makeImages($report), [$to]);
@@ -85,24 +102,52 @@ class WhatsappReportConversationService
         );
     }
 
+    private function sendStoreReport(string $to, string $date): void
+    {
+        $request = Request::create('/', 'GET', ['date' => $date]);
+        $report = $this->visualizations->storeSalesReportData($request);
+
+        $this->sender->sendImageToNumbers(
+            $this->storeImages->make($report),
+            sprintf('Ventas por tienda - %s', $report['date']),
+            [$to]
+        );
+    }
+
     private function commandFromMessage(array $message): string
     {
         $interactive = $message['interactive'] ?? [];
 
         if (($interactive['type'] ?? '') === 'button_reply') {
-            return strtolower(trim((string) ($interactive['button_reply']['id'] ?? '')));
+            return $this->normalizeCommand(
+                (string) ($interactive['button_reply']['id'] ?? $interactive['button_reply']['title'] ?? '')
+            );
         }
 
         if (($interactive['type'] ?? '') === 'list_reply') {
-            return strtolower(trim((string) ($interactive['list_reply']['id'] ?? '')));
+            return $this->normalizeCommand(
+                (string) ($interactive['list_reply']['id'] ?? $interactive['list_reply']['title'] ?? '')
+            );
         }
 
-        $text = strtolower(trim((string) ($message['text']['body'] ?? '')));
-        $text = str_replace(['ventas de hoy', 'ventas hoy', 'daily', 'reporte diario'], 'daily_today', $text);
-        $text = str_replace(['ventas asesores', 'asesores', 'asesores hoy'], 'advisor_today', $text);
-        $text = str_replace(['otra fecha', 'fecha'], 'ask_date', $text);
+        if (($message['type'] ?? '') === 'button') {
+            return $this->normalizeCommand((string) ($message['button']['payload'] ?? $message['button']['text'] ?? ''));
+        }
 
-        return $text;
+        return $this->normalizeCommand((string) ($message['text']['body'] ?? ''));
+    }
+
+    private function normalizeCommand(string $value): string
+    {
+        $command = strtolower(trim($value));
+
+        return match ($command) {
+            'ventas de hoy', 'ventas hoy', 'daily', 'reporte diario', 'daily_today' => 'daily_today',
+            'ventas asesores', 'asesores', 'asesores hoy', 'advisor_today' => 'advisor_today',
+            'ventas por tienda', 'ventas tienda', 'tiendas', 'store_today', 'store_sales' => 'store_today',
+            'otra fecha', 'fecha', 'ask_date' => 'ask_date',
+            default => $command,
+        };
     }
 
     private function incomingMessages(array $payload): array
@@ -118,5 +163,10 @@ class WhatsappReportConversationService
         }
 
         return $messages;
+    }
+
+    private function normalizePhoneNumber(string $number): string
+    {
+        return preg_replace('/\D+/', '', $number) ?? '';
     }
 }

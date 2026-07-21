@@ -15,7 +15,9 @@ class QueueEndOfDayWhatsappReports extends Command
     {
         $date = $this->option('date') ?: now('America/Bogota')->subDay()->toDateString();
 
-        $daily = $jobs->enqueueUniqueDaily('daily', $date);
+        $daily = $jobs->enqueueUniqueDaily('daily', $date, [
+            'pdvs' => ['COLS1', 'COLS2'],
+        ]);
         $advisors = $jobs->enqueueUniqueDaily('advisor_sales', $date);
 
         $this->info("Reportes WhatsApp encolados para {$date}: daily #{$daily->id}, advisor_sales #{$advisors->id}");

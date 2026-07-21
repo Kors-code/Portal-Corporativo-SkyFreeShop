@@ -51,4 +51,34 @@ class WhatsappReportJobService
 
         return $job;
     }
+
+    public function enqueueUniqueForImportBatch(string $type, string $reportDate, int $batchId, array $payload = []): WhatsappReportJob
+    {
+        $date = Carbon::parse($reportDate)->toDateString();
+        $payload = array_merge($payload, ['import_batch_id' => $batchId]);
+
+        $job = WhatsappReportJob::query()
+            ->where('type', $type)
+            ->whereDate('report_date', $date)
+            ->where('payload->import_batch_id', $batchId)
+            ->first();
+
+        if (!$job) {
+            return $this->enqueue($type, $date, $payload);
+        }
+
+        if (in_array($job->status, ['failed', 'pending'], true)) {
+            $job->update([
+                'status' => 'pending',
+                'attempts' => $job->status === 'failed' ? 0 : $job->attempts,
+                'payload' => $payload,
+                'last_error' => null,
+                'available_at' => now(),
+                'locked_at' => null,
+                'sent_at' => null,
+            ]);
+        }
+
+        return $job;
+    }
 }

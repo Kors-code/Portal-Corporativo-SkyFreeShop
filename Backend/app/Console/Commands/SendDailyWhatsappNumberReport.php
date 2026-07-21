@@ -19,7 +19,9 @@ class SendDailyWhatsappNumberReport extends Command
         DailyWhatsappReportImageService $imageService,
         WhatsappNumberReportSender $sender
     ): int {
-        $payload = [];
+        $payload = [
+            'pdvs' => ['COLS1', 'COLS2'],
+        ];
         if ($date = $this->option('date')) {
             $payload['date'] = $date;
         }

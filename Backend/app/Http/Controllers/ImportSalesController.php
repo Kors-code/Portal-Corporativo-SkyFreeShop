@@ -224,13 +224,13 @@ private function deletePreviousBatch($file)
         return $date ? (new \DateTimeImmutable((string) $date))->format('Y-m-d') : null;
     }
 
-    private function tryQueueStoreSalesWhatsappForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
+    private function trySendWhatsappReportsForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
     {
         try {
             $quality = $this->importQualityForWhatsapp($batchId, $expectedRows, $lastSummary);
 
             if (!$quality['ok']) {
-                Log::warning('IMPORT SALES STORE WHATSAPP NOT QUEUED', [
+                Log::warning('IMPORT SALES WHATSAPP REPORTS NOT SENT', [
                     'batch_id' => $batchId,
                     'quality' => $quality,
                 ]);
@@ -244,24 +244,51 @@ private function deletePreviousBatch($file)
             }
 
             $date = $this->reportDateForImportBatch($batchId);
-            $job = app(WhatsappReportJobService::class)->enqueue('store_sales', $date, [
-                'import_batch_id' => $batchId,
+            if (!$date) {
+                return [
+                    'ok' => true,
+                    'queued' => false,
+                    'reason' => 'La importacion no tiene fecha de ventas para reportar.',
+                    'quality' => $quality,
+                ];
+            }
+
+            $jobs = app(WhatsappReportJobService::class);
+            $dailyJob = $jobs->enqueueUniqueForImportBatch('daily', $date, $batchId, [
+                'pdvs' => ['COLS1', 'COLS2'],
+            ]);
+            $advisorJob = $jobs->enqueueUniqueForImportBatch('advisor_sales', $date, $batchId);
+            $storeJob = $jobs->enqueueUniqueForImportBatch('store_sales', $date, $batchId);
+
+            Artisan::call('reports:process-whatsapp-jobs', [
+                '--limit' => 3,
+                '--batch-id' => $batchId,
             ]);
 
-            Log::info('IMPORT SALES STORE WHATSAPP QUEUED', [
+            Log::info('IMPORT SALES WHATSAPP REPORTS SENT', [
                 'batch_id' => $batchId,
-                'job_id' => $job->id,
+                'job_ids' => [
+                    'daily' => $dailyJob->id,
+                    'advisor_sales' => $advisorJob->id,
+                    'store_sales' => $storeJob->id,
+                ],
                 'date' => $date,
+                'artisan_output' => Artisan::output(),
             ]);
 
             return [
                 'ok' => true,
                 'queued' => true,
-                'job_id' => $job->id,
+                'job_ids' => [
+                    'daily' => $dailyJob->id,
+                    'advisor_sales' => $advisorJob->id,
+                    'store_sales' => $storeJob->id,
+                ],
                 'date' => $date,
+                'processed' => true,
             ];
         } catch (Throwable $e) {
-            Log::error('IMPORT SALES STORE WHATSAPP QUEUE FAILED', [
+            Log::error('IMPORT SALES WHATSAPP REPORTS SEND FAILED', [
                 'batch_id' => $batchId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -1330,7 +1357,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
 
         $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
-        $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch((int) $batchId, $totalRowsExcel, [
+        $whatsappReports = $this->trySendWhatsappReportsForImportBatch((int) $batchId, $totalRowsExcel, [
             'skipped' => $skipped,
             'errors' => $errors,
         ]);
@@ -1343,7 +1370,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'errors' => $errors,
             'batch_id' => $batchId,
             'commission_recalc' => $commissionRecalc,
-            'store_whatsapp' => $storeWhatsapp,
+            'daily_whatsapp' => $whatsappReports,
+            'whatsapp_reports' => $whatsappReports,
         ]);
     }
 
@@ -1586,10 +1614,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
             Storage::delete($data['path']);
             $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
             $totalRows = max(0, $absoluteHighestRow - 1);
-            $storeWhatsapp = $this->tryQueueStoreSalesWhatsappForImportBatch($batchId, $totalRows, $result);
+            $whatsappReports = $this->trySendWhatsappReportsForImportBatch($batchId, $totalRows, $result);
         } else {
             $commissionRecalc = null;
-            $storeWhatsapp = null;
+            $whatsappReports = null;
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
                 'note' => "Ultimo chunk OK {$startRow}-{$lastRow}; siguiente fila {$nextRow}; {$timing['total_ms']} ms",
                 'updated_at' => now(),
@@ -1605,7 +1633,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'summary' => $result,
             'timing' => $timing,
             'commission_recalc' => $commissionRecalc,
-            'store_whatsapp' => $storeWhatsapp,
+            'daily_whatsapp' => $whatsappReports,
+            'whatsapp_reports' => $whatsappReports,
         ]);
     }
 

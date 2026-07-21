@@ -77,6 +77,26 @@ class WhatsappCloudApiClient
         return $results;
     }
 
+    public function sendMenuTemplateToRecipients(string $recipientLabel = 'Equipo Sky', ?array $recipients = null): array
+    {
+        $numbers = $recipients ? $this->normalizePhoneNumbers($recipients) : $this->recipientNumbers();
+
+        if ($numbers === []) {
+            throw new \RuntimeException('WHATSAPP_RECIPIENT_NUMBERS no esta configurado.');
+        }
+
+        $results = [];
+
+        foreach ($numbers as $number) {
+            $results[] = [
+                'to' => $number,
+                'message' => $this->sendMenuTemplateMessage($number, $recipientLabel),
+            ];
+        }
+
+        return $results;
+    }
+
     public function uploadMedia(string $bytes, string $mimeType = 'image/png', string $filename = 'whatsapp-report.png'): array
     {
         if ($bytes === '') {
@@ -187,6 +207,42 @@ class WhatsappCloudApiClient
         return $response->json() ?? [];
     }
 
+    public function sendMenuTemplateMessage(string $to, string $recipientLabel = 'Equipo Sky'): array
+    {
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $this->normalizePhoneNumber($to),
+            'type' => 'template',
+            'template' => [
+                'name' => (string) config('services.whatsapp_cloud.menu_template', 'menu_reportes_sky'),
+                'language' => [
+                    'code' => (string) config('services.whatsapp_cloud.template_language', 'es'),
+                ],
+                'components' => [
+                    [
+                        'type' => 'body',
+                        'parameters' => $this->templateBodyParameters(
+                            [$recipientLabel],
+                            'services.whatsapp_cloud.menu_template_body_param_names'
+                        ),
+                    ],
+                ],
+            ],
+        ];
+
+        $response = Http::timeout(45)
+            ->withToken($this->accessToken())
+            ->acceptJson()
+            ->post($this->endpoint('messages'), $payload);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException('WhatsApp Cloud API menu template respondio ' . $response->status() . ': ' . $response->body());
+        }
+
+        return $response->json() ?? [];
+    }
+
     public function sendTextMessage(string $to, string $message): array
     {
         $response = Http::timeout(45)
@@ -265,9 +321,12 @@ class WhatsappCloudApiClient
         return $this->normalizePhoneNumbers(preg_split('/[\s,;]+/', $raw) ?: []);
     }
 
-    private function templateBodyParameters(array $parameters): array
+    private function templateBodyParameters(
+        array $parameters,
+        string $configKey = 'services.whatsapp_cloud.daily_report_template_body_param_names'
+    ): array
     {
-        $names = collect(preg_split('/[\s,;]+/', (string) config('services.whatsapp_cloud.daily_report_template_body_param_names', '')) ?: [])
+        $names = collect(preg_split('/[\s,;]+/', (string) config($configKey, '')) ?: [])
             ->map(fn ($name) => trim((string) $name))
             ->filter()
             ->values()

@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class VisualizationController extends Controller
 {
+    private const WHATSAPP_DAILY_PDVS = ['COLS1', 'COLS2'];
+
     protected function budgetDB()
     {
         return DB::connection('budget');
@@ -387,7 +389,7 @@ class VisualizationController extends Controller
         $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
 
         $job = $jobs->enqueue('daily', $date, [
-            'pdvs' => $this->normalizePdvs($request),
+            'pdvs' => $this->normalizePdvs($request) ?: self::WHATSAPP_DAILY_PDVS,
         ]);
 
         return response()->json([
@@ -520,7 +522,7 @@ class VisualizationController extends Controller
             'budget_id' => $budget->id,
             'start_date' => (new \DateTimeImmutable((string) $budget->start_date))->format('Y-m-d'),
             'end_date' => $date,
-            'pdvs' => $this->normalizePdvs($request),
+            'pdvs' => $this->normalizePdvs($request) ?: self::WHATSAPP_DAILY_PDVS,
         ]);
 
         return $this->cashRegisterClosure($dailyRequest)->getData(true);

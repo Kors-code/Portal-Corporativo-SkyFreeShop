@@ -167,7 +167,7 @@ class DailyWhatsappReportImageService
     {
         $this->card($image, 50, 35, 1400, 105);
         $this->text($image, 'SKY FREE SHOP', 82, 75, 19, $this->colors['primary'], true);
-        $this->text($image, 'WhatsApp Daily - Cierre de caja', 82, 112, 30, $this->colors['ink'], true);
+        $this->text($image, 'WhatsApp Daily - Reporte diario', 82, 112, 30, $this->colors['ink'], true);
         $this->text($image, $this->truncate((string) $budgetName, 46), 950, 78, 18, $this->colors['ink'], true);
         $this->text($image, $start . ' / ' . $end, 950, 112, 18, $this->colors['muted'], false);
     }

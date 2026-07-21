@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import MainLayout from "../layout/MainLayout";
 import HomePage from "../pages/HomePage";
 import WelcomePage from "../pages/WelcomePage";
+import DavibankConverterPage from "../pages/DavibankConverterPage";
 
 /* TUS MÓDULOS */
 import BudgetPage from "../modules/budgets/pages/BudgetPage";
@@ -50,6 +51,7 @@ export default function AppRouter() {
             
 
       <Routes>
+          <Route path="/davibank-converter" element={<DavibankConverterPage />} />
           <Route path="/WelcomePage" element={
             
                     <WelcomePage />
