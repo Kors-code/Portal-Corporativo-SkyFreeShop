@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type React from "react";
 import { useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import entregasApi from "../services/entregasApi";
 import useEmpleadoActual from "../hooks/useEmpleadoActual";
 import type { Entrega } from "../types";
@@ -11,24 +11,30 @@ type Props = { tipoInicial?: Tipo; titulo?: string };
 
 export default function ListadoEntregasPage({ tipoInicial = "", titulo }: Props) {
   const navigate = useNavigate();
-  const { empleado } = useEmpleadoActual();
+  const { empleado, capabilities } = useEmpleadoActual();
+  const esAuditorGlobal = Boolean(capabilities.entregas_auditoria_global);
   const esListadoGlobal = !tipoInicial && !titulo;
   const [tipo, setTipo] = useState<Tipo>(tipoInicial);
   const [estado, setEstado] = useState("");
   const [search, setSearch] = useState("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+  const [descargando, setDescargando] = useState(false);
   const [entregas, setEntregas] = useState<Entrega[]>([]);
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
-    if (!empleado?.id) return;
-    const modoGlobal = esListadoGlobal && (tipo === "" || tipo === "activas");
+    if (!empleado?.id && !esAuditorGlobal) return;
+    const modoGlobal = (esListadoGlobal || esAuditorGlobal) && (tipo === "" || tipo === "activas");
     const params: Record<string, any> = {
-      empleado_id: empleado.id,
-      lider_id: modoGlobal ? undefined : empleado.id,
+      empleado_id: empleado?.id,
+      lider_id: modoGlobal ? undefined : empleado?.id,
       global: modoGlobal ? 1 : undefined,
       search: search || undefined,
       estado: tipo === "activas" ? undefined : estado || undefined,
       tipo: tipo || undefined,
+      fecha_desde: fechaDesde || undefined,
+      fecha_hasta: fechaHasta || undefined,
       per_page: 50,
     };
     entregasApi.listar(params).then((data) => {
@@ -36,7 +42,40 @@ export default function ListadoEntregasPage({ tipoInicial = "", titulo }: Props)
       setEntregas(rows);
       setTotal(data.total);
     });
-  }, [empleado?.id, estado, search, tipo, esListadoGlobal]);
+  }, [empleado?.id, estado, search, tipo, fechaDesde, fechaHasta, esListadoGlobal, esAuditorGlobal]);
+
+  const descargarExcel = async () => {
+    if (!empleado?.id && !esAuditorGlobal) return;
+    setDescargando(true);
+    try {
+      const modoGlobal = (esListadoGlobal || esAuditorGlobal) && (tipo === "" || tipo === "activas");
+      const blob = await entregasApi.descargarResumenExcel({
+        empleado_id: empleado?.id,
+        lider_id: modoGlobal ? undefined : empleado?.id,
+        global: modoGlobal ? 1 : undefined,
+        search: search || undefined,
+        estado: tipo === "activas" ? undefined : estado || undefined,
+        tipo: tipo || undefined,
+        fecha_desde: fechaDesde || undefined,
+        fecha_hasta: fechaHasta || undefined,
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const desde = fechaDesde || "inicio";
+      const hasta = fechaHasta || new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `resumen-actas-entrega-${desde}-${hasta}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error descargando resumen de actas", error);
+      alert("No se pudo descargar el Excel de actas.");
+    } finally {
+      setDescargando(false);
+    }
+  };
 
   const title = titulo ?? (tipoInicial === "recepcion" ? "Actas que me han enviado" : "Listado de actas");
 
@@ -45,12 +84,19 @@ export default function ListadoEntregasPage({ tipoInicial = "", titulo }: Props)
       <div>
         <button onClick={() => navigate("/entregas")} className="text-sm font-semibold text-primary">Volver al inicio de actas</button>
         <h1 className="mt-2 text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">{title}</h1>
-        <p className="mt-1 text-sm text-gray-500">{total} actas encontradas</p>
+        <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-500">{total} actas encontradas</p>
+          <button onClick={descargarExcel} disabled={descargando} className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-400 sm:w-auto">
+            <Download size={16} /> {descargando ? "Descargando..." : "Descargar Excel"}
+          </button>
+        </div>
       </div>
       <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[220px_220px_1fr]">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_180px_170px_170px_1fr]">
           <Field label="Tipo"><select value={tipo} onChange={(e) => setTipo(e.target.value as Tipo)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"><option value="">Todas</option><option value="entrega">Creadas por mi</option><option value="recepcion">Enviadas para mi</option><option value="activas">Activas y responsables</option></select></Field>
           <Field label="Estado"><select value={estado} onChange={(e) => setEstado(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"><option value="">Todos</option><option value="abierta">Abierta</option><option value="entregada">Entregada</option><option value="completada">Completada</option><option value="rechazada">Rechazada</option></select></Field>
+          <Field label="Desde"><input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field>
+          <Field label="Hasta"><input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" /></Field>
           <Field label="Buscar"><div className="relative"><Search className="absolute left-3 top-2.5 text-gray-400" size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder="Nombre, lider o codigo" /></div></Field>
         </div>
       </section>

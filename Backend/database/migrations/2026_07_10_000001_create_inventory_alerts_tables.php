@@ -19,6 +19,7 @@ return new class extends Migration
                 $table->string('name', 160);
                 $table->boolean('is_active')->default(true);
                 $table->boolean('auto_send')->default(true);
+                $table->unsignedTinyInteger('frequency_days')->default(1);
                 $table->unsignedTinyInteger('top_months')->default(3);
                 $table->unsignedSmallInteger('top_limit')->default(50);
                 $table->unsignedBigInteger('created_by')->nullable();

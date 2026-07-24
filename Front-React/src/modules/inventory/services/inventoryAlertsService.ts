@@ -63,6 +63,7 @@ export type InventoryAlertList = {
   name: string;
   is_active: boolean;
   auto_send: boolean;
+  frequency_days: number;
   top_months: number;
   top_limit: number;
   stores: InventoryAlertStore[];
@@ -78,6 +79,7 @@ export type SaveInventoryAlertListPayload = {
   name: string;
   is_active: boolean;
   auto_send: boolean;
+  frequency_days: number;
   top_months: number;
   top_limit: number;
   store_ids: number[];

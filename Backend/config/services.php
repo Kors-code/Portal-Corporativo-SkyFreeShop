@@ -50,6 +50,8 @@ return [
         'daily_report_template' => env('WHATSAPP_DAILY_REPORT_TEMPLATE', 'reporte_diario_sky'),
         'menu_template' => env('WHATSAPP_MENU_TEMPLATE', 'menu_reportes_sky'),
         'template_language' => env('WHATSAPP_TEMPLATE_LANGUAGE', 'es'),
+        'menu_template_language' => env('WHATSAPP_MENU_TEMPLATE_LANGUAGE'),
+        'menu_template_language_fallbacks' => env('WHATSAPP_MENU_TEMPLATE_LANGUAGE_FALLBACKS', 'es_ES,es,es_CO'),
         'daily_report_template_body_params' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAMS', 2),
         'daily_report_template_body_param_names' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAM_NAMES', 'nombre,fecha'),
         'menu_template_body_param_names' => env('WHATSAPP_MENU_TEMPLATE_BODY_PARAM_NAMES', 'nombre'),

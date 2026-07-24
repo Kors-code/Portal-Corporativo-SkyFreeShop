@@ -446,24 +446,25 @@ Route::middleware('auth')->group(function () {
             Route::get('entregas/empleados', [EntregaController::class, 'empleados']);
             Route::get('entregas/dashboard', [EntregaController::class, 'dashboard']);
             Route::get('entregas/me', [EntregaController::class, 'empleadoActual']);
+            Route::get('entregas/export/resumen', [EntregaController::class, 'exportarResumen']);
             Route::get('entregas', [EntregaController::class, 'index']);
             Route::get('entregas/{id}', [EntregaController::class, 'show']);
-            Route::post('entregas/{id}/firmar', [EntregaController::class, 'firmar']);
-            Route::post('entregas/{id}/cerrar', [EntregaController::class, 'cerrarActa']);
-            Route::post('entregas/{id}/rechazar', [EntregaController::class, 'rechazar']);
-            Route::post('entregas/{id}/novedades/{novedadId}/observacion', [EntregaController::class, 'agregarObservacionNovedad']);
-            Route::patch('entregas/{id}/novedades/{novedadId}/resuelto', [EntregaController::class, 'actualizarEstadoNovedad']);
             Route::get('entregas/{id}/pdf', [EntregaController::class, 'descargarPdf']);
             Route::get('entregas/{id}/pdf-view', [EntregaController::class, 'verPdf']);
             Route::get('empleados/{id}/firma', [EntregaController::class, 'obtenerFirmaEmpleado']);
-            Route::post('empleados/{id}/firma', [EntregaController::class, 'guardarFirmaEmpleado']);
         });
 
         Route::middleware(['permission:entregas.manage'])->group(function () {
             Route::post('entregas', [EntregaController::class, 'store']);
             Route::put('entregas/{id}', [EntregaController::class, 'update']);
             Route::delete('entregas/{id}', [EntregaController::class, 'destroy']);
+            Route::post('entregas/{id}/firmar', [EntregaController::class, 'firmar']);
+            Route::post('entregas/{id}/cerrar', [EntregaController::class, 'cerrarActa']);
+            Route::post('entregas/{id}/rechazar', [EntregaController::class, 'rechazar']);
             Route::patch('entregas/{id}/novedades/{novedadId}', [EntregaController::class, 'actualizarNovedad']);
+            Route::post('entregas/{id}/novedades/{novedadId}/observacion', [EntregaController::class, 'agregarObservacionNovedad']);
+            Route::patch('entregas/{id}/novedades/{novedadId}/resuelto', [EntregaController::class, 'actualizarEstadoNovedad']);
+            Route::post('empleados/{id}/firma', [EntregaController::class, 'guardarFirmaEmpleado']);
         });
 
         Route::post('/cashier-adjustments', [ReportController::class, 'storeCashierAdjustment'])

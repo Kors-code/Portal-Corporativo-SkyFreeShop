@@ -9,8 +9,15 @@ type StoredEmpleado = {
   empleado: Empleado;
 };
 
+type EntregasCapabilities = {
+  entregas_auditoria_global?: boolean;
+  entregas_manage?: boolean;
+};
+
 export function useEmpleadoActual() {
   const [empleado, setEmpleado] = useState<Empleado | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [capabilities, setCapabilities] = useState<EntregasCapabilities>({});
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -22,6 +29,9 @@ export function useEmpleadoActual() {
         const rawUser = metaUser?.getAttribute("content");
         const portalUser = rawUser && rawUser !== "null" ? JSON.parse(rawUser) : null;
         const portalUserId = portalUser?.id ?? null;
+        if (activo) {
+          setUser(portalUser);
+        }
         const meta = document.querySelector('meta[name="laravel-empleado"]');
         const raw = meta?.getAttribute("content");
 
@@ -38,6 +48,10 @@ export function useEmpleadoActual() {
           portal_user_id: portalUserId ?? undefined,
           portal_user: portalUser ?? undefined,
         });
+        if (activo) {
+          setUser(respuesta.user ?? portalUser);
+          setCapabilities(respuesta.capabilities ?? {});
+        }
         if (activo && respuesta.empleado) {
           setEmpleado(respuesta.empleado);
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ portalUserId: respuesta.user?.id ?? portalUserId, empleado: respuesta.empleado }));
@@ -80,7 +94,7 @@ export function useEmpleadoActual() {
     }
   };
 
-  return { empleado, setEmpleadoActual, cargando };
+  return { empleado, user, capabilities, setEmpleadoActual, cargando };
 }
 
 export default useEmpleadoActual;

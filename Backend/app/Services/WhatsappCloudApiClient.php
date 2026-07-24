@@ -209,38 +209,53 @@ class WhatsappCloudApiClient
 
     public function sendMenuTemplateMessage(string $to, string $recipientLabel = 'Equipo Sky'): array
     {
-        $payload = [
-            'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
-            'to' => $this->normalizePhoneNumber($to),
-            'type' => 'template',
-            'template' => [
-                'name' => (string) config('services.whatsapp_cloud.menu_template', 'menu_reportes_sky'),
-                'language' => [
-                    'code' => (string) config('services.whatsapp_cloud.template_language', 'es'),
-                ],
-                'components' => [
-                    [
-                        'type' => 'body',
-                        'parameters' => $this->templateBodyParameters(
-                            [$recipientLabel],
-                            'services.whatsapp_cloud.menu_template_body_param_names'
-                        ),
+        $lastResponse = null;
+
+        foreach ($this->menuTemplateLanguages() as $language) {
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => $this->normalizePhoneNumber($to),
+                'type' => 'template',
+                'template' => [
+                    'name' => (string) config('services.whatsapp_cloud.menu_template', 'menu_reportes_sky'),
+                    'language' => [
+                        'code' => $language,
+                    ],
+                    'components' => [
+                        [
+                            'type' => 'body',
+                            'parameters' => $this->templateBodyParameters(
+                                [$recipientLabel],
+                                'services.whatsapp_cloud.menu_template_body_param_names'
+                            ),
+                        ],
                     ],
                 ],
-            ],
-        ];
+            ];
 
-        $response = Http::timeout(45)
-            ->withToken($this->accessToken())
-            ->acceptJson()
-            ->post($this->endpoint('messages'), $payload);
+            $response = Http::timeout(45)
+                ->withToken($this->accessToken())
+                ->acceptJson()
+                ->post($this->endpoint('messages'), $payload);
 
-        if (!$response->successful()) {
-            throw new \RuntimeException('WhatsApp Cloud API menu template respondio ' . $response->status() . ': ' . $response->body());
+            if ($response->successful()) {
+                return $response->json() ?? [];
+            }
+
+            $lastResponse = $response;
+
+            if (! str_contains($response->body(), '132001')) {
+                break;
+            }
         }
 
-        return $response->json() ?? [];
+        throw new \RuntimeException(
+            'WhatsApp Cloud API menu template respondio '
+            . ($lastResponse?->status() ?? 0)
+            . ': '
+            . ($lastResponse?->body() ?? 'sin respuesta')
+        );
     }
 
     public function sendTextMessage(string $to, string $message): array
@@ -345,6 +360,22 @@ class WhatsappCloudApiClient
 
                 return $parameter;
             })
+            ->values()
+            ->all();
+    }
+
+    private function menuTemplateLanguages(): array
+    {
+        $configured = (string) (
+            config('services.whatsapp_cloud.menu_template_language')
+            ?: config('services.whatsapp_cloud.template_language', 'es')
+        );
+        $fallbacks = (string) config('services.whatsapp_cloud.menu_template_language_fallbacks', 'es_ES,es,es_CO');
+
+        return collect(array_merge([$configured], preg_split('/[\s,;]+/', $fallbacks) ?: []))
+            ->map(fn ($language) => trim((string) $language))
+            ->filter()
+            ->unique()
             ->values()
             ->all();
     }

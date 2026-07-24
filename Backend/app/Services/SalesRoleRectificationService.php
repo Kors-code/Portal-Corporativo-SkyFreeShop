@@ -11,6 +11,7 @@ class SalesRoleRectificationService
 {
     private const SELLER_ROLE_NAME = 'vendedor';
     private const CASHIER_ROLE_NAMES = ['cajero', 'cashier'];
+    private const MIN_CASHIER_CONFIRMATION_DAYS = 3;
 
     public function rectifyImportBatch(int $batchId, bool $dryRun = false): array
     {
@@ -168,6 +169,7 @@ class SalesRoleRectificationService
     {
         $onlyUserIds = $this->normalizeUserIds($onlyUserIds);
         $dailyRoles = [];
+        $cashierCandidateDates = [];
 
         $users = DB::connection('budget')->table('users')
             ->select('id', 'name')
@@ -206,7 +208,7 @@ class SalesRoleRectificationService
             ->select('cashier', 'sale_date')
             ->distinct()
             ->orderBy('sale_date')
-            ->chunk(1000, function ($rows) use (&$dailyRoles, $roleIds, $userIdsByName, $onlyUserIds) {
+            ->chunk(1000, function ($rows) use (&$cashierCandidateDates, $userIdsByName, $onlyUserIds) {
                 foreach ($rows as $row) {
                     $cashierName = $this->normalizeName($row->cashier ?? '');
                     if ($cashierName === '' || empty($userIdsByName[$cashierName])) {
@@ -219,10 +221,23 @@ class SalesRoleRectificationService
                             continue;
                         }
 
-                        $dailyRoles[$userId][$date] = $roleIds['cashier'];
+                        $cashierCandidateDates[$userId][$date] = true;
                     }
                 }
             });
+
+        foreach ($cashierCandidateDates as $userId => $dates) {
+            $confirmedDates = array_keys($dates);
+            sort($confirmedDates);
+
+            if (count($confirmedDates) < self::MIN_CASHIER_CONFIRMATION_DAYS) {
+                continue;
+            }
+
+            foreach ($confirmedDates as $date) {
+                $dailyRoles[(int) $userId][$date] = $roleIds['cashier'];
+            }
+        }
 
         foreach ($dailyRoles as $userId => $rolesByDate) {
             ksort($rolesByDate);

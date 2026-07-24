@@ -10,15 +10,16 @@ import type { Entrega } from "../types";
 export default function DetalleEntregaPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { empleado } = useEmpleadoActual();
+  const { empleado, capabilities } = useEmpleadoActual();
+  const esAuditorGlobal = Boolean(capabilities.entregas_auditoria_global);
   const [acta, setActa] = useState<Entrega | null>(null);
   const [firmaGuardada, setFirmaGuardada] = useState<string | null>(null);
   const [mostrarFirma, setMostrarFirma] = useState<"entrega" | "recepcion" | null>(null);
   const [ediciones, setEdiciones] = useState<Record<number, { titulo: string; descripcion: string }>>({});
 
   const load = async () => {
-    if (!id || !empleado?.id) return;
-    const data = await entregasApi.obtener(id, empleado.id);
+    if (!id || (!empleado?.id && !esAuditorGlobal)) return;
+    const data = await entregasApi.obtener(id, empleado?.id);
     setActa(data);
     if (empleado?.id) {
       const firma = await entregasApi.obtenerFirmaEmpleado(empleado.id).catch(() => null);
@@ -29,7 +30,7 @@ export default function DetalleEntregaPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, empleado?.id]);
+  }, [id, empleado?.id, esAuditorGlobal]);
 
   const grouped = useMemo(() => {
     if (!acta) return [];

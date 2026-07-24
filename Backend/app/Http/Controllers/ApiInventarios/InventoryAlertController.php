@@ -120,6 +120,7 @@ class InventoryAlertController extends Controller
             'name' => ['required', 'string', 'max:160'],
             'is_active' => ['nullable', 'boolean'],
             'auto_send' => ['nullable', 'boolean'],
+            'frequency_days' => ['nullable', 'integer', 'min:1', 'max:30'],
             'top_months' => ['nullable', 'integer', 'min:1', 'max:12'],
             'top_limit' => ['nullable', 'integer', 'min:1', 'max:200'],
             'store_ids' => ['required', 'array', 'min:1'],

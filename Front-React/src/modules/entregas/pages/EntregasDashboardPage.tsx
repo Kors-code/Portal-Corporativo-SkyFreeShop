@@ -9,20 +9,23 @@ import type { DashboardStats, Entrega } from "../types";
 
 export default function EntregasDashboardPage() {
   const navigate = useNavigate();
-  const { empleado } = useEmpleadoActual();
+  const { empleado, user, capabilities } = useEmpleadoActual();
+  const esAuditorGlobal = Boolean(capabilities.entregas_auditoria_global);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recientes, setRecientes] = useState<Entrega[]>([]);
   const [firmaGuardada, setFirmaGuardada] = useState<string | null>(null);
   const [mostrarFirma, setMostrarFirma] = useState(false);
 
   useEffect(() => {
-    if (!empleado?.id) return;
-    entregasApi.obtenerDashboard(empleado.id).then((data) => {
+    if (!empleado?.id && !esAuditorGlobal) return;
+    entregasApi.obtenerDashboard(empleado?.id).then((data) => {
       setStats(data.stats);
       setRecientes(data.recientes ?? []);
     });
-    entregasApi.obtenerFirmaEmpleado(empleado.id).then((data) => setFirmaGuardada(data.firma));
-  }, [empleado?.id]);
+    if (empleado?.id) {
+      entregasApi.obtenerFirmaEmpleado(empleado.id).then((data) => setFirmaGuardada(data.firma));
+    }
+  }, [empleado?.id, esAuditorGlobal]);
 
   const guardarFirma = async (firma: string) => {
     if (!empleado?.id) return;
@@ -31,7 +34,7 @@ export default function EntregasDashboardPage() {
     setMostrarFirma(false);
   };
 
-  if (!empleado) {
+  if (!empleado && !esAuditorGlobal) {
     return <div className="rounded-lg bg-white p-5 text-center text-sm text-gray-600 sm:p-8">No se encontro empleado asociado al usuario actual. El usuario debe existir en empleados con el mismo email, cedula/username o nombre.</div>;
   }
 
@@ -47,22 +50,26 @@ export default function EntregasDashboardPage() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-primary">Entrega de lideres</p>
             <h1 className="mt-2 text-2xl font-bold leading-tight text-gray-900 sm:text-3xl">Vas a entregar o a recibir acta?</h1>
-            <p className="mt-2 max-w-2xl text-sm text-gray-500">Hola {empleado.colaborador}. Crea, recibe y cierra actas desde la base de datos.</p>
+            <p className="mt-2 max-w-2xl text-sm text-gray-500">Hola {empleado?.colaborador ?? user?.name ?? "auditor"}. Crea, recibe y cierra actas desde la base de datos.</p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-            <button onClick={() => setMostrarFirma(true)} className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 sm:w-auto">
-              <Settings size={17} /> Mi firma
-            </button>
+            {empleado?.id && (
+              <button onClick={() => setMostrarFirma(true)} className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 sm:w-auto">
+                <Settings size={17} /> Mi firma
+              </button>
+            )}
             <button onClick={() => navigate("/entregas/listado")} className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 sm:w-auto">
               <ClipboardList size={17} /> Ver todas
             </button>
           </div>
         </div>
       </section>
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ActionCard title="Entregar" description="Crear una nueva acta para el lider que recibe el siguiente turno." button="Crear acta" icon={<FilePlus2 size={28} />} tone="primary" onClick={() => navigate("/entregas/nuevo")} />
-        <ActionCard title="Recibir" description="Ver las actas que te dejaron pendientes para leerlas, firmarlas y cerrarlas." button="Actas abiertas" icon={<FileInput size={28} />} tone="green" badge={stats?.recibidas_pendientes ?? 0} onClick={() => navigate("/entregas/recibir")} />
-      </section>
+      {empleado?.id && (
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ActionCard title="Entregar" description="Crear una nueva acta para el lider que recibe el siguiente turno." button="Crear acta" icon={<FilePlus2 size={28} />} tone="primary" onClick={() => navigate("/entregas/nuevo")} />
+          <ActionCard title="Recibir" description="Ver las actas que te dejaron pendientes para leerlas, firmarlas y cerrarlas." button="Actas abiertas" icon={<FileInput size={28} />} tone="green" badge={stats?.recibidas_pendientes ?? 0} onClick={() => navigate("/entregas/recibir")} />
+        </section>
+      )}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={<FilePlus2 size={18} />} label="Actas creadas" value={stats?.entregas_realizadas ?? 0} />
         <Metric icon={<Inbox size={18} />} label="Por recibir" value={stats?.recibidas_pendientes ?? 0} />

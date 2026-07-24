@@ -7,6 +7,7 @@ use App\Models\EntregaLog;
 use App\Models\Empleado;
 use App\Models\FirmaDigital;
 use App\Models\Novedad;
+use App\Exports\EntregasResumenExport;
 use App\Services\EntregaPdfService;
 use App\Services\EntregaMailService;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
 
 class EntregaController extends Controller
@@ -83,6 +85,21 @@ class EntregaController extends Controller
         $roleId = (int) ($user->role_id ?? 0);
 
         return $role === 'lider' || $roleId === 12;
+    }
+
+    private static function usuarioPuedeAuditarEntregas($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($user->role ?? '')));
+
+        if (in_array($role, ['admin', 'administrativo', 'super_admin'], true)) {
+            return true;
+        }
+
+        return method_exists($user, 'hasPermission') && $user->hasPermission('entregas.view');
     }
 
     public static function buscarUsuarioPortalParaEmpleado(Empleado $empleado)
@@ -262,6 +279,12 @@ class EntregaController extends Controller
         return response()->json([
             'empleado' => $empleado,
             'user' => $user,
+            'capabilities' => [
+                'entregas_auditoria_global' => self::usuarioPuedeAuditarEntregas($user),
+                'entregas_manage' => $user && method_exists($user, 'hasPermission')
+                    ? $user->hasPermission('entregas.manage')
+                    : false,
+            ],
         ]);
     }
 
@@ -295,9 +318,10 @@ class EntregaController extends Controller
 
     private function puedeVerListadoGlobal(Request $request): bool
     {
-        $role = $request->user()?->role ?? auth()->user()?->role;
+        $user = $request->user() ?: auth()->user();
+        $role = strtolower(trim((string) ($user?->role ?? '')));
 
-        if (in_array($role, ['lider', 'admin', 'super_admin'], true)) {
+        if (in_array($role, ['lider'], true) || self::usuarioPuedeAuditarEntregas($user)) {
             return true;
         }
 
@@ -310,35 +334,8 @@ class EntregaController extends Controller
         return $empleado && in_array(strtolower((string) $empleado->estado), ['activo', 'activa'], true);
     }
 
-    /**
-     * GET /api/entregas
-     * Listar todas las entregas con filtros
-     */
-    public function index(Request $request)
+    private function aplicarFiltrosListado($query, Request $request, bool $vistaGlobal, ?int $liderId = null)
     {
-        $empleadoActual = $this->empleadoAutenticado($request);
-        $vistaGlobal = $request->boolean('global') && $this->puedeVerListadoGlobal($request);
-        $liderId = $empleadoActual?->id ?: (int) $request->get('lider_id');
-
-        if (!$vistaGlobal && !$liderId) {
-            return response()->json([
-                'data' => [],
-                'current_page' => 1,
-                'last_page' => 1,
-                'total' => 0,
-                'per_page' => (int) $request->get('per_page', 15),
-            ]);
-        }
-
-        $query = Entrega::with([
-            'liderEntrega:id,colaborador,email',
-            'liderRecibe:id,colaborador,email',
-            'novedades',
-            'firmaEntrega',
-            'firmaRecepcion',
-        ]);
-
-        // Filtros
         if ($request->filled('estado')) {
             $query->where('estado', $request->estado);
         }
@@ -375,10 +372,72 @@ class EntregaController extends Controller
             });
         }
 
+        return $query;
+    }
+
+    /**
+     * GET /api/entregas
+     * Listar todas las entregas con filtros
+     */
+    public function index(Request $request)
+    {
+        $empleadoActual = $this->empleadoAutenticado($request);
+        $vistaGlobal = $request->boolean('global') && $this->puedeVerListadoGlobal($request);
+        $liderId = $empleadoActual?->id ?: (int) $request->get('lider_id');
+
+        if (!$vistaGlobal && !$liderId) {
+            return response()->json([
+                'data' => [],
+                'current_page' => 1,
+                'last_page' => 1,
+                'total' => 0,
+                'per_page' => (int) $request->get('per_page', 15),
+            ]);
+        }
+
+        $query = Entrega::with([
+            'liderEntrega:id,colaborador,email',
+            'liderRecibe:id,colaborador,email',
+            'novedades',
+            'firmaEntrega',
+            'firmaRecepcion',
+        ]);
+
+        $this->aplicarFiltrosListado($query, $request, $vistaGlobal, $liderId);
+
         $entregas = $query->orderBy('created_at', 'desc')
                           ->paginate($request->get('per_page', 15));
 
         return response()->json($entregas);
+    }
+
+    public function exportarResumen(Request $request)
+    {
+        $empleadoActual = $this->empleadoAutenticado($request);
+        $vistaGlobal = $request->boolean('global') && $this->puedeVerListadoGlobal($request);
+        $liderId = $empleadoActual?->id ?: (int) $request->get('lider_id');
+
+        if (!$vistaGlobal && !$liderId) {
+            return response()->json(['error' => 'No autorizado para exportar actas'], 403);
+        }
+
+        $query = Entrega::with([
+            'liderEntrega:id,colaborador,email',
+            'liderRecibe:id,colaborador,email',
+            'novedades',
+        ]);
+
+        $this->aplicarFiltrosListado($query, $request, $vistaGlobal, $liderId);
+
+        $entregas = $query->orderBy('fecha_acta', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $desde = $request->get('fecha_desde') ?: 'inicio';
+        $hasta = $request->get('fecha_hasta') ?: now()->format('Y-m-d');
+        $filename = "resumen-actas-entrega-{$desde}-{$hasta}.xlsx";
+
+        return Excel::download(new EntregasResumenExport($entregas), $filename);
     }
 
     /**
@@ -560,7 +619,27 @@ class EntregaController extends Controller
         $empleadoId = $empleadoActual?->id ?: $request->get('empleado_id');
 
         if (!$empleadoId) {
-            return response()->json(['error' => 'empleado_id requerido'], 422);
+            if (!$this->puedeVerListadoGlobal($request)) {
+                return response()->json(['error' => 'empleado_id requerido'], 422);
+            }
+
+            $stats = [
+                'entregas_realizadas' => Entrega::count(),
+                'entregas_completadas' => Entrega::where('estado', 'completada')->count(),
+                'entregas_pendientes_firma' => Entrega::where('estado', 'abierta')->count(),
+                'recibidas_pendientes' => Entrega::whereIn('estado', ['abierta', 'entregada', 'recibida'])->count(),
+                'recibidas_completadas' => Entrega::where('estado', 'completada')->count(),
+            ];
+
+            $entregasRecientes = Entrega::with(['liderEntrega:id,colaborador', 'liderRecibe:id,colaborador'])
+                ->orderBy('created_at', 'desc')
+                ->limit(5)
+                ->get();
+
+            return response()->json([
+                'stats' => $stats,
+                'recientes' => $entregasRecientes,
+            ]);
         }
 
         $stats = [

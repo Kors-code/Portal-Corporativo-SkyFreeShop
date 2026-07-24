@@ -13,8 +13,6 @@ class InventoryAlertService
 {
     private const STRONG_LEVELS = ['critico', 'sin_stock'];
     private const NOTICE_LEVELS = ['alto'];
-    private const SUPPRESS_DAYS = 5;
-
     public function __construct(private InventoryReportService $reportService)
     {
     }
@@ -59,6 +57,7 @@ class InventoryAlertService
             'name' => $list->name,
             'is_active' => (bool) $list->is_active,
             'auto_send' => (bool) $list->auto_send,
+            'frequency_days' => (int) ($list->frequency_days ?? 1),
             'top_months' => (int) $list->top_months,
             'top_limit' => (int) $list->top_limit,
             'stores' => ($stores[$list->id] ?? collect())->values()->all(),
@@ -81,6 +80,7 @@ class InventoryAlertService
             'name' => $list->name,
             'is_active' => (bool) $list->is_active,
             'auto_send' => (bool) $list->auto_send,
+            'frequency_days' => (int) ($list->frequency_days ?? 1),
             'top_months' => (int) $list->top_months,
             'top_limit' => (int) $list->top_limit,
             'stores' => $this->listStores($id),
@@ -102,6 +102,7 @@ class InventoryAlertService
             'name' => trim((string) $data['name']),
             'is_active' => (bool) ($data['is_active'] ?? true),
             'auto_send' => (bool) ($data['auto_send'] ?? true),
+            'frequency_days' => max(1, min(30, (int) ($data['frequency_days'] ?? 1))),
             'top_months' => max(1, min(12, (int) ($data['top_months'] ?? 3))),
             'top_limit' => max(1, min(200, (int) ($data['top_limit'] ?? 50))),
             'updated_by' => $userId,
@@ -378,7 +379,7 @@ class InventoryAlertService
                 return ['status' => 'skipped', 'message' => 'Lista sin destinatarios activos.'];
             }
 
-            $evaluation = $this->evaluateList($listId, $force || $test);
+            $evaluation = $this->evaluateList($listId, $force || $test, $this->listFrequencyDays($list));
             if (empty($evaluation['alert_products']) && !$test) {
                 $this->finishRun($runId, 'skipped', 'Sin alertas nuevas para enviar.', 0, $evaluation['skipped_count'], 0);
                 return ['status' => 'skipped', 'message' => 'Sin alertas nuevas para enviar.'];
@@ -424,6 +425,15 @@ class InventoryAlertService
 
         $results = [];
         foreach ($lists as $list) {
+            if (!$this->isDueForAutomaticSend($list)) {
+                $results[] = [
+                    'list_id' => (int) $list->id,
+                    'status' => 'skipped',
+                    'message' => 'Lista aun no cumple su frecuencia de envio.',
+                ];
+                continue;
+            }
+
             $results[] = [
                 'list_id' => (int) $list->id,
                 ...$this->sendList((int) $list->id, 'automatic', false, false),
@@ -431,6 +441,25 @@ class InventoryAlertService
         }
 
         return $results;
+    }
+
+    private function isDueForAutomaticSend(object $list): bool
+    {
+        $frequencyDays = $this->listFrequencyDays($list);
+
+        $lastFinishedAt = DB::connection('budget')->table('inventory_alert_runs')
+            ->where('list_id', $list->id)
+            ->where('mode', 'automatic')
+            ->whereIn('status', ['sent', 'skipped'])
+            ->whereNotNull('finished_at')
+            ->orderByDesc('finished_at')
+            ->value('finished_at');
+
+        if (!$lastFinishedAt) {
+            return true;
+        }
+
+        return Carbon::parse($lastFinishedAt)->startOfDay()->addDays($frequencyDays)->lte(now()->startOfDay());
     }
 
     public function currentAlerts(int $listId): array
@@ -464,7 +493,12 @@ class InventoryAlertService
             ->all();
     }
 
-    private function evaluateList(int $listId, bool $force): array
+    private function listFrequencyDays(object $list): int
+    {
+        return max(1, min(30, (int) ($list->frequency_days ?? 1)));
+    }
+
+    private function evaluateList(int $listId, bool $force, int $suppressDays = 1): array
     {
         $storeIds = DB::connection('budget')->table('inventory_alert_list_stores')->where('list_id', $listId)->pluck('store_id')->map(fn ($id) => (int) $id)->all();
         $productIds = DB::connection('budget')->table('inventory_alert_list_products')->where('list_id', $listId)->pluck('product_id')->map(fn ($id) => (int) $id)->all();
@@ -480,7 +514,7 @@ class InventoryAlertService
         $skippedCount = 0;
 
         foreach ($alertRows as $row) {
-            if (!$force && $this->wasRecentlySent($listId, $row)) {
+            if (!$force && $this->wasRecentlySent($listId, $row, $suppressDays)) {
                 $skippedCount++;
                 continue;
             }
@@ -528,15 +562,17 @@ class InventoryAlertService
         return $maximoMes > 0 ? (int) max(0, ceil(($maximoMes * 2) - $stock)) : 0;
     }
 
-    private function wasRecentlySent(int $listId, array $row): bool
+    private function wasRecentlySent(int $listId, array $row, int $suppressDays): bool
     {
+        $threshold = now()->subDays(max(0, $suppressDays - 1))->startOfDay();
+
         return DB::connection('budget')->table('inventory_alert_notifications')
             ->where('list_id', $listId)
             ->where('product_id', $row['product_id'])
             ->where('store_id', $row['store_id'])
             ->where('alert_level', $row['stock_alert_level'])
             ->where('notification_status', 'sent')
-            ->where('notified_at', '>=', now()->subDays(self::SUPPRESS_DAYS))
+            ->where('notified_at', '>=', $threshold)
             ->exists();
     }
 

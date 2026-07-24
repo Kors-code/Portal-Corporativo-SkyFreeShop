@@ -11,6 +11,13 @@ class RolePermissionPresetService
         'super_admin' => ['*'],
         'administrativo' => [
             'portal.view',
+            'panel.view',
+            'entregas.view',
+        ],
+        'admin' => [
+            'portal.view',
+            'panel.view',
+            'entregas.view',
         ],
         'lider' => [
             'panel.view',

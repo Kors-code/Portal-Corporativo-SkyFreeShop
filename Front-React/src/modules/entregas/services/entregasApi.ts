@@ -70,11 +70,11 @@ export const entregasApi = {
   obtenerEmpleados: () =>
     api.get<Empleado[]>(`${BASE}/empleados`).then(r => r.data),
 
-  obtenerDashboard: (empleadoId: number) =>
-    api.get<DashboardResponse>(`${BASE}/dashboard`, { params: { empleado_id: empleadoId } }).then(r => r.data),
+  obtenerDashboard: (empleadoId?: number) =>
+    api.get<DashboardResponse>(`${BASE}/dashboard`, { params: empleadoId ? { empleado_id: empleadoId } : undefined }).then(r => r.data),
 
   obtenerEmpleadoActual: (params: Record<string, any> = {}) =>
-    api.get<{ empleado: Empleado | null; user: any }>(`${BASE}/me`, { params }).then(r => r.data),
+    api.get<{ empleado: Empleado | null; user: any; capabilities?: { entregas_auditoria_global?: boolean; entregas_manage?: boolean } }>(`${BASE}/me`, { params }).then(r => r.data),
 
   // ============ FIRMAS PERSONALES ============
 
@@ -91,6 +91,9 @@ export const entregasApi = {
 
   descargarPdf: (id: number | string, empleadoId?: number) =>
     api.get(`${BASE}/${id}/pdf`, { params: empleadoId ? { empleado_id: empleadoId } : undefined, responseType: 'blob' }).then(r => r.data),
+
+  descargarResumenExcel: (params: Record<string, any> = {}) =>
+    api.get(`${BASE}/export/resumen`, { params, responseType: 'blob' }).then(r => r.data),
 };
 
 export default entregasApi;

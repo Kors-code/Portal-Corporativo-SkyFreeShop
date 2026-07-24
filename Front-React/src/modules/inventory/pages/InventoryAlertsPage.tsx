@@ -36,6 +36,7 @@ type FormState = {
   name: string;
   is_active: boolean;
   auto_send: boolean;
+  frequency_days: number;
   top_months: number;
   top_limit: number;
   store_ids: number[];
@@ -46,6 +47,7 @@ const emptyForm: FormState = {
   name: "Top inventario",
   is_active: true,
   auto_send: true,
+  frequency_days: 1,
   top_months: 3,
   top_limit: 50,
   store_ids: [],
@@ -94,6 +96,7 @@ export default function InventoryAlertsPage() {
       name: detail.name,
       is_active: detail.is_active,
       auto_send: detail.auto_send,
+      frequency_days: detail.frequency_days ?? 1,
       top_months: detail.top_months,
       top_limit: detail.top_limit,
       store_ids: detail.stores.map((store) => store.id),
@@ -129,6 +132,7 @@ export default function InventoryAlertsPage() {
       const saved = await saveInventoryAlert(
         {
           ...form,
+          frequency_days: clampNumber(form.frequency_days, 1, 30),
           top_months: clampNumber(form.top_months, 1, 12),
           top_limit: clampNumber(form.top_limit, 1, 200),
           product_ids: selected?.products?.map((product) => product.id) ?? [],
@@ -306,9 +310,12 @@ export default function InventoryAlertsPage() {
 
           <main className="space-y-5">
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="grid gap-4 lg:grid-cols-[1.2fr_.45fr_.45fr]">
+              <div className="grid gap-4 lg:grid-cols-[1.2fr_.45fr_.45fr_.45fr]">
                 <Field label="Nombre">
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} />
+                </Field>
+                <Field label="Enviar cada (dias)">
+                  <input type="number" min={1} max={30} value={form.frequency_days} onChange={(e) => setForm({ ...form, frequency_days: clampNumber(e.target.value, 1, 30) })} className={inputClass} />
                 </Field>
                 <Field label="Meses top">
                   <input type="number" min={1} max={12} value={form.top_months} onChange={(e) => setForm({ ...form, top_months: clampNumber(e.target.value, 1, 12) })} className={inputClass} />
