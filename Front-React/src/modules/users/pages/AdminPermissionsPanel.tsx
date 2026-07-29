@@ -81,13 +81,10 @@ const MODULES: ModuleDef[] = [
     match: (name) => name.toLowerCase().startsWith('imports.'),
   },
   {
-    key: 'alerts',
-    label: 'Alertas',
-    description: 'Alertas de inventario, listas, productos y envíos',
-    match: (name) => {
-      const n = name.toLowerCase();
-      return n.startsWith('inventory-alerts.') || n.startsWith('alerts.');
-    },
+    key: 'inventory',
+    label: 'Inventario',
+    description: 'Cobertura, alertas e importes de inventario',
+    match: (name) => name.toLowerCase().startsWith('inventarios.'),
   },
   {
     key: 'wishlist',
@@ -164,6 +161,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
     match: [
       'portal.view',
       'panel.view',
+      'budget.admin.view',
       'budget.view',
       'budget.commissions.view',
       'budget.cashier.view',
@@ -240,12 +238,13 @@ function getSubgroupLabel(moduleKey: string, permissionName: string) {
 
   if (moduleKey === 'imports') {
     if (n.includes('create')) return 'Carga';
-    if (n.includes('manage')) return 'Gestión';
-    if (n.includes('view')) return 'Consulta';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
   }
 
-  if (moduleKey === 'alerts') {
+  if (moduleKey === 'inventory') {
+    if (n === 'inventarios.cobertura') return 'Cobertura';
+    if (n === 'inventarios.alertas') return 'Alertas';
+    if (n === 'inventarios.importes') return 'Importes';
     if (n.includes('manage')) return 'Gestión';
     if (n.includes('view')) return 'Consulta';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
@@ -377,8 +376,18 @@ export default function AdminPermissionsPanel(): JSX.Element {
 
   const subgroupKeys = useMemo(() => {
     const keys = Object.keys(subgroups);
+    const inventoryOrder = ['Cobertura', 'Alertas', 'Importes'];
     const order = ['Acceso', 'General', 'Lectura', 'Consulta', 'Gestión', 'Comisiones', 'Cajeros', 'Reportes', 'Asesores', 'Ventas', 'Roles', 'Usuarios', 'Carga', 'Eliminación', 'Edición', 'Creación'];
     return keys.sort((a, b) => {
+      if (activeModule === 'inventory') {
+        const iaInventory = inventoryOrder.indexOf(a);
+        const ibInventory = inventoryOrder.indexOf(b);
+        if (iaInventory !== -1 || ibInventory !== -1) {
+          if (iaInventory === -1) return 1;
+          if (ibInventory === -1) return -1;
+          return iaInventory - ibInventory;
+        }
+      }
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
@@ -386,7 +395,7 @@ export default function AdminPermissionsPanel(): JSX.Element {
       if (ib === -1) return -1;
       return ia - ib;
     });
-  }, [subgroups]);
+  }, [subgroups, activeModule]);
 
   async function selectUser(user: User, userListOverride?: User[]) {
     setSelectedUser(user);

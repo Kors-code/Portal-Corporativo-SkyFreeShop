@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
 use App\Services\CommissionService;
-use App\Services\WhatsappReportJobService;
+use App\Services\SalesRoleRectificationService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Throwable;
@@ -171,6 +171,49 @@ private function deletePreviousBatch($file)
         }
     }
 
+    private function tryRectifyRolesForImportBatch(int $batchId): array
+    {
+        try {
+            $result = app(SalesRoleRectificationService::class)->rectifyImportBatch($batchId, false);
+
+            Log::info('IMPORT SALES ROLES RECTIFIED', [
+                'batch_id' => $batchId,
+                'result' => [
+                    'start_date' => $result['start_date'] ?? null,
+                    'end_date' => $result['end_date'] ?? null,
+                    'users_count' => $result['users_count'] ?? 0,
+                    'ranges_count' => $result['ranges_count'] ?? 0,
+                    'inserted_rows' => $result['inserted_rows'] ?? 0,
+                    'backup_key' => $result['backup_key'] ?? null,
+                ],
+            ]);
+
+            return $result;
+        } catch (Throwable $e) {
+            Log::error('IMPORT SALES ROLES RECTIFICATION FAILED', [
+                'batch_id' => $batchId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->update([
+                    'note' => 'Importacion completada; fallo rectificacion de roles: ' . Str::limit($e->getMessage(), 500),
+                    'updated_at' => now(),
+                ]);
+
+            return [
+                'dry_run' => false,
+                'batch_id' => $batchId,
+                'users_count' => 0,
+                'ranges_count' => 0,
+                'inserted_rows' => 0,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
     private function recalculateInventoryMetricsForImportBatch(int $batchId): array
     {
         $storeIds = DB::connection('budget')->table('sales')
@@ -224,81 +267,49 @@ private function deletePreviousBatch($file)
         return $date ? (new \DateTimeImmutable((string) $date))->format('Y-m-d') : null;
     }
 
+    private function refreshSalesDataUpdatedAtForImportBatch(int $batchId): ?string
+    {
+        $updatedAt = DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->max(DB::raw("COALESCE(sale_datetime, CONCAT(sale_date, ' ', COALESCE(hora, '00:00:00')))"));
+
+        if (!$updatedAt) {
+            return null;
+        }
+
+        $updatedAt = (new \DateTimeImmutable((string) $updatedAt))->format('Y-m-d H:i:s');
+
+        if (Schema::connection('budget')->hasColumn('import_batches', 'sales_data_updated_at')) {
+            DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->update([
+                    'sales_data_updated_at' => $updatedAt,
+                    'updated_at' => now(),
+                ]);
+        }
+
+        return $updatedAt;
+    }
+
     private function trySendWhatsappReportsForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
     {
-        try {
-            $quality = $this->importQualityForWhatsapp($batchId, $expectedRows, $lastSummary);
+        $salesDataUpdatedAt = $this->refreshSalesDataUpdatedAtForImportBatch($batchId);
 
-            if (!$quality['ok']) {
-                Log::warning('IMPORT SALES WHATSAPP REPORTS NOT SENT', [
-                    'batch_id' => $batchId,
-                    'quality' => $quality,
-                ]);
+        Log::info('IMPORT SALES WHATSAPP REPORTS DISABLED', [
+            'batch_id' => $batchId,
+            'sales_data_updated_at' => $salesDataUpdatedAt,
+            'expected_rows' => $expectedRows,
+            'skipped_rows' => $lastSummary['skipped'] ?? null,
+            'errors_count' => count($lastSummary['errors'] ?? []),
+        ]);
 
-                return [
-                    'ok' => true,
-                    'queued' => false,
-                    'reason' => $quality['reason'],
-                    'quality' => $quality,
-                ];
-            }
-
-            $date = $this->reportDateForImportBatch($batchId);
-            if (!$date) {
-                return [
-                    'ok' => true,
-                    'queued' => false,
-                    'reason' => 'La importacion no tiene fecha de ventas para reportar.',
-                    'quality' => $quality,
-                ];
-            }
-
-            $jobs = app(WhatsappReportJobService::class);
-            $dailyJob = $jobs->enqueueUniqueForImportBatch('daily', $date, $batchId, [
-                'pdvs' => ['COLS1', 'COLS2'],
-            ]);
-            $advisorJob = $jobs->enqueueUniqueForImportBatch('advisor_sales', $date, $batchId);
-            $storeJob = $jobs->enqueueUniqueForImportBatch('store_sales', $date, $batchId);
-
-            Artisan::call('reports:process-whatsapp-jobs', [
-                '--limit' => 3,
-                '--batch-id' => $batchId,
-            ]);
-
-            Log::info('IMPORT SALES WHATSAPP REPORTS SENT', [
-                'batch_id' => $batchId,
-                'job_ids' => [
-                    'daily' => $dailyJob->id,
-                    'advisor_sales' => $advisorJob->id,
-                    'store_sales' => $storeJob->id,
-                ],
-                'date' => $date,
-                'artisan_output' => Artisan::output(),
-            ]);
-
-            return [
-                'ok' => true,
-                'queued' => true,
-                'job_ids' => [
-                    'daily' => $dailyJob->id,
-                    'advisor_sales' => $advisorJob->id,
-                    'store_sales' => $storeJob->id,
-                ],
-                'date' => $date,
-                'processed' => true,
-            ];
-        } catch (Throwable $e) {
-            Log::error('IMPORT SALES WHATSAPP REPORTS SEND FAILED', [
-                'batch_id' => $batchId,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return [
-                'ok' => false,
-                'error' => $e->getMessage(),
-            ];
-        }
+        return [
+            'ok' => true,
+            'queued' => false,
+            'disabled' => true,
+            'reason' => 'Envio automatico de WhatsApp desactivado. El chatbot sigue disponible bajo demanda.',
+            'sales_data_updated_at' => $salesDataUpdatedAt,
+        ];
     }
 
     private function importQualityForWhatsapp(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
@@ -1356,6 +1367,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'errors_count' => count($errors),
         ]);
 
+        $rolesRectification = $this->tryRectifyRolesForImportBatch((int) $batchId);
         $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
         $whatsappReports = $this->trySendWhatsappReportsForImportBatch((int) $batchId, $totalRowsExcel, [
             'skipped' => $skipped,
@@ -1369,6 +1381,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'created' => $created,
             'errors' => $errors,
             'batch_id' => $batchId,
+            'roles_rectification' => $rolesRectification,
             'commission_recalc' => $commissionRecalc,
             'daily_whatsapp' => $whatsappReports,
             'whatsapp_reports' => $whatsappReports,
@@ -1612,10 +1625,12 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'updated_at' => now(),
             ]);
             Storage::delete($data['path']);
+            $rolesRectification = $this->tryRectifyRolesForImportBatch($batchId);
             $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
             $totalRows = max(0, $absoluteHighestRow - 1);
             $whatsappReports = $this->trySendWhatsappReportsForImportBatch($batchId, $totalRows, $result);
         } else {
+            $rolesRectification = null;
             $commissionRecalc = null;
             $whatsappReports = null;
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
@@ -1632,6 +1647,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'total_rows' => max(0, $absoluteHighestRow - 1),
             'summary' => $result,
             'timing' => $timing,
+            'roles_rectification' => $rolesRectification,
             'commission_recalc' => $commissionRecalc,
             'daily_whatsapp' => $whatsappReports,
             'whatsapp_reports' => $whatsappReports,

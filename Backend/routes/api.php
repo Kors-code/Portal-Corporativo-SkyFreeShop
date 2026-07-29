@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\CommissionReportController;
 use App\Http\Controllers\Api\CategoryCommissionController;
 use App\Http\Controllers\Api\ImportBatchController;
+use App\Http\Controllers\Api\BankImportBatchController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\BudgetController;
@@ -72,11 +73,13 @@ Route::get('/v1/ping', function () {
 
     Route::middleware('auth:sanctum')->group(function () {
 
-            Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
-    Route::get   ('inventory-imports/{id}',          [InventoryImportBatchController::class, 'show']);
-    Route::post  ('inventory-imports/import',        [InventoryImportBatchController::class, 'import']);
-    Route::post  ('inventory-imports/bulk-delete',   [InventoryImportBatchController::class, 'bulkDestroy']);
-    Route::delete('inventory-imports/{id}',          [InventoryImportBatchController::class, 'destroy']);
+    Route::middleware('permission:inventarios.importes')->group(function () {
+        Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
+        Route::get   ('inventory-imports/{id}',          [InventoryImportBatchController::class, 'show']);
+        Route::post  ('inventory-imports/import',        [InventoryImportBatchController::class, 'import']);
+        Route::post  ('inventory-imports/bulk-delete',   [InventoryImportBatchController::class, 'bulkDestroy']);
+        Route::delete('inventory-imports/{id}',          [InventoryImportBatchController::class, 'destroy']);
+    });
 
     Route::middleware('permission:entregas.view')->group(function () {
         Route::get('entregas/categorias', [EntregaController::class, 'categorias']);
@@ -125,6 +128,11 @@ Route::get('/v1/ping', function () {
     Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
     Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
 
+    Route::get('bank-imports', [BankImportBatchController::class, 'index']);
+    Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show']);
+    Route::delete('bank-imports/{id}', [BankImportBatchController::class, 'destroy']);
+    Route::post('bank-imports/bulk-delete', [BankImportBatchController::class, 'bulkDestroy']);
+
     
     // SALES
     Route::get('sales/users', [SalesByUserController::class, 'getUsersWithSales']);
@@ -159,9 +167,11 @@ Route::get('/v1/ping', function () {
     Route::post('/commissions/rectify-sales-roles', [CommissionController::class, 'rectifySalesRoles']);
 
     // INVENTORY IMPORT 
- Route::post('/inventory/import', [InventoryImportController::class, 'import']);
-Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
-Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
+Route::middleware('permission:inventarios.importes')->group(function () {
+    Route::post('/inventory/import', [InventoryImportController::class, 'import']);
+    Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
+    Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
+});
     
 Route::patch(
     '/budgets/{id}/cashier-prizes',

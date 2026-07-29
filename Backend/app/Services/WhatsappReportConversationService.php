@@ -26,7 +26,7 @@ class WhatsappReportConversationService
                 continue;
             }
 
-            if (! in_array($this->normalizePhoneNumber($from), $this->client->recipientNumbers(), true)) {
+            if (! $this->allowsSender($from)) {
                 Log::info('WHATSAPP REPORT CONVERSATION SKIPPED UNAUTHORIZED NUMBER', [
                     'from' => $from,
                 ]);
@@ -163,6 +163,15 @@ class WhatsappReportConversationService
         }
 
         return $messages;
+    }
+
+    private function allowsSender(string $from): bool
+    {
+        if ((bool) config('services.whatsapp_cloud.allow_any_report_sender')) {
+            return true;
+        }
+
+        return in_array($this->normalizePhoneNumber($from), $this->client->recipientNumbers(), true);
     }
 
     private function normalizePhoneNumber(string $number): string

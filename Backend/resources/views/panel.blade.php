@@ -17,7 +17,7 @@
     @php
         $manifestPath = public_path('react/manifest.json');
         $viteManifestPath = public_path('react/.vite/manifest.json');
-        if (!file_exists($manifestPath) && file_exists($viteManifestPath)) {
+        if (file_exists($viteManifestPath)) {
             $manifestPath = $viteManifestPath;
         }
         if (!file_exists($manifestPath)) {
@@ -30,7 +30,7 @@
     {{-- CSS generado por Vite --}}
     @if(isset($entry['css']))
         @foreach($entry['css'] as $css)
-            <link rel="stylesheet" href="{{ asset('react/'.$css) }}">
+            <link rel="stylesheet" href="{{ asset('react/'.$css) }}?v={{ filemtime(public_path('react/'.$css)) }}">
         @endforeach
     @endif
 </head>
@@ -38,6 +38,6 @@
     <div id="root"></div>
 
     {{-- JS principal de React --}}
-    <script type="module" src="{{ asset('react/'.$entry['file']) }}"></script>
+    <script type="module" src="{{ asset('react/'.$entry['file']) }}?v={{ filemtime(public_path('react/'.$entry['file'])) }}"></script>
 </body>
 </html>

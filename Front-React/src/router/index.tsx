@@ -22,13 +22,13 @@ import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmi
 import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
 import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
 import InventoryDashboard  from "../modules/inventory/InventoryDashboard";
-import InventoryRotationDashboard from "../modules/inventory/InventoryRotationDashboard";
 import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
 import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
 import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
 import InventoryAlertsPage from "../modules/inventory/pages/InventoryAlertsPage";
 import InventoryImportsManagerPage from "../modules/imports/pages/InventoryImportsManagerPage";
+import BankImportsManagerPage from "../modules/imports/pages/BankImportsManagerPage";
 import CrearEntregaPage from "../modules/entregas/pages/CrearEntregaPage";
 import DetalleEntregaPage from "../modules/entregas/pages/DetalleEntregaPage";
 import EntregasDashboardPage from "../modules/entregas/pages/EntregasDashboardPage";
@@ -61,7 +61,6 @@ export default function AppRouter() {
           <Route path="/CashierAwardsUsers" element={<CommisionCashierUsers />} />
           <Route path="/CatalogMatchPage" element={<CatalogMatchPage />} />
           <Route path="/AdminWishList" element={<AdminWishList />} />
-          <Route path="/inventarios/rotacion" element={<InventoryRotationDashboard />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
           <Route path="/commissions/SpecialistCommissionsPanel" element={<SpecialistCommissionsPanel  />} />
         <Route element={<MainLayout />}>
@@ -99,6 +98,7 @@ export default function AppRouter() {
           
 
           <Route path="/InventoryImportsManagerPage" element={<InventoryImportsManagerPage />} />
+          <Route path="/BankImportsManagerPage" element={<BankImportsManagerPage />} />
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />

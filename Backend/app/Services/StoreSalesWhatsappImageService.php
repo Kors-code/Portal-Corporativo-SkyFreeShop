@@ -39,7 +39,7 @@ class StoreSalesWhatsappImageService
         }
 
         $this->drawRow($image, $totals, $y, true);
-        $this->drawFooter($image, $compliance, $meta);
+        $this->drawFooter($image, $compliance, $meta, $this->updatedAtLabel($report));
 
         ob_start();
         imagepng($image, null, 9);
@@ -116,7 +116,7 @@ class StoreSalesWhatsappImageService
         $this->textAligned($image, $this->number((float) ($row['units_per_ticket'] ?? 0)), 1216, $y, 19, $color, true, 'right');
     }
 
-    private function drawFooter($image, float $compliance, float $meta): void
+    private function drawFooter($image, float $compliance, float $meta, string $updatedAtLabel): void
     {
         $this->roundedRect($image, 34, 680, 620, 780, 14, $this->colors['white']);
         imagerectangle($image, 34, 680, 620, 780, $this->colors['line']);
@@ -129,7 +129,7 @@ class StoreSalesWhatsappImageService
         $this->text($image, $this->usd($meta), 684, 754, 28, $this->colors['ink'], true);
 
         $this->text($image, 'Generado automaticamente desde Portal Sky Free Shop', 34, 808, 12, $this->colors['muted'], false);
-        $this->textAligned($image, now('America/Bogota')->format('Y-m-d H:i'), 1246, 808, 12, $this->colors['muted'], false, 'right');
+        $this->textAligned($image, $updatedAtLabel, 1246, 808, 12, $this->colors['muted'], false, 'right');
     }
 
     private function text($image, string $text, int $x, int $y, int $size, int $color, bool $bold = false): void
@@ -229,6 +229,17 @@ class StoreSalesWhatsappImageService
     private function percent(float $value): string
     {
         return number_format($value, 2, ',', '.') . '%';
+    }
+
+    private function updatedAtLabel(array $report): string
+    {
+        $updatedAt = $report['sales_data_updated_at'] ?? null;
+
+        if (is_array($updatedAt) && !empty($updatedAt['label'])) {
+            return (string) $updatedAt['label'];
+        }
+
+        return 'Actualizado: sin ventas';
     }
 
     private function safe(string $value): string

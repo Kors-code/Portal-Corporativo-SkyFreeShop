@@ -518,14 +518,18 @@ class VisualizationController extends Controller
             abort(422, 'No hay presupuesto activo para la fecha seleccionada.');
         }
 
+        $pdvs = $this->normalizePdvs($request) ?: self::WHATSAPP_DAILY_PDVS;
         $dailyRequest = Request::create($request->path(), 'GET', [
             'budget_id' => $budget->id,
             'start_date' => (new \DateTimeImmutable((string) $budget->start_date))->format('Y-m-d'),
             'end_date' => $date,
-            'pdvs' => $this->normalizePdvs($request) ?: self::WHATSAPP_DAILY_PDVS,
+            'pdvs' => $pdvs,
         ]);
 
-        return $this->cashRegisterClosure($dailyRequest)->getData(true);
+        $report = $this->cashRegisterClosure($dailyRequest)->getData(true);
+        $report['sales_data_updated_at'] = $this->salesDataUpdatedAtForDate($date, $pdvs);
+
+        return $report;
     }
 
     public function storeSalesReportData(Request $request): array
@@ -589,6 +593,7 @@ class VisualizationController extends Controller
             ],
             'meta_usd' => $meta,
             'compliance_pct' => $meta > 0 ? round(($totalSales / $meta) * 100, 2) : 0,
+            'sales_data_updated_at' => $this->salesDataUpdatedAtForDate($date, array_keys($storeMap)),
         ];
     }
 
@@ -652,7 +657,54 @@ class VisualizationController extends Controller
                 'units_per_ticket' => $totalTrx > 0 ? round($totalUnits / $totalTrx, 2) : 0,
                 'advisors_count' => count($advisors),
             ],
+            'sales_data_updated_at' => $this->salesDataUpdatedAtFromQuery($base),
         ];
+    }
+
+    protected function salesDataUpdatedAtForDate(string $date, array $pdvs = []): ?array
+    {
+        $query = $this->budgetDB()->table('sales as s')
+            ->whereDate('s.sale_date', $date)
+            ->when(!empty($pdvs), fn ($q) => $q->whereIn('s.pdv', $pdvs));
+
+        $this->excludeGpwCategory($query);
+
+        return $this->salesDataUpdatedAtFromQuery($query);
+    }
+
+    protected function salesDataUpdatedAtFromQuery($query): ?array
+    {
+        $value = (clone $query)->max(DB::raw("COALESCE(s.sale_datetime, CONCAT(s.sale_date, ' ', COALESCE(s.hora, '00:00:00')))"));
+
+        if (!$value) {
+            return null;
+        }
+
+        $value = (new \DateTimeImmutable((string) $value))->format('Y-m-d H:i:s');
+
+        return [
+            'value' => $value,
+            'label' => $this->salesDataUpdatedAtLabel($value),
+        ];
+    }
+
+    protected function salesDataUpdatedAtLabel(string $value): string
+    {
+        try {
+            $date = new \DateTimeImmutable($value);
+        } catch (\Throwable) {
+            return 'Actualizado: ' . $value;
+        }
+
+        $meridiem = $date->format('A') === 'AM' ? 'a. m.' : 'p. m.';
+
+        return sprintf(
+            'Actualizado: %s %s:%s %s',
+            $date->format('d/m/Y'),
+            $date->format('g'),
+            $date->format('i'),
+            $meridiem
+        );
     }
 
     protected function normalizePdvs(Request $request): array

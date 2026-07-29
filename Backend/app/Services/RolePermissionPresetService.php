@@ -31,6 +31,7 @@ class RolePermissionPresetService
         ],
         'seller' => [
             'portal.view',
+            'panel.view',
             'budget.view',
             'commissions.user.view',
             'wishlist.view',
@@ -53,6 +54,7 @@ class RolePermissionPresetService
         'adminpresupuesto' => [
             'portal.view',
             'panel.view',
+            'budget.admin.view',
             'budget.view',
             'budget.commissions.view',
             'budget.cashier.view',

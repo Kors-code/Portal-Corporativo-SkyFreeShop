@@ -22,6 +22,7 @@ export default function Navbar() {
     { label: "Comisiones", to: "/CommissionCardsPage" },
     { label: "Presupuesto", to: "/budget" },
     { label: "Importaciones", to: "/ImportsManagerPage" },
+    { label: "Bancos", to: "/BankImportsManagerPage" },
     { label: "Pct Categorias", to: "/commissions/categories" },
     { label: "Asesores Especializados", to: "/commissions/DualCommissionAdmin" },
   ];

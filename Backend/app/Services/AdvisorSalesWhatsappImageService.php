@@ -27,7 +27,7 @@ class AdvisorSalesWhatsappImageService
         $date = (string) ($report['date'] ?? now('America/Bogota')->toDateString());
         $totals = $report['totals'] ?? [];
 
-        $this->drawTable($image, $rows, $totals, $date, $height, $rowHeight);
+        $this->drawTable($image, $rows, $totals, $date, $height, $rowHeight, $this->updatedAtLabel($report));
 
         ob_start();
         imagepng($image, null, 9);
@@ -37,7 +37,7 @@ class AdvisorSalesWhatsappImageService
         return $png;
     }
 
-    private function drawTable($image, array $rows, array $totals, string $date, int $height, int $rowHeight): void
+    private function drawTable($image, array $rows, array $totals, string $date, int $height, int $rowHeight, string $updatedAtLabel): void
     {
         $tableTop = 34;
         $titleBottom = 112;
@@ -88,7 +88,7 @@ class AdvisorSalesWhatsappImageService
         $this->textAligned($image, $this->number((float) ($totals['units_per_ticket'] ?? 0)), 1216, $totalTop + 36, 18, $this->colors['white'], true, 'right');
 
         $this->text($image, 'Generado automaticamente desde Portal Sky Free Shop', 34, $height - 28, 12, $this->colors['muted'], false);
-        $this->textAligned($image, now('America/Bogota')->format('Y-m-d H:i'), 1246, $height - 28, 12, $this->colors['muted'], false, 'right');
+        $this->textAligned($image, $updatedAtLabel, 1246, $height - 28, 12, $this->colors['muted'], false, 'right');
     }
 
     private function text($image, string $text, int $x, int $y, int $size, int $color, bool $bold = false): void
@@ -170,6 +170,17 @@ class AdvisorSalesWhatsappImageService
         } catch (\Throwable) {
             return $date;
         }
+    }
+
+    private function updatedAtLabel(array $report): string
+    {
+        $updatedAt = $report['sales_data_updated_at'] ?? null;
+
+        if (is_array($updatedAt) && !empty($updatedAt['label'])) {
+            return (string) $updatedAt['label'];
+        }
+
+        return 'Actualizado: sin ventas';
     }
 
     private function number(float $value): string
