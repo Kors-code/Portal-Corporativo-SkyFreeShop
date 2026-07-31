@@ -26,6 +26,17 @@ class InventoryMetricsController extends Controller
         );
     }
 
+    public function latestInventory(Request $request, InventoryReportService $service)
+    {
+        return response()->json(
+            $service->getLatestInventoryRows(
+                $this->resolveStoreIds($request),
+                $request->get('search'),
+                $request->input('as_of_date')
+            )
+        );
+    }
+
     public function run(Request $request, InventoryReportService $service)
     {
         $storeIds = $this->resolveStoreIds($request);

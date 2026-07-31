@@ -80,7 +80,7 @@ Route::post('/login', [AuthenticatedSessionController::class, 'store'])->middlew
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->middleware('auth')->name('logout');
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
 Route::get('/panel/davibank-converter', fn () => view('panel'))
-    ->middleware(['auth', 'throttle:30,1'])
+    ->middleware(['auth', 'permission:accounting.bank-imports.create,imports.create', 'throttle:30,1'])
     ->name('davibank.converter');
 
 /* Rutas públicas de inventarios */
@@ -103,6 +103,8 @@ Route::prefix('api/v1')->middleware(['auth', 'throttle:api'])->group(function ()
         ->middleware('permission:imports.create');
     Route::post('/inventory/metrics/run', [InventoryMetricsController::class, 'run'])
         ->middleware('permission:inventarios.importes');
+    Route::get('/inventory/latest', [InventoryMetricsController::class, 'latestInventory'])
+        ->middleware('permission:inventarios.cobertura');
     Route::get('/inventory/metrics', [InventoryMetricsController::class, 'index'])
         ->middleware('permission:inventarios.cobertura');
     Route::post('/davibank/convert', [PublicDavibankConverterController::class, 'convert']);
@@ -681,6 +683,7 @@ Route::middleware('auth')->group(function () {
         Route::middleware(['permission:inventarios.alertas'])->prefix('inventory-alerts')->group(function () {
             Route::get('/', [InventoryAlertController::class, 'index']);
             Route::get('/history', [InventoryAlertController::class, 'history']);
+            Route::get('/filter-options', [InventoryAlertController::class, 'filterOptions']);
             Route::get('/products', [InventoryAlertController::class, 'products']);
             Route::post('/top', [InventoryAlertController::class, 'top']);
             Route::get('/{id}/current-alerts', [InventoryAlertController::class, 'current']);
@@ -704,8 +707,22 @@ Route::middleware('auth')->group(function () {
             Route::post('import-sales', [ImportSalesController::class, 'import']);
             Route::get('imports/turns', [TurnsImportController::class, 'index']);
             Route::get('imports', [ImportBatchController::class, 'index']);
-            Route::get('bank-imports', [BankImportBatchController::class, 'index']);
         });
+
+        Route::get('bank-imports', [BankImportBatchController::class, 'index'])
+            ->middleware('permission:accounting.bank-imports.view,imports.create');
+        Route::post('bank-imports/import', [BankImportBatchController::class, 'import'])
+            ->middleware('permission:accounting.bank-imports.create,imports.create');
+        Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show'])
+            ->middleware('permission:accounting.bank-imports.view,imports.manage');
+        Route::get('bank-imports/{id}/export', [BankImportBatchController::class, 'export'])
+            ->middleware('permission:accounting.bank-imports.export,imports.manage');
+        Route::get('bank-imports/{id}/export-davibank', [BankImportBatchController::class, 'exportDavibank'])
+            ->middleware('permission:accounting.bank-imports.export,imports.manage');
+        Route::delete('bank-imports/{id}', [BankImportBatchController::class, 'destroy'])
+            ->middleware('permission:accounting.bank-imports.manage,imports.manage');
+        Route::post('bank-imports/bulk-delete', [BankImportBatchController::class, 'bulkDestroy'])
+            ->middleware('permission:accounting.bank-imports.manage,imports.manage');
 
         Route::middleware(['permission:imports.manage'])->group(function () {
             Route::get('imports/turns/{id}', [TurnsImportController::class, 'show']);
@@ -715,10 +732,6 @@ Route::middleware('auth')->group(function () {
             Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
             Route::get('imports/{id}', [ImportBatchController::class, 'show']);
             Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
-
-            Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show']);
-            Route::delete('bank-imports/{id}', [BankImportBatchController::class, 'destroy']);
-            Route::post('bank-imports/bulk-delete', [BankImportBatchController::class, 'bulkDestroy']);
         });
     });
 
@@ -738,7 +751,7 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:imports.create']);
 
     Route::get('/panel/BankImportsManagerPage', fn () => view('panel'))
-        ->middleware(['permission:imports.create']);
+        ->middleware(['permission:accounting.bank-imports.view,imports.create']);
 
     Route::get('/panel/budget', fn () => view('panel'))
         ->middleware(['permission:budget.admin.view']);

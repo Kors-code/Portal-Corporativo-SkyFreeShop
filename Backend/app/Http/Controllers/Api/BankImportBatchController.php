@@ -5,18 +5,56 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Banking\BankImportBatch;
 use App\Models\Banking\BankMovement;
+use App\Services\Banking\BankImportExportService;
+use App\Services\Davibank\DavibankConverterService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BankImportBatchController extends Controller
 {
+    public function import(Request $request, BankImportExportService $service): BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'bank' => ['required', 'string', 'in:davibank,davivienda,bancolombia'],
+            'file' => ['required', 'file', 'max:30720'],
+            'receipt_start' => ['required', 'integer', 'min:1', 'max:999999999'],
+        ]);
+
+        try {
+            $result = $service->importAndExport(
+                $validated['bank'],
+                $request->file('file'),
+                (int) $validated['receipt_start'],
+                $request->user()?->id
+            );
+
+            return response()
+                ->download($result['path'], $result['filename'], [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'X-Bank-Batch-Id' => (string) $result['batch_id'],
+                    'X-Bank-Rows' => (string) $result['rows'],
+                    'X-Bank-Rows-Imported' => (string) $result['rows_imported'],
+                    'X-Bank-Rows-Skipped' => (string) $result['rows_skipped'],
+                    'X-Bank-Sheets' => (string) $result['sheets'],
+                ])
+                ->deleteFileAfterSend(true);
+        } catch (RuntimeException $e) {
+            abort(422, $e->getMessage());
+        }
+    }
+
     public function index(Request $request)
     {
         $query = BankImportBatch::query()
             ->select([
                 'id',
+                'bank_id',
+                'file_format_id',
+                'bank_account_id',
                 'bank',
                 'source_type',
                 'filename',
@@ -60,6 +98,9 @@ class BankImportBatchController extends Controller
 
         return response()->json([
             'id' => $batch->id,
+            'bank_id' => $batch->bank_id,
+            'file_format_id' => $batch->file_format_id,
+            'bank_account_id' => $batch->bank_account_id,
             'bank' => $batch->bank,
             'source_type' => $batch->source_type,
             'filename' => $batch->filename,
@@ -85,6 +126,8 @@ class BankImportBatchController extends Controller
             'movements_sample' => (clone $movementsQuery)
                 ->select([
                     'id',
+                    'bank_id',
+                    'bank_account_id',
                     'row_number',
                     'bank',
                     'movement_date',
@@ -111,6 +154,56 @@ class BankImportBatchController extends Controller
                 ->limit(200)
                 ->get(),
         ]);
+    }
+
+    public function exportDavibank(Request $request, int $id, DavibankConverterService $converter): BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'receipt_start' => ['nullable', 'integer', 'min:1', 'max:999999999'],
+        ]);
+
+        try {
+            $result = $converter->exportBatch(
+                $id,
+                isset($validated['receipt_start']) ? (int) $validated['receipt_start'] : null
+            );
+
+            return response()
+                ->download($result['path'], $result['filename'], [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'X-Davibank-Sheets' => (string) $result['sheets'],
+                    'X-Davibank-Rows' => (string) $result['rows'],
+                    'X-Davibank-Batch-Id' => (string) $result['batch_id'],
+                ])
+                ->deleteFileAfterSend(true);
+        } catch (RuntimeException $e) {
+            abort(422, $e->getMessage());
+        }
+    }
+
+    public function export(Request $request, int $id, BankImportExportService $service): BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'receipt_start' => ['nullable', 'integer', 'min:1', 'max:999999999'],
+        ]);
+
+        try {
+            $result = $service->exportBatch(
+                $id,
+                isset($validated['receipt_start']) ? (int) $validated['receipt_start'] : null
+            );
+
+            return response()
+                ->download($result['path'], $result['filename'], [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'X-Bank-Batch-Id' => (string) $result['batch_id'],
+                    'X-Bank-Rows' => (string) $result['rows'],
+                    'X-Bank-Sheets' => (string) $result['sheets'],
+                ])
+                ->deleteFileAfterSend(true);
+        } catch (RuntimeException $e) {
+            abort(422, $e->getMessage());
+        }
     }
 
     public function destroy(int $id)

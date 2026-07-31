@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BellRing,
   CheckCircle2,
+  ChevronRight,
   Mail,
   PackageSearch,
   Plus,
@@ -17,6 +18,7 @@ import {
   deleteInventoryAlert,
   getInventoryAlert,
   getInventoryAlertCurrent,
+  getInventoryAlertFilterOptions,
   getInventoryAlertTop,
   listInventoryAlerts,
   removeProductFromInventoryAlert,
@@ -57,12 +59,13 @@ const emptyForm: FormState = {
 export default function InventoryAlertsPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [lists, setLists] = useState<InventoryAlertList[]>([]);
+  const [filterOptions, setFilterOptions] = useState({ brands: [] as string[], providers: [] as string[] });
   const [selected, setSelected] = useState<InventoryAlertList | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [topRows, setTopRows] = useState<InventoryAlertProduct[]>([]);
   const [currentAlerts, setCurrentAlerts] = useState<InventoryAlertCurrentProduct[]>([]);
   const [currentAlertsLoading, setCurrentAlertsLoading] = useState(false);
-  const [search, setSearch] = useState("");
+  const [selectionFilters, setSelectionFilters] = useState({ search: "", provider: "", brand: "" });
   const [searchRows, setSearchRows] = useState<InventoryAlertProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -75,9 +78,10 @@ export default function InventoryAlertsPage() {
   const bootstrap = async () => {
     try {
       setLoading(true);
-      const [storeRows, listRows] = await Promise.all([getStores(), listInventoryAlerts()]);
+      const [storeRows, listRows, optionRows] = await Promise.all([getStores(), listInventoryAlerts(), getInventoryAlertFilterOptions()]);
       setStores(storeRows);
       setLists(listRows);
+      setFilterOptions({ brands: optionRows.brands ?? [], providers: optionRows.providers ?? [] });
       if (listRows[0]) {
         await selectList(listRows[0].id);
       }
@@ -104,7 +108,7 @@ export default function InventoryAlertsPage() {
     });
     setTopRows([]);
     setSearchRows([]);
-    setSearch("");
+    setSelectionFilters({ search: "", provider: "", brand: "" });
   };
 
   const refreshLists = async (nextSelectedId?: number) => {
@@ -153,6 +157,7 @@ export default function InventoryAlertsPage() {
     setForm(emptyForm);
     setTopRows([]);
     setCurrentAlerts([]);
+    setSelectionFilters({ search: "", provider: "", brand: "" });
     setSearchRows([]);
     setMessage("");
     setError("");
@@ -164,6 +169,7 @@ export default function InventoryAlertsPage() {
     setSelected(null);
     setForm(emptyForm);
     setCurrentAlerts([]);
+    setSelectionFilters({ search: "", provider: "", brand: "" });
     await refreshLists();
   };
 
@@ -174,6 +180,9 @@ export default function InventoryAlertsPage() {
         store_ids: form.store_ids,
         months: form.top_months,
         limit: form.top_limit,
+        search: selectionFilters.search,
+        brand: selectionFilters.brand,
+        provider: selectionFilters.provider,
       });
       setTopRows(rows);
     } catch (err: any) {
@@ -186,15 +195,21 @@ export default function InventoryAlertsPage() {
       setError("Guarda la lista antes de agregar top.");
       return;
     }
-    const products = await addTopToInventoryAlert(selected.id, form.top_months, form.top_limit);
+    const products = await addTopToInventoryAlert(selected.id, {
+      months: form.top_months,
+      limit: form.top_limit,
+      search: selectionFilters.search,
+      brand: selectionFilters.brand,
+      provider: selectionFilters.provider,
+    });
     updateSelectedProducts(products);
     setCurrentAlerts([]);
-    setMessage("Top agregado a la lista.");
+    setMessage("Top filtrado agregado a la lista.");
   };
 
   const doSearch = async () => {
-    if (!search.trim()) return;
-    setSearchRows(await searchInventoryAlertProducts(search));
+    if (!selectionFilters.search.trim() && !selectionFilters.brand.trim() && !selectionFilters.provider.trim()) return;
+    setSearchRows(await searchInventoryAlertProducts(selectionFilters));
   };
 
   const addProduct = async (productId: number) => {
@@ -391,31 +406,60 @@ export default function InventoryAlertsPage() {
               </Panel>
             </section>
 
-            <section className="grid gap-5 xl:grid-cols-2">
-              <Panel title="Top por ventas USD" subtitle="Se calcula con las tiendas seleccionadas">
-                <div className="mb-3 flex flex-wrap gap-2">
-                  <button onClick={previewTop} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white">Ver top</button>
-                  <button onClick={addTop} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-700">Agregar top completo</button>
-                </div>
-                <ProductList products={topRows} actionLabel="Agregar" onAction={(product) => addProduct(product.id)} />
-              </Panel>
+            <Panel title="Seleccionar SKU" subtitle="Filtra por marca, proveedor o SKU y agrega productos a la vigilancia">
+              <div className="mb-4 grid gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 md:grid-cols-[1fr_.9fr_.9fr_auto]">
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={selectionFilters.search}
+                    onChange={(e) => setSelectionFilters((current) => ({ ...current, search: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && void doSearch()}
+                    placeholder="SKU o descripcion"
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm font-semibold text-slate-900 outline-none focus:border-slate-400"
+                  />
+                </label>
+                <FilterCombobox
+                  label="Proveedor"
+                  value={selectionFilters.provider}
+                  options={filterOptions.providers}
+                  onChange={(provider) => setSelectionFilters((current) => ({ ...current, provider }))}
+                />
+                <FilterCombobox
+                  label="Marca"
+                  value={selectionFilters.brand}
+                  options={filterOptions.brands}
+                  onChange={(brand) => setSelectionFilters((current) => ({ ...current, brand }))}
+                />
+                <button onClick={doSearch} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-black text-white">
+                  <Search className="h-4 w-4" />
+                  Buscar
+                </button>
+              </div>
 
-              <Panel title="Agregar por SKU" subtitle="Busca y agrega productos manualmente">
-                <div className="mb-3 flex gap-2">
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void doSearch()} placeholder="SKU, descripcion, marca" className={inputClass} />
-                  <button onClick={doSearch} className="rounded-lg bg-slate-950 px-3 text-white">
-                    <Search className="h-4 w-4" />
-                  </button>
-                </div>
-                <ProductList products={searchRows} actionLabel="Agregar" onAction={(product) => addProduct(product.id)} />
-              </Panel>
-            </section>
+              <div className="grid gap-5 xl:grid-cols-2">
+                <section>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <h3 className="mr-auto text-sm font-black uppercase text-slate-500">Top vendidos filtrado</h3>
+                    <button onClick={previewTop} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white">Ver top</button>
+                    <button onClick={addTop} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black text-slate-700">Agregar top filtrado</button>
+                  </div>
+                  <ProductList products={topRows} actionLabel="Agregar" onAction={(product) => addProduct(product.id)} />
+                </section>
+
+                <section>
+                  <div className="mb-3 flex h-10 items-center">
+                    <h3 className="text-sm font-black uppercase text-slate-500">Resultados del catalogo</h3>
+                  </div>
+                  <ProductList products={searchRows} actionLabel="Agregar" onAction={(product) => addProduct(product.id)} />
+                </section>
+              </div>
+            </Panel>
 
             <Panel title="Productos vigilados" subtitle={`${selected?.products?.length ?? 0} productos en esta lista`}>
               <ProductList products={selected?.products ?? []} actionLabel="Quitar" onAction={(product) => removeProduct(product.id)} danger />
             </Panel>
 
-            <Panel title="Alertas actuales" subtitle="Critico, sin stock y alto, con contexto por tienda">
+            <Panel title="Alertas actuales" subtitle="Critico, sin stock y riesgo alto, con contexto por tienda">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <button
                   onClick={loadCurrentAlerts}
@@ -431,6 +475,11 @@ export default function InventoryAlertsPage() {
                 {currentAlerts.map((product) => (
                   <div key={product.product_id} className="rounded-xl border border-slate-100 p-3">
                     <div className="font-black">{product.product_code} - {product.description}</div>
+                    {(product.brand || product.provider_name) && (
+                      <div className="mt-1 text-xs font-bold text-slate-400">
+                        {[product.brand && `Marca ${product.brand}`, product.provider_name && `Proveedor ${product.provider_name}`].filter(Boolean).join(" | ")}
+                      </div>
+                    )}
                     <div className="mt-2 grid gap-2 lg:grid-cols-2">
                       {product.stores.map((store, index) => (
                         <div key={index} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
@@ -438,7 +487,7 @@ export default function InventoryAlertsPage() {
                             <span className="font-black">{store.store_code ?? store.store_name}</span>
                             <span className={levelClass(store.level)}>{store.label ?? store.level}</span>
                           </div>
-                          <div className="mt-1 text-slate-500">Inv {fmt(store.stock_actual)} | Proy {fmt(store.maximo_mes)} | Meses {fmt(store.dias_disponibles)} | Sug {fmt(store.suggested_units)}</div>
+                          <div className="mt-1 text-slate-500">Inventario {fmt(store.stock_actual)} | Dias disponible {fmt(store.dias_disponibles)} | Estado {store.label ?? store.level ?? "-"}</div>
                         </div>
                       ))}
                     </div>
@@ -499,6 +548,128 @@ function Panel({ title, subtitle, children }: { title: string; subtitle?: string
   );
 }
 
+function FilterCombobox({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = normalizeForSearch(query);
+    if (!normalizedQuery) return options;
+
+    return options.filter((option) => normalizeForSearch(option).includes(normalizedQuery));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timeoutId = window.setTimeout(() => inputRef.current?.focus(), 0);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isOpen]);
+
+  const selectOption = (nextValue: string) => {
+    onChange(nextValue);
+    setQuery("");
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm font-semibold outline-none transition hover:bg-slate-50 focus:border-slate-400"
+      >
+        <span className={`min-w-0 truncate ${value ? "text-slate-900" : "text-slate-500"}`}>
+          {value || label}
+        </span>
+        <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 transition ${isOpen ? "rotate-90" : ""}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.16)]">
+          <div className="border-b border-slate-100 p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setIsOpen(false);
+                  if (event.key === "Enter" && filteredOptions.length === 1) selectOption(filteredOptions[0]);
+                }}
+                placeholder={`Buscar ${label.toLowerCase()}`}
+                className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm font-semibold outline-none focus:border-slate-400 focus:bg-white"
+              />
+            </div>
+            <div className="mt-2 text-xs font-bold text-slate-400">
+              {query.trim() ? `${filteredOptions.length} resultados` : `${options.length} opciones`}
+            </div>
+          </div>
+
+          <div className="max-h-64 overflow-y-auto p-2">
+            <button
+              type="button"
+              onClick={() => selectOption("")}
+              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                !value ? "bg-slate-950 font-black text-white" : "font-semibold text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Todos
+              {!value && <CheckCircle2 className="h-4 w-4" />}
+            </button>
+
+            {filteredOptions.map((option) => {
+              const selected = option === value;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => selectOption(option)}
+                  className={`mt-1 flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition ${
+                    selected ? "bg-slate-950 font-black text-white" : "font-semibold text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="min-w-0 truncate">{option}</span>
+                  {selected && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+                </button>
+              );
+            })}
+
+            {filteredOptions.length === 0 && (
+              <div className="px-3 py-6 text-center text-sm font-bold text-slate-400">Sin resultados</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!checked)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-black ${checked ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
@@ -520,6 +691,11 @@ function ProductList({ products, actionLabel, onAction, danger = false }: { prod
               {product.product_code}
             </div>
             <div className="mt-1 line-clamp-2 text-sm font-medium text-slate-600">{product.description}</div>
+            {(product.brand || product.provider_name) && (
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                {[product.brand && `Marca ${product.brand}`, product.provider_name && `Proveedor ${product.provider_name}`].filter(Boolean).join(" | ")}
+              </div>
+            )}
             {product.total_usd !== undefined && <div className="mt-1 text-xs font-bold text-emerald-700">USD {fmt(product.total_usd)} | Und {fmt(product.total_units)}</div>}
           </div>
           <button onClick={() => onAction(product)} className={`rounded-lg px-3 py-2 text-sm font-black ${danger ? "bg-rose-50 text-rose-700" : "bg-slate-950 text-white"}`}>
@@ -543,6 +719,10 @@ function clampNumber(value: string | number, min: number, max: number): number {
 
 function fmt(value: number | null | undefined): string {
   return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(Number(value ?? 0));
+}
+
+function normalizeForSearch(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 function levelClass(level?: string | null): string {

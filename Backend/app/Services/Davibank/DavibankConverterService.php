@@ -2,8 +2,11 @@
 
 namespace App\Services\Davibank;
 
+use App\Models\Banking\BankImportBatch;
 use DateTimeImmutable;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -78,49 +81,33 @@ class DavibankConverterService
     ];
 
     /**
-     * @return array{path: string, filename: string, sheets: int, rows: int, excluded_zero_commission: int}
+     * @return array{path: string, filename: string, sheets: int, rows: int, excluded_zero_commission: int, batch_id: int}
      */
-    public function convert(UploadedFile $file, int $receiptStart): array
+    public function convert(UploadedFile $file, int $receiptStart, ?int $userId = null): array
     {
         if ($receiptStart <= 0) {
             throw new RuntimeException('El numero inicial del recibo debe ser mayor que 0.');
         }
 
-        [$headers, $rows, $excludedZeroCommission] = $this->readDavibankCsv($file->getRealPath());
+        [$headers, $rows, $excludedZeroCommission, $skippedUnsupportedNetwork, $sourceRows] = $this->readDavibankCsv($file->getRealPath());
+        $rows = $this->attachMovementUids($rows);
         $groups = $this->groupRowsByAbonoDate($rows);
 
         if ($groups === []) {
             throw new RuntimeException('No hay filas validas para exportar despues de aplicar los filtros.');
         }
 
-        ksort($groups);
-
-        $spreadsheet = new Spreadsheet();
-        $spreadsheet->removeSheetByIndex(0);
-
-        $receiptNumber = $receiptStart;
-        foreach ($groups as $dateKey => $dayRows) {
-            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $dateKey);
-            if (! $date) {
-                continue;
-            }
-
-            $sheet = new Worksheet($spreadsheet, $this->makeSheetName($date));
-            $spreadsheet->addSheet($sheet);
-            $receiptNumber = $this->fillDaySheet($sheet, $headers, $dayRows, $date, $receiptNumber);
-        }
-
-        $spreadsheet->setActiveSheetIndex(0);
-
-        $path = tempnam(storage_path('app'), 'davibank_');
-        if ($path === false) {
-            throw new RuntimeException('No se pudo crear el archivo temporal.');
-        }
-
-        $xlsxPath = $path . '.xlsx';
-        @rename($path, $xlsxPath);
-
-        (new Xlsx($spreadsheet))->save($xlsxPath);
+        $xlsxPath = $this->writeWorkbook($headers, $groups, $receiptStart);
+        $batch = $this->persistImport(
+            $file,
+            $rows,
+            $groups,
+            $receiptStart,
+            $excludedZeroCommission,
+            $skippedUnsupportedNetwork,
+            $sourceRows,
+            $userId
+        );
 
         return [
             'path' => $xlsxPath,
@@ -128,11 +115,71 @@ class DavibankConverterService
             'sheets' => count($groups),
             'rows' => array_sum(array_map('count', $groups)),
             'excluded_zero_commission' => $excludedZeroCommission,
+            'batch_id' => $batch->id,
         ];
     }
 
     /**
-     * @return array{0: array<int, string>, 1: array<int, array<string, mixed>>, 2: int}
+     * @return array{path: string, filename: string, sheets: int, rows: int, batch_id: int}
+     */
+    public function exportBatch(int $batchId, ?int $receiptStart = null): array
+    {
+        $batch = BankImportBatch::findOrFail($batchId);
+        if (! in_array($batch->source_type, ['davibank_converter', 'card_settlement'], true)) {
+            throw new RuntimeException('Este lote no corresponde a un archivo Davibank exportable.');
+        }
+
+        $rows = $batch->movements()
+            ->where('source_type', 'davibank_converter')
+            ->orderBy('deposit_date')
+            ->orderBy('row_number')
+            ->get()
+            ->map(function ($movement): array {
+                $payload = is_array($movement->raw_payload)
+                    ? $movement->raw_payload
+                    : json_decode((string) $movement->raw_payload, true);
+
+                if (! is_array($payload)) {
+                    return [];
+                }
+
+                $date = $this->dateString($payload['FECHA_ABONO'] ?? null)
+                    ?? optional($movement->deposit_date)->toDateString();
+
+                if ($date) {
+                    $payload['_FECHA_ABONO_KEY'] = $date;
+                }
+
+                return $payload;
+            })
+            ->filter(fn (array $row): bool => $row !== [] && isset($row['_FECHA_ABONO_KEY']))
+            ->values()
+            ->all();
+
+        if ($rows === []) {
+            throw new RuntimeException('El lote no tiene movimientos Davibank guardados para exportar.');
+        }
+
+        $metadata = is_array($batch->metadata) ? $batch->metadata : [];
+        $receiptStart ??= (int) ($metadata['receipt_start'] ?? 1);
+        if ($receiptStart <= 0) {
+            $receiptStart = 1;
+        }
+
+        $groups = $this->groupRowsByAbonoDate($rows);
+        $path = $this->writeWorkbook(self::REQUIRED_COLUMNS, $groups, $receiptStart);
+
+        return [
+            'path' => $path,
+            'filename' => 'davibank_final_' . $batch->id . '_' . now()->format('Ymd_His') . '.xlsx',
+            'sheets' => count($groups),
+            'rows' => count($rows),
+            'batch_id' => $batch->id,
+        ];
+    }
+
+    /**
+     * @return array{0: array<int, string>, 1: array<int, array<string, mixed>>, 2: int, 3: int, 4: int}
      */
     private function readDavibankCsv(string $path): array
     {
@@ -149,10 +196,13 @@ class DavibankConverterService
 
         $records = [];
         $excludedZeroCommission = 0;
+        $skippedUnsupportedNetwork = 0;
+        $sourceRows = count($lines) - 1;
 
         foreach (array_slice($lines, 1) as $lineNumber => $line) {
             $values = $this->parseDavibankLine($line);
             $record = [];
+            $csvRowNumber = $lineNumber + 2;
 
             foreach ($headers as $index => $header) {
                 $record[$header] = $values[$index] ?? '';
@@ -160,6 +210,7 @@ class DavibankConverterService
 
             $network = trim((string) $record['CODIGO_RED']);
             if (! in_array($network, ['VD', 'RD'], true)) {
+                $skippedUnsupportedNetwork++;
                 continue;
             }
 
@@ -174,14 +225,44 @@ class DavibankConverterService
 
             $abonoDate = $this->parseDateValue((string) $record['FECHA_ABONO']);
             if (! $abonoDate) {
-                throw new RuntimeException('FECHA_ABONO invalida en fila CSV ' . ($lineNumber + 2));
+                throw new RuntimeException('FECHA_ABONO invalida en fila CSV ' . $csvRowNumber);
             }
 
             $record['_FECHA_ABONO_KEY'] = $abonoDate->format('Y-m-d');
+            $record['_CSV_ROW_NUMBER'] = $csvRowNumber;
             $records[] = $record;
         }
 
-        return [$headers, $records, $excludedZeroCommission];
+        return [$headers, $records, $excludedZeroCommission, $skippedUnsupportedNetwork, $sourceRows];
+    }
+
+    private function attachMovementUids(array $rows): array
+    {
+        return array_map(function (array $row): array {
+            $row['_MOVEMENT_UID'] = $this->makeMovementUid($row);
+
+            return $row;
+        }, $rows);
+    }
+
+    private function makeMovementUid(array $row): string
+    {
+        $parts = [
+            'davivienda',
+            $row['CODIGO_RED'] ?? '',
+            $row['ABONO_DEVOL'] ?? '',
+            $row['NUM_AUTORIZACION'] ?? '',
+            $row['NUM_TERMINAL'] ?? '',
+            $row['NUM_COMP'] ?? '',
+            $row['NUM_TARJETA'] ?? '',
+            $this->dateString($row['FECHA_COMPR'] ?? null) ?? '',
+            $this->dateString($row['FECHA_ABONO'] ?? null) ?? '',
+            $this->decimalKey($row['VALOR_COMPRA'] ?? 0),
+            $this->decimalKey($row['VALOR_ABONADO'] ?? 0),
+            $this->decimalKey($row['NETO_ABONADO'] ?? 0),
+        ];
+
+        return hash('sha256', implode('|', array_map(fn (mixed $value): string => trim((string) $value), $parts)));
     }
 
     private function parseDavibankLine(string $line): array
@@ -231,6 +312,347 @@ class DavibankConverterService
         }
 
         return $groups;
+    }
+
+    private function persistImport(
+        UploadedFile $file,
+        array $rows,
+        array $groups,
+        int $receiptStart,
+        int $excludedZeroCommission,
+        int $skippedUnsupportedNetwork,
+        int $sourceRows,
+        ?int $userId
+    ): BankImportBatch {
+        $checksum = hash_file('sha256', $file->getRealPath()) ?: null;
+        $storedPath = $this->storeSourceFile($file, $checksum);
+        $now = now();
+        $dateKeys = array_keys($groups);
+        sort($dateKeys);
+        $bankContext = $this->bankContext();
+
+        return DB::connection('budget')->transaction(function () use (
+            $file,
+            $rows,
+            $groups,
+            $receiptStart,
+            $excludedZeroCommission,
+            $skippedUnsupportedNetwork,
+            $sourceRows,
+            $checksum,
+            $storedPath,
+            $now,
+            $dateKeys,
+            $userId,
+            $bankContext
+        ): BankImportBatch {
+            [$newRows, $duplicateRows] = $this->partitionNewRows($rows);
+            $newGroups = $this->groupRowsByAbonoDate($newRows);
+            $newDateKeys = array_keys($newGroups);
+            sort($newDateKeys);
+
+            $batch = BankImportBatch::create([
+                'bank_id' => $bankContext['bank_id'],
+                'file_format_id' => $bankContext['file_format_id'],
+                'bank_account_id' => $bankContext['bank_account_id'],
+                'bank' => 'davibank',
+                'source_type' => 'davibank_converter',
+                'filename' => $file->getClientOriginalName() ?: 'davibank.csv',
+                'stored_path' => $storedPath,
+                'checksum' => $checksum,
+                'status' => 'completed',
+                'rows' => $sourceRows,
+                'rows_imported' => count($newRows),
+                'rows_skipped' => $excludedZeroCommission + $skippedUnsupportedNetwork + count($duplicateRows),
+                'from_date' => $newDateKeys[0] ?? $dateKeys[0] ?? null,
+                'to_date' => $newDateKeys[count($newDateKeys) - 1] ?? $dateKeys[count($dateKeys) - 1] ?? null,
+                'total_sale_amount' => $this->sumColumn($newRows, 'VALOR_COMPRA'),
+                'total_commission_amount' => $this->sumColumn($newRows, 'VALOR_COMISION'),
+                'total_withholding_amount' => $this->sumWithholding($newRows),
+                'total_income_amount' => $this->sumColumn($newRows, 'NETO_ABONADO'),
+                'total_debit_amount' => 0,
+                'total_credit_amount' => 0,
+                'metadata' => [
+                    'receipt_start' => $receiptStart,
+                    'excluded_zero_commission' => $excludedZeroCommission,
+                    'skipped_unsupported_network' => $skippedUnsupportedNetwork,
+                    'skipped_duplicate_movements' => count($duplicateRows),
+                    'generated_sheets' => count($groups),
+                ],
+                'created_by' => $userId,
+            ]);
+
+            foreach (array_chunk($this->makeMovementRows($batch->id, $newRows, $now, $bankContext), 500) as $chunk) {
+                DB::connection('budget')->table('bank_movements')->insert($chunk);
+            }
+
+            if ($newGroups !== []) {
+                DB::connection('budget')->table('bank_daily_summaries')->insert(
+                    $this->makeDailySummaryRows($batch->id, $newGroups, $now, $bankContext)
+                );
+
+                DB::connection('budget')->table('bank_cash_receipts')->insert(
+                    $this->makeCashReceiptRows($batch->id, $newGroups, $receiptStart, $now, $bankContext)
+                );
+            }
+
+            return $batch;
+        });
+    }
+
+    /**
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>}
+     */
+    private function partitionNewRows(array $rows): array
+    {
+        $uids = array_values(array_unique(array_filter(array_map(
+            fn (array $row): ?string => $row['_MOVEMENT_UID'] ?? null,
+            $rows
+        ))));
+
+        $existing = [];
+        foreach (array_chunk($uids, 1000) as $chunk) {
+            $found = DB::connection('budget')
+                ->table('bank_movements')
+                ->where('bank', 'davibank')
+                ->whereIn('movement_uid', $chunk)
+                ->pluck('movement_uid')
+                ->all();
+
+            foreach ($found as $uid) {
+                $existing[(string) $uid] = true;
+            }
+        }
+
+        $seen = [];
+        $newRows = [];
+        $duplicateRows = [];
+
+        foreach ($rows as $row) {
+            $uid = (string) ($row['_MOVEMENT_UID'] ?? '');
+
+            if ($uid === '' || isset($existing[$uid]) || isset($seen[$uid])) {
+                $duplicateRows[] = $row;
+                continue;
+            }
+
+            $seen[$uid] = true;
+            $newRows[] = $row;
+        }
+
+        return [$newRows, $duplicateRows];
+    }
+
+    private function storeSourceFile(UploadedFile $file, ?string $checksum): ?string
+    {
+        $extension = strtolower($file->getClientOriginalExtension() ?: 'csv');
+        $safeBaseName = preg_replace('/[^A-Za-z0-9_.-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
+        $safeBaseName = trim((string) $safeBaseName, '._-') ?: 'davibank';
+        $filename = now()->format('Ymd_His') . '_' . substr((string) $checksum, 0, 12) . '_' . $safeBaseName . '.' . $extension;
+
+        $storedPath = Storage::putFileAs('imports/banks/davivienda', $file, $filename);
+
+        return $storedPath ?: null;
+    }
+
+    private function makeMovementRows(int $batchId, array $rows, mixed $timestamp, array $bankContext): array
+    {
+        return array_map(function (array $row) use ($batchId, $timestamp, $bankContext): array {
+            return [
+                'batch_id' => $batchId,
+                'bank_id' => $bankContext['bank_id'],
+                'bank_account_id' => $bankContext['bank_account_id'],
+                'bank' => 'davibank',
+                'source_type' => 'davibank_converter',
+                'movement_uid' => $row['_MOVEMENT_UID'] ?? null,
+                'row_number' => $row['_CSV_ROW_NUMBER'] ?? null,
+                'movement_date' => $this->dateString($row['FECHA_COMPR'] ?? null),
+                'process_date' => $this->dateString($row['FECHA_PROCESO'] ?? null),
+                'deposit_date' => $this->dateString($row['FECHA_ABONO'] ?? null),
+                'account_number' => $this->blankToNull($row['NUMERO_CUENTA'] ?? null),
+                'branch_code' => $this->blankToNull($row['CODIGOAGENCIA'] ?? null),
+                'transaction_code' => $this->blankToNull($row['NUM_TRANSACC'] ?? null),
+                'reference' => $this->blankToNull($row['ID_MOVIMIENTO'] ?? $row['NUM_COMP'] ?? null),
+                'receipt_number' => $this->blankToNull($row['CONSECUTIVO'] ?? null),
+                'authorization_number' => $this->blankToNull($row['NUM_AUTORIZACION'] ?? null),
+                'terminal' => $this->blankToNull($row['NUM_TERMINAL'] ?? null),
+                'network' => $this->blankToNull($row['CODIGO_RED'] ?? null),
+                'card_type' => $this->blankToNull($row['FRANQUICIA'] ?? $row['TIPTARJ'] ?? null),
+                'card_last_digits' => $this->cardLastDigits($row['NUM_TARJETA'] ?? null),
+                'counterparty' => $this->blankToNull($row['NOMBRE_TITULAR'] ?? null),
+                'description' => $this->blankToNull($row['NOMBRE_ALMACEN'] ?? $row['NOMBREALMACEN'] ?? $row['UBICACION_TERM'] ?? null),
+                'movement_type' => $this->blankToNull($row['TIPO_ABONO'] ?? $row['TIPO'] ?? null),
+                'category' => 'card_sale',
+                'currency' => 'COP',
+                'sale_amount' => $row['VALOR_COMPRA'] ?? 0,
+                'commission_amount' => $row['VALOR_COMISION'] ?? 0,
+                'withholding_amount' => $this->rowWithholding($row),
+                'withholding_source_amount' => $row['VALOR_RETENCION'] ?? 0,
+                'withholding_vat_amount' => $row['VALOR_RETEIVA'] ?? 0,
+                'withholding_ica_amount' => $row['RETEICA'] ?? 0,
+                'vat_amount' => $row['VALOR_IVA'] ?? 0,
+                'tip_amount' => $row['VALOR_PROPINA'] ?? 0,
+                'income_amount' => $row['NETO_ABONADO'] ?? 0,
+                'net_amount' => $row['NETO_ABONADO'] ?? 0,
+                'is_sale' => true,
+                'is_income' => true,
+                'is_expense' => false,
+                'is_excluded' => false,
+                'raw_payload' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }, $rows);
+    }
+
+    private function makeDailySummaryRows(int $batchId, array $groups, mixed $timestamp, array $bankContext): array
+    {
+        $summaryRows = [];
+
+        foreach ($groups as $date => $dayRows) {
+            $summaryRows[] = [
+                'batch_id' => $batchId,
+                'bank_id' => $bankContext['bank_id'],
+                'bank' => 'davibank',
+                'summary_date' => $date,
+                'movements_count' => count($dayRows),
+                'sale_amount' => $this->sumColumn($dayRows, 'VALOR_COMPRA'),
+                'commission_amount' => $this->sumColumn($dayRows, 'VALOR_COMISION'),
+                'withholding_amount' => $this->sumWithholding($dayRows),
+                'income_amount' => $this->sumColumn($dayRows, 'NETO_ABONADO'),
+                'debit_amount' => 0,
+                'credit_amount' => 0,
+                'metadata' => json_encode([
+                    'visa_abonado' => $this->sumWhereNetwork($dayRows, 'VD', 'VALOR_ABONADO'),
+                    'redeban_abonado' => $this->sumWhereNetwork($dayRows, 'RD', 'VALOR_ABONADO'),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        return $summaryRows;
+    }
+
+    private function makeCashReceiptRows(int $batchId, array $groups, int $receiptStart, mixed $timestamp, array $bankContext): array
+    {
+        $receiptRows = [];
+        $receiptNumber = $receiptStart;
+
+        foreach ($groups as $date => $dayRows) {
+            $receiptRows[] = [
+                'batch_id' => $batchId,
+                'bank_id' => $bankContext['bank_id'],
+                'bank' => 'davibank',
+                'receipt_date' => $date,
+                'receipt_number' => $receiptNumber,
+                'sale_amount' => $this->sumColumn($dayRows, 'VALOR_COMPRA'),
+                'commission_amount' => $this->sumColumn($dayRows, 'VALOR_COMISION'),
+                'withholding_amount' => $this->sumWithholding($dayRows),
+                'income_amount' => $this->sumColumn($dayRows, 'NETO_ABONADO'),
+                'metadata' => json_encode([
+                    'receipt_numbers' => range($receiptNumber, $receiptNumber + 6),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+            $receiptNumber += 7;
+        }
+
+        return $receiptRows;
+    }
+
+    private function sumColumn(array $rows, string $column): float
+    {
+        return array_reduce($rows, fn (float $carry, array $row): float => $carry + (float) ($row[$column] ?? 0), 0.0);
+    }
+
+    private function sumWithholding(array $rows): float
+    {
+        return array_reduce($rows, fn (float $carry, array $row): float => $carry + $this->rowWithholding($row), 0.0);
+    }
+
+    private function rowWithholding(array $row): float
+    {
+        return (float) ($row['VALOR_RETENCION'] ?? 0)
+            + (float) ($row['VALOR_RETEIVA'] ?? 0)
+            + (float) ($row['RETEICA'] ?? 0);
+    }
+
+    private function dateString(mixed $value): ?string
+    {
+        $date = $this->parseDateValue((string) $value);
+
+        return $date?->format('Y-m-d');
+    }
+
+    private function blankToNull(mixed $value): ?string
+    {
+        $text = trim((string) $value);
+
+        return $text === '' ? null : $text;
+    }
+
+    private function cardLastDigits(mixed $value): ?string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $value);
+
+        return $digits ? substr($digits, -4) : null;
+    }
+
+    private function decimalKey(mixed $value): string
+    {
+        return number_format((float) $value, 2, '.', '');
+    }
+
+    /**
+     * @return array{bank_id: ?int, file_format_id: ?int, bank_account_id: ?int}
+     */
+    private function bankContext(): array
+    {
+        $bankId = DB::connection('budget')->table('banks')->where('code', 'davibank')->value('id');
+        $fileFormatId = DB::connection('budget')->table('bank_file_formats')->where('code', 'davibank_sales_csv')->value('id');
+        $bankAccountId = DB::connection('budget')->table('bank_accounts')->where('account_number', '6841002235')->value('id');
+
+        return [
+            'bank_id' => $bankId ? (int) $bankId : null,
+            'file_format_id' => $fileFormatId ? (int) $fileFormatId : null,
+            'bank_account_id' => $bankAccountId ? (int) $bankAccountId : null,
+        ];
+    }
+
+    private function writeWorkbook(array $headers, array $groups, int $receiptStart): string
+    {
+        ksort($groups);
+
+        $spreadsheet = new Spreadsheet();
+        $spreadsheet->removeSheetByIndex(0);
+
+        $receiptNumber = $receiptStart;
+        foreach ($groups as $dateKey => $dayRows) {
+            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $dateKey);
+            if (! $date) {
+                continue;
+            }
+
+            $sheet = new Worksheet($spreadsheet, $this->makeSheetName($date));
+            $spreadsheet->addSheet($sheet);
+            $receiptNumber = $this->fillDaySheet($sheet, $headers, $dayRows, $date, $receiptNumber);
+        }
+
+        $spreadsheet->setActiveSheetIndex(0);
+
+        $path = tempnam(storage_path('app'), 'davibank_');
+        if ($path === false) {
+            throw new RuntimeException('No se pudo crear el archivo temporal.');
+        }
+
+        $xlsxPath = $path . '.xlsx';
+        @rename($path, $xlsxPath);
+
+        (new Xlsx($spreadsheet))->save($xlsxPath);
+
+        return $xlsxPath;
     }
 
     private function makeSheetName(DateTimeImmutable $date): string

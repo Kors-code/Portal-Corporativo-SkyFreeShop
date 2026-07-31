@@ -9,6 +9,9 @@ class BankImportBatch extends Model
     protected $connection = 'budget';
 
     protected $fillable = [
+        'bank_id',
+        'file_format_id',
+        'bank_account_id',
         'bank',
         'source_type',
         'filename',
@@ -46,5 +49,20 @@ class BankImportBatch extends Model
     public function movements()
     {
         return $this->hasMany(BankMovement::class, 'batch_id');
+    }
+
+    public function bankCatalog()
+    {
+        return $this->belongsTo(Bank::class, 'bank_id');
+    }
+
+    public function fileFormat()
+    {
+        return $this->belongsTo(BankFileFormat::class, 'file_format_id');
+    }
+
+    public function bankAccount()
+    {
+        return $this->belongsTo(BankAccount::class, 'bank_account_id');
     }
 }

@@ -22,9 +22,11 @@ import {
 import InventoryCoverageTable from "../components/InventoryCoverageTable";
 import {
   getInventoryMetrics,
+  getLatestInventoryRows,
   getStores,
   importInventory,
   runInventoryMetrics,
+  type InventoryItem,
   type InventoryMetricItem,
   type Store,
 } from "../services/inventoryService";
@@ -180,18 +182,26 @@ export default function InventoryCoveragePage() {
     }
   };
 
-  const handleExportAnalysis = () => {
+  const handleExportAnalysis = async () => {
     if (selectedStoreIds.length === 0) {
       setError("Selecciona al menos una tienda para exportar el analisis.");
       return;
     }
 
     try {
+      setLoading(true);
       setError("");
       setMessage("");
+      const exportStoreIds = resolveExportInventoryStoreIds(stores, selectedStoreIds);
+      const inventoryRows = await getLatestInventoryRows(
+        exportStoreIds,
+        search,
+        asOfDate || undefined
+      );
 
       const result = exportInventoryAnalysisWorkbook({
         rows: filteredRows.filter((row) => matchesViewMode(row, viewMode)),
+        inventoryRows,
         stores,
         selectedStoreIds,
         targetDays,
@@ -207,6 +217,8 @@ export default function InventoryCoveragePage() {
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "No se pudo exportar el analisis de inventario.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -469,7 +481,6 @@ export default function InventoryCoveragePage() {
               <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-white px-5 py-4 shadow-sm">
                 <div className="text-sm text-slate-500">Cobertura total planeada</div>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold text-slate-900">
-                  <span>{maxMonths} meses maximo</span>
                   <ChevronRight className="h-5 w-5 text-slate-300" />
                   {Math.round((targetDays + normalizeLeadTimeMonths(leadTimeDays) * 30) * 10) / 10} dias
                   <ChevronRight className="h-5 w-5 text-slate-300" />
@@ -529,14 +540,8 @@ export default function InventoryCoveragePage() {
                 </div>
               </FieldCard>
 
-              <FieldCard label="Fecha de corte">
-                <input
-                  type="date"
-                  value={asOfDate}
-                  onChange={(e) => setAsOfDate(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
-                />
-              </FieldCard>
+
+              
 
               <FilterSelect
                 label="Marca"
@@ -1007,6 +1012,7 @@ function ModeChip({
 
 type AnalysisWorkbookInput = {
   rows: InventoryMetricItem[];
+  inventoryRows: InventoryItem[];
   stores: Store[];
   selectedStoreIds: number[];
   targetDays: number;
@@ -1019,19 +1025,27 @@ type AnalysisSheetGroup = {
   rows: InventoryMetricItem[];
 };
 
+type InventorySheetGroup = {
+  key: string;
+  name: string;
+  rows: InventoryItem[];
+};
+
 function exportInventoryAnalysisWorkbook({
   rows,
+  inventoryRows,
   stores,
   selectedStoreIds,
   targetDays,
   leadTimeValue,
 }: AnalysisWorkbookInput): { exported: boolean; message: string } {
   const groups = buildAnalysisSheetGroups(rows, stores, selectedStoreIds);
+  const inventoryGroups = buildInventorySheetGroups(inventoryRows, stores, selectedStoreIds);
 
-  if (groups.length === 0) {
+  if (groups.length === 0 && inventoryGroups.length === 0) {
     return {
       exported: false,
-      message: "No hay tiendas validas para exportar. COLZ1 solo se exporta cuando acompana a COLS1 o COLS2.",
+      message: "No hay tiendas validas para exportar.",
     };
   }
 
@@ -1052,12 +1066,18 @@ function exportInventoryAnalysisWorkbook({
     XLSX.utils.book_append_sheet(workbook, sheet, safeName);
   });
 
+  inventoryGroups.forEach((group) => {
+    const sheet = buildInventoryWorksheet(group.rows);
+    const safeName = uniqueSheetName(group.name, usedSheetNames);
+    XLSX.utils.book_append_sheet(workbook, sheet, safeName);
+  });
+
   const date = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(workbook, `analisis-inventario-${date}.xlsx`);
 
   return {
     exported: true,
-    message: `Analisis exportado correctamente (${groups.length} hoja${groups.length === 1 ? "" : "s"}).`,
+    message: `Analisis exportado correctamente (${groups.length + inventoryGroups.length} hoja${groups.length + inventoryGroups.length === 1 ? "" : "s"}).`,
   };
 }
 
@@ -1068,37 +1088,21 @@ function buildAnalysisSheetGroups(
 ): AnalysisSheetGroup[] {
   const storesById = new Map(stores.map((store) => [store.id, store]));
   const storesByCode = new Map(stores.map((store) => [normalizeStoreCode(store.code), store]));
-  const selectedCodes = new Set(
+  const selectedAnalysisCodes = new Set(
     selectedStoreIds
       .map((id) => storesById.get(id)?.code)
       .filter((code): code is string => Boolean(code))
       .map(normalizeStoreCode)
+      .map(salesStoreCodeFor)
+      .filter((code): code is string => code !== null && !isWarehouseStoreCode(code))
   );
-  const mdeSelected = selectedCodes.has("COLS1") || selectedCodes.has("COLS2");
   const groups = new Map<string, AnalysisSheetGroup>();
 
   rows.forEach((row) => {
     const codes = rowStoreCodes(row);
-    const hasMdeStore = codes.some((code) => code === "COLS1" || code === "COLS2");
-    const hasZonaFranca = codes.includes("COLZ1");
-
-    if (hasMdeStore) {
-      if (mdeSelected) {
-        pushAnalysisRow(groups, "MDE", "ANALISIS DFP MDE", row);
-      }
-      return;
-    }
-
-    if (hasZonaFranca && mdeSelected) {
-      pushAnalysisRow(groups, "MDE", "ANALISIS DFP MDE", row);
-      return;
-    }
-
-    if (hasZonaFranca) {
-      return;
-    }
-
-    const code = codes.find((value) => selectedCodes.has(value)) ?? "";
+    const code = codes
+      .map(salesStoreCodeFor)
+      .find((value) => value && selectedAnalysisCodes.has(value) && !isWarehouseStoreCode(value)) ?? "";
     if (!code) {
       return;
     }
@@ -1111,6 +1115,46 @@ function buildAnalysisSheetGroups(
     ...group,
     rows: combineRowsBySku(group.rows),
   }));
+}
+
+function buildInventorySheetGroups(
+  rows: InventoryItem[],
+  stores: Store[],
+  selectedStoreIds: number[]
+): InventorySheetGroup[] {
+  const storesById = new Map(stores.map((store) => [store.id, store]));
+  const selectedPairs = uniqueText(
+    selectedStoreIds
+      .map((id) => storesById.get(id)?.code)
+      .filter((code): code is string => Boolean(code))
+      .map(normalizeStoreCode)
+      .map((code) => warehouseStoreCodeFor(code) ?? code)
+  )
+    .filter(isWarehouseStoreCode)
+    .map((warehouseCode) => ({
+      warehouseCode,
+      salesCode: salesStoreCodeFor(warehouseCode),
+    }));
+  const groups = new Map<string, AnalysisSheetGroup>();
+
+  selectedPairs.forEach(({ warehouseCode, salesCode }) => {
+    const pairRows = rows.filter((row) => {
+      const code = normalizeStoreCode(row.store_code ?? "");
+      return code === warehouseCode || code === salesCode;
+    });
+
+    if (pairRows.length === 0) {
+      return;
+    }
+
+    groups.set(warehouseCode, {
+      key: warehouseCode,
+      name: `INVENTARIO ${warehouseCode}`,
+      rows: combineInventoryRowsBySku(pairRows),
+    });
+  });
+
+  return Array.from(groups.values());
 }
 
 function pushAnalysisRow(
@@ -1150,6 +1194,35 @@ function combineRowsBySku(rows: InventoryMetricItem[]): InventoryMetricItem[] {
       month_columns: monthColumns,
       maximo_mes: maximoMes,
       factor_caja: group.find((row) => Number(row.factor_caja ?? 0) > 0)?.factor_caja ?? first.factor_caja,
+    };
+  });
+}
+
+function combineInventoryRowsBySku(rows: InventoryItem[]): InventoryItem[] {
+  const grouped = new Map<string, InventoryItem[]>();
+
+  rows.forEach((row) => {
+    const key = productGroupKey(row);
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  });
+
+  return Array.from(grouped.values()).map((group) => {
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    const first = group[0];
+    const storeCodes = uniqueText(group.map((row) => row.store_code ?? row.store_name));
+
+    return {
+      ...first,
+      store_id: null,
+      store_code: storeCodes.join(" + "),
+      store_name: storeCodes.join(" + "),
+      stock_actual: sumNumbers(group, (row) => row.stock_actual),
+      factor_caja: group.find((row) => Number(row.factor_caja ?? 0) > 0)?.factor_caja ?? first.factor_caja,
+      last_inventory_date: latestTextDate(group.map((row) => row.last_inventory_date)),
+      batch_id: null,
     };
   });
 }
@@ -1251,6 +1324,75 @@ function buildAnalysisWorksheet(
   return sheet;
 }
 
+function buildInventoryWorksheet(rows: InventoryItem[]): XLSX.WorkSheet {
+  const headers = [
+    "SKU",
+    "DESCRIPCION",
+    "MARCA",
+    "PROVEEDOR",
+    "UBICACION STOCK",
+    "INVENTARIO",
+    "FC",
+    "CAJAS",
+    "ULTIMO INVENTARIO",
+  ];
+  const aoa: any[][] = [headers];
+
+  rows.forEach((row, index) => {
+    const rowIndex = index + 1;
+    const inventoryCell = XLSX.utils.encode_cell({ r: rowIndex, c: 5 });
+    const fcCell = XLSX.utils.encode_cell({ r: rowIndex, c: 6 });
+
+    aoa.push([
+      row.product_code ?? "",
+      row.description ?? "",
+      row.brand ?? "",
+      row.supplier ?? row.proveedor ?? "",
+      row.store_code ?? row.store_name ?? "",
+      numberOrZero(row.stock_actual),
+      numberOrZero(row.factor_caja),
+      { t: "n", f: `IFERROR(ROUNDUP(${inventoryCell}/${fcCell},0),0)`, z: "0" },
+      row.last_inventory_date ?? "",
+    ]);
+  });
+
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet["!autofilter"] = {
+    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, aoa.length - 1), c: headers.length - 1 } }),
+  };
+  sheet["!cols"] = [
+    { wch: 14 },
+    { wch: 44 },
+    { wch: 18 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 11 },
+    { wch: 8 },
+    { wch: 9 },
+    { wch: 17 },
+  ];
+  styleInventoryWorksheet(sheet, headers.length, aoa.length);
+
+  return sheet;
+}
+
+function styleInventoryWorksheet(sheet: XLSX.WorkSheet, columnCount: number, rowCount: number) {
+  const headerStyle = {
+    font: { bold: true, color: { rgb: "FFFFFF" } },
+    fill: { fgColor: { rgb: "14532D" } },
+    alignment: { horizontal: "center", vertical: "center" },
+  };
+  const inventoryFill = { fill: { fgColor: { rgb: "D9EAD3" } } };
+
+  for (let c = 0; c < columnCount; c += 1) {
+    setCellStyle(sheet, 0, c, headerStyle);
+  }
+
+  for (let r = 1; r < rowCount; r += 1) {
+    [5, 6, 7].forEach((col) => setCellStyle(sheet, r, col, inventoryFill));
+  }
+}
+
 function styleAnalysisWorksheet(
   sheet: XLSX.WorkSheet,
   columnCount: number,
@@ -1313,6 +1455,66 @@ function rowStoreCodes(row: InventoryMetricItem): string[] {
     ...(row.store_code ?? "").split("+"),
     row.sales_store_code,
   ]).map(normalizeStoreCode);
+}
+
+function resolveExportInventoryStoreIds(stores: Store[], selectedStoreIds: number[]): number[] {
+  const storesById = new Map(stores.map((store) => [store.id, store]));
+  const storesByCode = new Map(stores.map((store) => [normalizeStoreCode(store.code), store]));
+  const ids = new Set<number>(selectedStoreIds);
+
+  selectedStoreIds.forEach((id) => {
+    const selectedCode = storesById.get(id)?.code;
+    if (!selectedCode) {
+      return;
+    }
+
+    [warehouseStoreCodeFor(selectedCode), salesStoreCodeFor(selectedCode)].forEach((code) => {
+      if (!code) {
+        return;
+      }
+
+      const linkedStore = storesByCode.get(code);
+      if (linkedStore) {
+        ids.add(linkedStore.id);
+      }
+    });
+  });
+
+  return Array.from(ids);
+}
+
+function salesStoreCodeFor(value: string): string | null {
+  const code = normalizeStoreCode(value);
+  const warehouse = code.match(/^COLB(\d+)$/);
+
+  if (warehouse) {
+    return `COLS${warehouse[1]}`;
+  }
+
+  if (code === "DEPARTURES") return "COLS1";
+  if (code === "ARRIVALS") return "COLS2";
+
+  return code || null;
+}
+
+function warehouseStoreCodeFor(value: string): string | null {
+  const code = normalizeStoreCode(value);
+  const sales = code.match(/^COLS(\d+)$/);
+
+  if (sales) {
+    return `COLB${sales[1]}`;
+  }
+
+  if (code === "DEPARTURES") return "COLB1";
+  if (code === "ARRIVALS") return "COLB2";
+  if (isWarehouseStoreCode(code)) return code;
+
+  return null;
+}
+
+function isWarehouseStoreCode(value: string): boolean {
+  const code = normalizeStoreCode(value);
+  return /^COLB\d+$/.test(code) || code === "COLZ1";
 }
 
 function normalizeStoreCode(value: string): string {
@@ -1460,7 +1662,7 @@ function groupRowsByProduct(rows: InventoryMetricItem[]): InventoryMetricItem[] 
   });
 }
 
-function productGroupKey(row: InventoryMetricItem): string {
+function productGroupKey(row: InventoryItem): string {
   const code = (row.product_code ?? "").trim();
   if (code) return code;
 
@@ -1543,7 +1745,7 @@ function mergeMonthColumns(monthGroups: Array<Record<string, number> | null | un
   }, {});
 }
 
-function sumNumbers(rows: InventoryMetricItem[], picker: (row: InventoryMetricItem) => number | null | undefined): number {
+function sumNumbers<T extends InventoryItem>(rows: T[], picker: (row: T) => number | null | undefined): number {
   return rows.reduce((total, row) => total + Number(picker(row) ?? 0), 0);
 }
 

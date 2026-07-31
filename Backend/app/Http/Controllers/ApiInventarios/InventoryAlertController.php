@@ -49,8 +49,15 @@ class InventoryAlertController extends Controller
     {
         return response()->json($service->searchProducts(
             $request->query('search'),
-            (int) $request->query('limit', 20)
+            (int) $request->query('limit', 20),
+            $request->query('brand'),
+            $request->query('provider')
         ));
+    }
+
+    public function filterOptions(InventoryAlertService $service): JsonResponse
+    {
+        return response()->json($service->productFilterOptions());
     }
 
     public function top(Request $request, InventoryAlertService $service): JsonResponse
@@ -60,12 +67,18 @@ class InventoryAlertController extends Controller
             'store_ids.*' => ['integer'],
             'months' => ['nullable', 'integer', 'min:1', 'max:12'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'brand' => ['nullable', 'string', 'max:160'],
+            'provider' => ['nullable', 'string', 'max:160'],
+            'search' => ['nullable', 'string', 'max:160'],
         ]);
 
         return response()->json($service->topProducts(
             $data['store_ids'],
             (int) ($data['months'] ?? 3),
-            (int) ($data['limit'] ?? 50)
+            (int) ($data['limit'] ?? 50),
+            $data['brand'] ?? null,
+            $data['provider'] ?? null,
+            $data['search'] ?? null
         ));
     }
 
@@ -74,12 +87,18 @@ class InventoryAlertController extends Controller
         $data = $request->validate([
             'months' => ['nullable', 'integer', 'min:1', 'max:12'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'brand' => ['nullable', 'string', 'max:160'],
+            'provider' => ['nullable', 'string', 'max:160'],
+            'search' => ['nullable', 'string', 'max:160'],
         ]);
 
         return response()->json($service->addTopToList(
             $id,
             (int) ($data['months'] ?? 3),
-            (int) ($data['limit'] ?? 50)
+            (int) ($data['limit'] ?? 50),
+            $data['brand'] ?? null,
+            $data['provider'] ?? null,
+            $data['search'] ?? null
         ));
     }
 

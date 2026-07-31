@@ -140,6 +140,21 @@ export const getInventoryMetrics = async (
   return response.data;
 };
 
+export const getLatestInventoryRows = async (
+  storeIds?: number[],
+  search?: string,
+  asOfDate?: string
+): Promise<InventoryItem[]> => {
+  const params: Record<string, string | number[]> = {};
+
+  if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
+  if (search && search.trim()) params.search = search.trim();
+  if (asOfDate) params.as_of_date = asOfDate;
+
+  const response = await api.get("inventory/latest", { params });
+  return response.data;
+};
+
 export const runInventoryMetrics = async (
   storeId?: number,
   search?: string,

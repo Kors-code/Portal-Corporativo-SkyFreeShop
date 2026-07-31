@@ -536,6 +536,7 @@ class VisualizationController extends Controller
     {
         $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
         $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $importBatchId = $request->query('import_batch_id', $request->input('import_batch_id'));
         $storeMap = [
             'COLS2' => 'MDE DE ARRIVALS',
             'COLS1' => 'MDE DE DEPARTURES',
@@ -544,6 +545,11 @@ class VisualizationController extends Controller
         $base = $this->budgetDB()->table('sales as s')
             ->whereDate('s.sale_date', $date)
             ->whereIn('s.pdv', array_keys($storeMap));
+
+        if ($importBatchId !== null && $importBatchId !== '') {
+            $base->where('s.import_batch_id', (int) $importBatchId);
+        }
+
         $this->excludeGpwCategory($base);
 
         $rows = (clone $base)
@@ -593,7 +599,8 @@ class VisualizationController extends Controller
             ],
             'meta_usd' => $meta,
             'compliance_pct' => $meta > 0 ? round(($totalSales / $meta) * 100, 2) : 0,
-            'sales_data_updated_at' => $this->salesDataUpdatedAtForDate($date, array_keys($storeMap)),
+            'sales_data_updated_at' => $this->salesDataUpdatedAtFromQuery($base),
+            'import_batch_id' => $importBatchId !== null && $importBatchId !== '' ? (int) $importBatchId : null,
         ];
     }
 

@@ -10,6 +10,7 @@ class BankCashReceipt extends Model
 
     protected $fillable = [
         'batch_id',
+        'bank_id',
         'bank',
         'receipt_date',
         'receipt_number',

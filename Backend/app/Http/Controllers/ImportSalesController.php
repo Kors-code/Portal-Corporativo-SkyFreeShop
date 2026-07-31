@@ -16,6 +16,7 @@ use App\Models\Comisiones\ImportBatch;
 use App\Models\Comisiones\Sale;
 use App\Services\CommissionService;
 use App\Services\SalesRoleRectificationService;
+use App\Services\WhatsappReportJobService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Throwable;
@@ -293,23 +294,148 @@ private function deletePreviousBatch($file)
 
     private function trySendWhatsappReportsForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
     {
-        $salesDataUpdatedAt = $this->refreshSalesDataUpdatedAtForImportBatch($batchId);
+        try {
+            return $this->sendWhatsappReportsForImportBatch($batchId, $expectedRows, $lastSummary);
+        } catch (Throwable $e) {
+            Log::error('IMPORT SALES WHATSAPP REPORTS FAILED', [
+                'batch_id' => $batchId,
+                'expected_rows' => $expectedRows,
+                'skipped_rows' => $lastSummary['skipped'] ?? null,
+                'errors_count' => count($lastSummary['errors'] ?? []),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
 
-        Log::info('IMPORT SALES WHATSAPP REPORTS DISABLED', [
+            return [
+                'ok' => false,
+                'queued' => false,
+                'processed' => false,
+                'reason' => 'Error enviando reportes WhatsApp: ' . $e->getMessage(),
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function sendWhatsappReportsForImportBatch(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
+    {
+        $salesDataUpdatedAt = $this->refreshSalesDataUpdatedAtForImportBatch($batchId);
+        $quality = $this->importQualityForWhatsapp($batchId, $expectedRows, $lastSummary);
+
+        if (!$quality['ok']) {
+            Log::warning('IMPORT SALES WHATSAPP STORE REPORT SKIPPED', [
+                'batch_id' => $batchId,
+                'quality' => $quality,
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+            ]);
+
+            return array_merge($quality, [
+                'queued' => false,
+                'processed' => false,
+                'type' => 'store_sales',
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+            ]);
+        }
+
+        if (!Schema::hasTable('whatsapp_report_jobs')) {
+            return [
+                'ok' => false,
+                'queued' => false,
+                'processed' => false,
+                'type' => 'store_sales',
+                'reason' => 'La tabla whatsapp_report_jobs no existe.',
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+            ];
+        }
+
+        $reportDate = $this->reportDateForImportBatch($batchId) ?: now('America/Bogota')->toDateString();
+        $sendFullPackage = !$this->hasFullWhatsappPackageBeenQueuedToday();
+        $jobsService = app(WhatsappReportJobService::class);
+        $jobTypes = $sendFullPackage
+            ? ['daily', 'advisor_sales', 'store_sales']
+            : ['store_sales'];
+        $jobs = [];
+
+        foreach ($jobTypes as $type) {
+            $payload = [
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+            ];
+
+            if ($sendFullPackage) {
+                $payload['first_import_full_package'] = true;
+            }
+
+            if ($type === 'daily') {
+                $payload['pdvs'] = ['COLS1', 'COLS2'];
+            }
+
+            $jobs[] = $jobsService->enqueueUniqueForImportBatch($type, $reportDate, $batchId, $payload);
+        }
+
+        $primaryJob = end($jobs) ?: null;
+        reset($jobs);
+
+        Log::info('IMPORT SALES WHATSAPP REPORTS QUEUED', [
             'batch_id' => $batchId,
+            'report_date' => $reportDate,
+            'mode' => $sendFullPackage ? 'first_import_full_package' : 'store_sales_only',
+            'job_ids' => array_map(fn ($job) => $job->id, $jobs),
+            'job_types' => $jobTypes,
             'sales_data_updated_at' => $salesDataUpdatedAt,
-            'expected_rows' => $expectedRows,
-            'skipped_rows' => $lastSummary['skipped'] ?? null,
-            'errors_count' => count($lastSummary['errors'] ?? []),
+            'quality' => $quality,
+        ]);
+
+        $exitCode = Artisan::call('reports:process-whatsapp-jobs', [
+            '--limit' => count($jobs),
+            '--batch-id' => $batchId,
+        ]);
+
+        $jobs = array_map(fn ($job) => $job->fresh(), $jobs);
+        $processed = !empty($jobs) && collect($jobs)->every(fn ($job) => $job?->status === 'sent');
+
+        Log::info('IMPORT SALES WHATSAPP REPORTS PROCESSED', [
+            'batch_id' => $batchId,
+            'mode' => $sendFullPackage ? 'first_import_full_package' : 'store_sales_only',
+            'processed' => $processed,
+            'exit_code' => $exitCode,
+            'jobs' => array_map(fn ($job) => [
+                'id' => $job?->id,
+                'type' => $job?->type,
+                'status' => $job?->status,
+                'last_error' => $job?->last_error,
+            ], $jobs),
         ]);
 
         return [
-            'ok' => true,
-            'queued' => false,
-            'disabled' => true,
-            'reason' => 'Envio automatico de WhatsApp desactivado. El chatbot sigue disponible bajo demanda.',
+            'ok' => $processed,
+            'queued' => true,
+            'processed' => $processed,
+            'mode' => $sendFullPackage ? 'first_import_full_package' : 'store_sales_only',
+            'types' => $jobTypes,
+            'type' => $primaryJob?->type ?? 'store_sales',
+            'reason' => $processed
+                ? ($sendFullPackage
+                    ? 'Primer import del dia: paquete completo enviado a WhatsApp.'
+                    : 'Reporte de ventas por tiendas enviado a WhatsApp.')
+                : 'Reportes WhatsApp encolados, pero no se pudieron enviar todos inmediatamente.',
             'sales_data_updated_at' => $salesDataUpdatedAt,
+            'jobs' => array_map(fn ($job) => [
+                'id' => $job?->id,
+                'type' => $job?->type,
+                'status' => $job?->status,
+                'report_date' => optional($job?->report_date)->toDateString(),
+                'last_error' => $job?->last_error,
+            ], $jobs),
+            'process_exit_code' => $exitCode,
+            'process_output' => trim(Artisan::output()),
         ];
+    }
+
+    private function hasFullWhatsappPackageBeenQueuedToday(): bool
+    {
+        return DB::table('whatsapp_report_jobs')
+            ->whereDate('created_at', now('America/Bogota')->toDateString())
+            ->where('payload->first_import_full_package', true)
+            ->exists();
     }
 
     private function importQualityForWhatsapp(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
@@ -1367,12 +1493,12 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'errors_count' => count($errors),
         ]);
 
-        $rolesRectification = $this->tryRectifyRolesForImportBatch((int) $batchId);
-        $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
         $whatsappReports = $this->trySendWhatsappReportsForImportBatch((int) $batchId, $totalRowsExcel, [
             'skipped' => $skipped,
             'errors' => $errors,
         ]);
+        $rolesRectification = $this->tryRectifyRolesForImportBatch((int) $batchId);
+        $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch((int) $batchId);
 
         return response()->json([
             'message' => 'Importación completada',
@@ -1625,10 +1751,10 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'updated_at' => now(),
             ]);
             Storage::delete($data['path']);
-            $rolesRectification = $this->tryRectifyRolesForImportBatch($batchId);
-            $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
             $totalRows = max(0, $absoluteHighestRow - 1);
             $whatsappReports = $this->trySendWhatsappReportsForImportBatch($batchId, $totalRows, $result);
+            $rolesRectification = $this->tryRectifyRolesForImportBatch($batchId);
+            $commissionRecalc = $this->tryRecalculateCommissionsForImportBatch($batchId);
         } else {
             $rolesRectification = null;
             $commissionRecalc = null;

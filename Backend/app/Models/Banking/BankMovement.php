@@ -10,8 +10,11 @@ class BankMovement extends Model
 
     protected $fillable = [
         'batch_id',
+        'bank_id',
+        'bank_account_id',
         'bank',
         'source_type',
+        'movement_uid',
         'row_number',
         'movement_date',
         'process_date',
@@ -80,5 +83,15 @@ class BankMovement extends Model
     public function batch()
     {
         return $this->belongsTo(BankImportBatch::class, 'batch_id');
+    }
+
+    public function bankCatalog()
+    {
+        return $this->belongsTo(Bank::class, 'bank_id');
+    }
+
+    public function bankAccount()
+    {
+        return $this->belongsTo(BankAccount::class, 'bank_account_id');
     }
 }

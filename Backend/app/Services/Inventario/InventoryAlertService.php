@@ -2,12 +2,15 @@
 
 namespace App\Services\Inventario;
 
+use App\Exports\InventoryAlertSummaryExport;
 use Illuminate\Mail\Message;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Maatwebsite\Excel\Facades\Excel;
+use Maatwebsite\Excel\Excel as ExcelFormat;
 
 class InventoryAlertService
 {
@@ -150,9 +153,11 @@ class InventoryAlertService
         DB::connection('budget')->table('inventory_alert_lists')->where('id', $id)->delete();
     }
 
-    public function searchProducts(?string $search, int $limit = 20): array
+    public function searchProducts(?string $search, int $limit = 20, ?string $brand = null, ?string $provider = null): array
     {
         $q = trim((string) $search);
+        $brand = trim((string) $brand);
+        $provider = trim((string) $provider);
 
         return DB::connection('budget')->table('products')
             ->select('id', 'product_code', 'description', 'brand', 'provider_name')
@@ -165,6 +170,8 @@ class InventoryAlertService
                         ->orWhere('provider_name', 'like', $term);
                 });
             })
+            ->when($brand !== '', fn ($query) => $query->where('brand', 'like', '%' . $brand . '%'))
+            ->when($provider !== '', fn ($query) => $query->where('provider_name', 'like', '%' . $provider . '%'))
             ->orderBy('product_code')
             ->limit(max(1, min(50, $limit)))
             ->get()
@@ -178,7 +185,39 @@ class InventoryAlertService
             ->all();
     }
 
-    public function topProducts(array $storeIds, int $months = 3, int $limit = 50, bool $useCache = true): array
+    public function productFilterOptions(): array
+    {
+        $brands = DB::connection('budget')->table('products')
+            ->whereRaw("TRIM(COALESCE(brand, '')) <> ''")
+            ->selectRaw('TRIM(brand) as value')
+            ->distinct()
+            ->orderBy('value')
+            ->pluck('value')
+            ->all();
+
+        $providers = DB::connection('budget')->table('products')
+            ->whereRaw("TRIM(COALESCE(provider_name, '')) <> ''")
+            ->selectRaw('TRIM(provider_name) as value')
+            ->distinct()
+            ->orderBy('value')
+            ->pluck('value')
+            ->all();
+
+        return [
+            'brands' => array_values($brands),
+            'providers' => array_values($providers),
+        ];
+    }
+
+    public function topProducts(
+        array $storeIds,
+        int $months = 3,
+        int $limit = 50,
+        ?string $brand = null,
+        ?string $provider = null,
+        ?string $search = null,
+        bool $useCache = true
+    ): array
     {
         $storeIds = collect($storeIds)->map(fn ($value) => (int) $value)->filter()->unique()->values()->all();
         if (empty($storeIds)) {
@@ -187,16 +226,17 @@ class InventoryAlertService
 
         $months = max(1, min(12, $months));
         $limit = max(1, min(200, $limit));
+        $filters = $this->normalizeProductFilters($brand, $provider, $search);
 
         if ($useCache) {
-            $cached = $this->cachedTopProducts($storeIds, $months, $limit);
+            $cached = $this->cachedTopProducts($storeIds, $months, $limit, $filters);
             if ($cached !== null) {
                 return $cached;
             }
         }
 
-        $rows = $this->calculateTopProducts($storeIds, $months, $limit);
-        $this->storeTopProductsCache($storeIds, $months, $limit, $rows);
+        $rows = $this->calculateTopProducts($storeIds, $months, $limit, $filters);
+        $this->storeTopProductsCache($storeIds, $months, $limit, $rows, $filters);
 
         return $rows;
     }
@@ -222,7 +262,7 @@ class InventoryAlertService
             }
 
             try {
-                $rows = $this->topProducts($storeIds, (int) $list->top_months, (int) $list->top_limit, !$force);
+                $rows = $this->topProducts($storeIds, (int) $list->top_months, (int) $list->top_limit, null, null, null, !$force);
                 $results[] = [
                     'list_id' => (int) $list->id,
                     'status' => 'cached',
@@ -240,7 +280,7 @@ class InventoryAlertService
         return $results;
     }
 
-    private function calculateTopProducts(array $storeIds, int $months, int $limit): array
+    private function calculateTopProducts(array $storeIds, int $months, int $limit, array $filters): array
     {
         $startDate = Carbon::today()->subMonths($months)->toDateString();
 
@@ -248,6 +288,17 @@ class InventoryAlertService
             ->join('products as p', 'p.id', '=', 's.product_id')
             ->whereIn('s.store_id', $storeIds)
             ->whereDate('s.sale_date', '>=', $startDate)
+            ->when($filters['brand'] !== '', fn ($query) => $query->where('p.brand', 'like', '%' . $filters['brand'] . '%'))
+            ->when($filters['provider'] !== '', fn ($query) => $query->where('p.provider_name', 'like', '%' . $filters['provider'] . '%'))
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $term = '%' . $filters['search'] . '%';
+                $query->where(function ($sub) use ($term) {
+                    $sub->where('p.product_code', 'like', $term)
+                        ->orWhere('p.description', 'like', $term)
+                        ->orWhere('p.brand', 'like', $term)
+                        ->orWhere('p.provider_name', 'like', $term);
+                });
+            })
             ->select('p.id', 'p.product_code', 'p.description', 'p.brand', 'p.provider_name')
             ->selectRaw('SUM(COALESCE(s.value_usd, 0)) as total_usd')
             ->selectRaw('SUM(COALESCE(s.quantity, 0)) as total_units')
@@ -267,10 +318,10 @@ class InventoryAlertService
             ->all();
     }
 
-    private function cachedTopProducts(array $storeIds, int $months, int $limit): ?array
+    private function cachedTopProducts(array $storeIds, int $months, int $limit, array $filters): ?array
     {
         $cache = DB::connection('budget')->table('inventory_alert_top_cache')
-            ->where('cache_key', $this->topCacheKey($storeIds, $months, $limit))
+            ->where('cache_key', $this->topCacheKey($storeIds, $months, $limit, $filters))
             ->where('computed_at', '>=', Carbon::today()->startOfDay())
             ->first();
 
@@ -282,10 +333,10 @@ class InventoryAlertService
         return is_array($products) ? $products : null;
     }
 
-    private function storeTopProductsCache(array $storeIds, int $months, int $limit, array $products): void
+    private function storeTopProductsCache(array $storeIds, int $months, int $limit, array $products, array $filters): void
     {
         DB::connection('budget')->table('inventory_alert_top_cache')->updateOrInsert(
-            ['cache_key' => $this->topCacheKey($storeIds, $months, $limit)],
+            ['cache_key' => $this->topCacheKey($storeIds, $months, $limit, $filters)],
             [
                 'store_ids_json' => json_encode($this->normalizedTopStoreIds($storeIds)),
                 'months' => $months,
@@ -298,13 +349,23 @@ class InventoryAlertService
         );
     }
 
-    private function topCacheKey(array $storeIds, int $months, int $limit): string
+    private function topCacheKey(array $storeIds, int $months, int $limit, array $filters): string
     {
         return hash('sha256', json_encode([
             'store_ids' => $this->normalizedTopStoreIds($storeIds),
             'months' => $months,
             'limit' => $limit,
+            'filters' => $filters,
         ]));
+    }
+
+    private function normalizeProductFilters(?string $brand, ?string $provider, ?string $search): array
+    {
+        return [
+            'brand' => trim((string) $brand),
+            'provider' => trim((string) $provider),
+            'search' => trim((string) $search),
+        ];
     }
 
     private function normalizedTopStoreIds(array $storeIds): array
@@ -318,13 +379,13 @@ class InventoryAlertService
             ->all();
     }
 
-    public function addTopToList(int $listId, int $months, int $limit): array
+    public function addTopToList(int $listId, int $months, int $limit, ?string $brand = null, ?string $provider = null, ?string $search = null): array
     {
         $storeIds = DB::connection('budget')->table('inventory_alert_list_stores')
             ->where('list_id', $listId)
             ->pluck('store_id')
             ->all();
-        $top = $this->topProducts($storeIds, $months, $limit);
+        $top = $this->topProducts($storeIds, $months, $limit, $brand, $provider, $search);
 
         foreach ($top as $product) {
             DB::connection('budget')->table('inventory_alert_list_products')->updateOrInsert(
@@ -532,6 +593,7 @@ class InventoryAlertService
                     'product_code' => $first['product_code'],
                     'description' => $first['description'],
                     'brand' => $first['brand'] ?? null,
+                    'provider_name' => $first['proveedor'] ?? $first['supplier'] ?? null,
                     'stores' => $productRows->map(fn ($row) => [
                         'store_id' => $row['store_id'] ?? null,
                         'store_code' => $row['store_code'] ?? $row['store_name'] ?? null,
@@ -601,15 +663,22 @@ class InventoryAlertService
         $emails = $recipients->pluck('email')->all();
         $subject = ($test ? '[PRUEBA] ' : '') . 'Resumen de alertas de inventario - ' . $list->name;
         $html = $this->emailHtml($list, $evaluation, $test);
+        $excelRows = $this->excelRows($evaluation);
+        $excel = Excel::raw(new InventoryAlertSummaryExport($excelRows), ExcelFormat::XLSX);
+        $filename = 'alertas-inventario-' . now()->format('Ymd-His') . '.xlsx';
 
         try {
-            Mail::mailer('smtp')->send([], [], function (Message $message) use ($emails, $subject, $html) {
+            Mail::mailer('smtp')->send([], [], function (Message $message) use ($emails, $subject, $html, $excel, $filename) {
                 $message
                     ->from(config('mail.from.address'), 'Sky Free Shop - Inventario')
                     ->replyTo(config('mail.from.address'), 'No Reply')
                     ->to($emails)
                     ->subject($subject)
                     ->html($html);
+
+                $message->attachData($excel, $filename, [
+                    'mime' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ]);
             });
 
             return true;
@@ -631,24 +700,27 @@ class InventoryAlertService
                 $level = e((string) ($store['label'] ?? $store['level'] ?? '-'));
                 $storeName = e((string) ($store['store_code'] ?? $store['store_name'] ?? '-'));
                 $stock = number_format((float) $store['stock_actual'], 0);
-                $maximo = number_format((float) $store['maximo_mes'], 0);
                 $dias = number_format((float) $store['dias_disponibles'], 2);
-                $suggested = number_format((float) $store['suggested_units'], 0);
-                $storeRows .= "<tr><td>{$storeName}</td><td>{$level}</td><td style='text-align:right'>{$stock}</td><td style='text-align:right'>{$maximo}</td><td style='text-align:right'>{$dias}</td><td style='text-align:right'>{$suggested}</td></tr>";
+                $storeRows .= "<tr><td>{$storeName}</td><td style='text-align:right'>{$stock}</td><td style='text-align:right'>{$dias}</td><td>{$level}</td></tr>";
             }
 
             $sku = e((string) $product['product_code']);
             $description = e((string) $product['description']);
+            $brand = e((string) ($product['brand'] ?? ''));
+            $provider = e((string) ($product['provider_name'] ?? ''));
+            $meta = trim(($brand ? "Marca: {$brand}" : '') . ($brand && $provider ? ' | ' : '') . ($provider ? "Proveedor: {$provider}" : ''));
+            $metaHtml = $meta !== '' ? "<p style='margin:0 0 8px;color:#64748b;font-size:12px;font-weight:700;'>{$meta}</p>" : '';
             $rows .= "
                 <h3 style='margin:22px 0 6px;color:#111827;font-size:16px;'>{$sku} - {$description}</h3>
+                {$metaHtml}
                 <table width='100%' cellspacing='0' cellpadding='7' style='border-collapse:collapse;border:1px solid #e5e7eb;font-size:13px;'>
-                    <thead><tr style='background:#f3f4f6;color:#374151;'><th align='left'>Tienda</th><th align='left'>Estado</th><th align='right'>Inventario</th><th align='right'>Proyectado</th><th align='right'>Dias disp.</th><th align='right'>Sugerido</th></tr></thead>
+                    <thead><tr style='background:#f3f4f6;color:#374151;'><th align='left'>Tienda</th><th align='right'>Inventario</th><th align='right'>Dias disponible</th><th align='left'>Estado</th></tr></thead>
                     <tbody>{$storeRows}</tbody>
                 </table>";
         }
 
         if ($rows === '') {
-            $rows = "<p style='color:#475569;font-size:15px;'>No hay productos criticos, sin stock o altos en este momento para la lista evaluada.</p>";
+            $rows = "<p style='color:#475569;font-size:15px;'>No hay productos criticos, sin stock o en riesgo alto en este momento para la lista evaluada.</p>";
         }
 
         $badge = $test ? "<p style='margin:0 0 18px;padding:10px 12px;background:#fef3c7;border-radius:8px;color:#92400e;font-weight:700;'>Este es un correo de prueba con datos reales actuales.</p>" : '';
@@ -669,6 +741,28 @@ class InventoryAlertService
             </div>
           </div>
         </div>";
+    }
+
+    private function excelRows(array $evaluation): array
+    {
+        $rows = [];
+
+        foreach ($evaluation['alert_products'] as $product) {
+            foreach ($product['stores'] as $store) {
+                $rows[] = [
+                    $product['product_code'] ?? '',
+                    $product['description'] ?? '',
+                    $product['brand'] ?? '',
+                    $product['provider_name'] ?? '',
+                    $store['store_code'] ?? $store['store_name'] ?? '',
+                    (float) ($store['stock_actual'] ?? 0),
+                    round((float) ($store['dias_disponibles'] ?? 0), 2),
+                    $store['label'] ?? $store['level'] ?? '',
+                ];
+            }
+        }
+
+        return $rows;
     }
 
     private function finishRun(int $runId, string $status, string $message, int $sent, int $skipped, int $failed): void

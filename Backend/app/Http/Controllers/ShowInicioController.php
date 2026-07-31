@@ -91,7 +91,7 @@ class ShowInicioController extends Controller
                                 'title' => 'Bancos',
                                 'route' => '/panel/BankImportsManagerPage',
                                 'icon' => 'fa-solid fa-building-columns',
-                                'permissions' => ['imports.create'],
+                                'permissions' => ['accounting.bank-imports.view', 'imports.create'],
                             ],
                         ],
                     ],
@@ -303,7 +303,7 @@ class ShowInicioController extends Controller
                         'text' => 'Historial de importaciones bancarias y movimientos normalizados.',
                         'area' => 'Contabilidad',
                         'route' => '/panel/BankImportsManagerPage',
-                        'permissions' => ['imports.create'],
+                        'permissions' => ['accounting.bank-imports.view', 'imports.create'],
                     ],
                     [
                         'icon' => 'fa-solid fa-users-gear',

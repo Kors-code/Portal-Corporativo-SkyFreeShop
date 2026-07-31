@@ -265,6 +265,100 @@ class InventoryReportService
         })->values()->all();
     }
 
+    public function getLatestInventoryRows(?array $storeIds = null, ?string $search = null, ?string $asOfDate = null): array
+    {
+        $storeIds = collect($storeIds ?? [])
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->map(fn ($value) => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        $latestInventoryDates = DB::connection('budget')->table('inventory as i')
+            ->selectRaw('i.product_id, i.store_id, MAX(i.toDate) as last_inventory_date')
+            ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
+            ->when($asOfDate, fn ($q) => $q->whereDate('i.toDate', '<=', $asOfDate))
+            ->groupBy('i.product_id', 'i.store_id');
+
+        return DB::connection('budget')->table('inventory as i')
+            ->joinSub($latestInventoryDates, 'ld', function ($join) {
+                $join->on('i.product_id', '=', 'ld.product_id')
+                    ->on('i.store_id', '=', 'ld.store_id')
+                    ->on('i.toDate', '=', 'ld.last_inventory_date');
+            })
+            ->join('products as p', 'p.id', '=', 'i.product_id')
+            ->join('stores as st', 'st.id', '=', 'i.store_id')
+            ->when($search && trim($search) !== '', function ($q) use ($search) {
+                $term = '%' . trim($search) . '%';
+                $q->where(function ($sub) use ($term) {
+                    $sub->where('p.product_code', 'like', $term)
+                        ->orWhere('p.description', 'like', $term)
+                        ->orWhere('p.classification_desc', 'like', $term)
+                        ->orWhere('p.sku_mia', 'like', $term)
+                        ->orWhere('p.upc', 'like', $term)
+                        ->orWhere('p.upc2', 'like', $term)
+                        ->orWhere('p.upc3', 'like', $term)
+                        ->orWhere('p.brand', 'like', $term)
+                        ->orWhere('p.provider_name', 'like', $term)
+                        ->orWhere('st.name', 'like', $term)
+                        ->orWhere('st.code', 'like', $term)
+                        ->orWhere('i.brand', 'like', $term)
+                        ->orWhere('i.supplier', 'like', $term)
+                        ->orWhere('i.proveedor', 'like', $term);
+                });
+            })
+            ->select([
+                'p.id as product_id',
+                'p.product_code',
+                'p.description',
+                'p.classification_desc',
+                'i.store_id',
+                'st.code as store_code',
+                'st.name as store_name',
+                DB::raw('COALESCE(i.existencia_final, i.stock_actual, 0) as stock_actual'),
+                DB::raw('COALESCE(NULLIF(i.factor_caja, 0), p.factor_caja, 0) as factor_caja'),
+                DB::raw('COALESCE(i.proveedor, p.provider_name) as proveedor'),
+                DB::raw('COALESCE(i.supplier, p.provider_name) as supplier'),
+                DB::raw('COALESCE(i.brand, p.brand) as brand'),
+                DB::raw('COALESCE(i.retail, p.regular_price, 0) as retail'),
+                DB::raw('COALESCE(i.pct_costo, 0) as pct_costo'),
+                DB::raw('COALESCE(i.pct_margen, 0) as pct_margen'),
+                'i.last_purchase_date',
+                'i.last_sale_date',
+                'i.without_sales_days',
+                'i.days_in_stock',
+                'i.toDate as last_inventory_date',
+                'i.batch_id',
+            ])
+            ->orderBy('st.name')
+            ->orderBy('p.product_code')
+            ->get()
+            ->map(fn ($row) => [
+                'product_id' => (int) $row->product_id,
+                'product_code' => $row->product_code,
+                'description' => $row->description,
+                'classification_desc' => $row->classification_desc,
+                'store_id' => (int) $row->store_id,
+                'store_code' => $row->store_code,
+                'store_name' => $row->store_name,
+                'stock_actual' => (float) ($row->stock_actual ?? 0),
+                'factor_caja' => (float) ($row->factor_caja ?? 1),
+                'proveedor' => $row->proveedor,
+                'supplier' => $row->supplier,
+                'brand' => $row->brand,
+                'retail' => (float) ($row->retail ?? 0),
+                'pct_costo' => (float) ($row->pct_costo ?? 0),
+                'pct_margen' => (float) ($row->pct_margen ?? 0),
+                'last_purchase_date' => $row->last_purchase_date,
+                'last_sale_date' => $row->last_sale_date,
+                'without_sales_days' => (int) ($row->without_sales_days ?? 0),
+                'days_in_stock' => (int) ($row->days_in_stock ?? 0),
+                'last_inventory_date' => $row->last_inventory_date,
+                'batch_id' => $row->batch_id ? (int) $row->batch_id : null,
+            ])
+            ->all();
+    }
+
     private function mergeLinkedLocations($rows)
     {
         return collect($rows)
@@ -514,7 +608,7 @@ class InventoryReportService
         if ($diasDisponibles < 15) {
             return [
                 'level' => 'alto',
-                'label' => 'Alto',
+                'label' => 'Riesgo alto',
                 'color' => 'amber',
             ];
         }

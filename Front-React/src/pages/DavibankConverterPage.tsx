@@ -1,21 +1,28 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Download, FileSpreadsheet, Loader2, UploadCloud } from "lucide-react";
-import axios from "axios";
-import { API } from "../api/api";
+import * as bankApi from "../services/bankImports.service";
 
 type ConversionStatus = "idle" | "uploading" | "success" | "error";
 
+const BANK_OPTIONS = [
+  { value: "davibank", label: "Davibank", accept: ".csv,text/csv,text/plain" },
+  { value: "davivienda", label: "Davivienda", accept: ".xls,.html,text/html,application/vnd.ms-excel" },
+  { value: "bancolombia", label: "Bancolombia", accept: ".csv,text/csv,text/plain" },
+];
+
 export default function DavibankConverterPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [bank, setBank] = useState("davibank");
   const [receiptStart, setReceiptStart] = useState("8695");
   const [status, setStatus] = useState<ConversionStatus>("idle");
   const [message, setMessage] = useState("");
+  const selectedBank = BANK_OPTIONS.find((option) => option.value === bank) ?? BANK_OPTIONS[0];
 
   const fileLabel = useMemo(() => {
-    if (!file) return "Selecciona el archivo CSV de Davibank";
+    if (!file) return `Selecciona el archivo de ${selectedBank.label}`;
     return `${file.name} (${formatBytes(file.size)})`;
-  }, [file]);
+  }, [file, selectedBank.label]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = event.target.files?.[0] ?? null;
@@ -40,25 +47,13 @@ export default function DavibankConverterPage() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("receipt_start", String(start));
-
     setStatus("uploading");
-    setMessage("Procesando archivo...");
+    setMessage("Procesando, guardando y generando Excel...");
 
     try {
-      const response = await axios.post(`${API}/davibank/convert`, formData, {
-        withCredentials: true,
-        responseType: "blob",
-        headers: {
-          "X-Requested-With": "XMLHttpRequest",
-          "X-CSRF-TOKEN": getCsrfToken(),
-        },
-      });
-
+      const response = await bankApi.importBankFile({ bank, file, receiptStart: start });
       const blob = response.data;
-      const filename = getFilename(response) || "davibank_convertido.xlsx";
+      const filename = getFilename(response) || `${bank}_final.xlsx`;
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -68,13 +63,16 @@ export default function DavibankConverterPage() {
       link.remove();
       URL.revokeObjectURL(url);
 
-      const sheets = response.headers["x-davibank-sheets"];
-      const rows = response.headers["x-davibank-rows"];
-      const excluded = response.headers["x-davibank-excluded-zero-commission"];
+      const sheets = response.headers["x-bank-sheets"];
+      const rows = response.headers["x-bank-rows"];
+      const imported = response.headers["x-bank-rows-imported"];
+      const skipped = response.headers["x-bank-rows-skipped"];
+      const batchId = response.headers["x-bank-batch-id"];
       setStatus("success");
       setMessage(
-        `Excel generado${sheets ? ` con ${sheets} hojas` : ""}${rows ? ` y ${rows} filas` : ""}.` +
-          `${excluded ? ` Filas excluidas por comision cero: ${excluded}.` : ""}`
+        `Excel generado${sheets ? ` con ${sheets} hojas` : ""}${rows ? ` y ${rows} filas procesadas` : ""}.` +
+          `${imported ? ` Nuevas guardadas: ${imported}.` : ""}${skipped ? ` Omitidas/duplicadas: ${skipped}.` : ""}` +
+          `${batchId ? ` Lote: ${batchId}.` : ""}`
       );
     } catch (error) {
       setStatus("error");
@@ -88,30 +86,50 @@ export default function DavibankConverterPage() {
         <header className="mb-8 flex items-center justify-between gap-4 border-b border-slate-200 pb-5">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-primary">Sky Free Shop</p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950">Conversor Davibank</h1>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-950">Importador bancario</h1>
           </div>
           <div className="hidden items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 sm:flex">
             <FileSpreadsheet className="h-4 w-4 text-primary" />
-            CSV a Excel
+            Banco a Excel
           </div>
         </header>
 
         <section className="grid flex-1 gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <form onSubmit={handleSubmit} className="self-start rounded-md border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-6">
-              <h2 className="text-lg font-semibold text-slate-950">Subir ventas Davibank</h2>
+              <h2 className="text-lg font-semibold text-slate-950">Subir archivo bancario</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                El archivo se procesa y se devuelve como Excel con hojas por fecha de abono.
+                El archivo se guarda en la base de datos y se devuelve como Excel final.
               </p>
             </div>
 
+            <label className="mb-5 block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Banco</span>
+              <select
+                value={bank}
+                onChange={(event) => {
+                  setBank(event.target.value);
+                  setFile(null);
+                  setStatus("idle");
+                  setMessage("");
+                }}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/10"
+              >
+                {BANK_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">Archivo CSV</span>
-              <input type="file" accept=".csv,text/csv,text/plain" onChange={handleFileChange} className="sr-only" id="davibank-file" />
+              <input type="file" accept={selectedBank.accept} onChange={handleFileChange} className="sr-only" id="davibank-file" />
               <span className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-primary hover:bg-primary/5">
                 <UploadCloud className="mb-3 h-8 w-8 text-primary" />
                 <span className="max-w-full truncate text-sm font-medium text-slate-800">{fileLabel}</span>
-                <span className="mt-1 text-xs text-slate-500">Formato esperado: ventas Davibank en CSV</span>
+                <span className="mt-1 text-xs text-slate-500">Formato esperado para {selectedBank.label}</span>
               </span>
             </label>
 
@@ -133,7 +151,7 @@ export default function DavibankConverterPage() {
               className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {status === "uploading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {status === "uploading" ? "Convirtiendo" : "Convertir y descargar"}
+              {status === "uploading" ? "Procesando" : "Guardar y descargar final"}
             </button>
 
             {message && (
@@ -155,16 +173,16 @@ export default function DavibankConverterPage() {
             <h2 className="text-base font-semibold text-slate-950">Salida generada</h2>
             <div className="mt-5 space-y-4 text-sm text-slate-700">
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="font-medium text-slate-900">Agrupacion</p>
-                <p className="mt-1">Una hoja por `FECHA_ABONO`, nombrada por dia y mes.</p>
+                <p className="font-medium text-slate-900">Davibank</p>
+                <p className="mt-1">Agrupa por fecha de abono y genera resumen Visa/Redeban.</p>
               </div>
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="font-medium text-slate-900">Filtro</p>
-                <p className="mt-1">Se omiten ventas `VD` y `RD` con `VALOR_COMISION` igual a cero.</p>
+                <p className="font-medium text-slate-900">Davivienda</p>
+                <p className="mt-1">Lee consulta detallada y genera recibos por fecha de abono.</p>
               </div>
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="font-medium text-slate-900">Contenido</p>
-                <p className="mt-1">Cada hoja incluye resumen Visa/Redeban, ventas crudas y recibo de caja.</p>
+                <p className="font-medium text-slate-900">Bancolombia</p>
+                <p className="mt-1">Toma pagos QR/ventas y arma los recibos de caja.</p>
               </div>
             </div>
           </aside>
@@ -208,8 +226,4 @@ function getFilename(response: { headers: { [key: string]: unknown } }) {
 
 function isAxiosLikeError(error: unknown): error is { message?: string; response?: { data?: Blob | { message?: string } } } {
   return typeof error === "object" && error !== null && "response" in error;
-}
-
-function getCsrfToken() {
-  return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || "";
 }

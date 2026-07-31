@@ -128,10 +128,20 @@ Route::get('/v1/ping', function () {
     Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
     Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
 
-    Route::get('bank-imports', [BankImportBatchController::class, 'index']);
-    Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show']);
-    Route::delete('bank-imports/{id}', [BankImportBatchController::class, 'destroy']);
-    Route::post('bank-imports/bulk-delete', [BankImportBatchController::class, 'bulkDestroy']);
+    Route::get('bank-imports', [BankImportBatchController::class, 'index'])
+        ->middleware('permission:accounting.bank-imports.view,imports.create');
+    Route::post('bank-imports/import', [BankImportBatchController::class, 'import'])
+        ->middleware('permission:accounting.bank-imports.create,imports.create');
+    Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show'])
+        ->middleware('permission:accounting.bank-imports.view,imports.manage');
+    Route::get('bank-imports/{id}/export', [BankImportBatchController::class, 'export'])
+        ->middleware('permission:accounting.bank-imports.export,imports.manage');
+    Route::get('bank-imports/{id}/export-davibank', [BankImportBatchController::class, 'exportDavibank'])
+        ->middleware('permission:accounting.bank-imports.export,imports.manage');
+    Route::delete('bank-imports/{id}', [BankImportBatchController::class, 'destroy'])
+        ->middleware('permission:accounting.bank-imports.manage,imports.manage');
+    Route::post('bank-imports/bulk-delete', [BankImportBatchController::class, 'bulkDestroy'])
+        ->middleware('permission:accounting.bank-imports.manage,imports.manage');
 
     
     // SALES

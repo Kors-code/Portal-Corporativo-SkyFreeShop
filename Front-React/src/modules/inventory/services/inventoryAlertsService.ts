@@ -41,6 +41,7 @@ export type InventoryAlertCurrentProduct = {
   product_code: string;
   description: string;
   brand?: string | null;
+  provider_name?: string | null;
   stores: InventoryAlertStoreStatus[];
 };
 
@@ -116,8 +117,24 @@ export async function deleteInventoryAlert(id: number): Promise<void> {
   await api.delete(`inventory-alerts/${id}`);
 }
 
-export async function searchInventoryAlertProducts(search: string): Promise<InventoryAlertProduct[]> {
-  const { data } = await api.get("inventory-alerts/products", { params: { search } });
+export type InventoryAlertProductFilters = {
+  search?: string;
+  brand?: string;
+  provider?: string;
+};
+
+export type InventoryAlertFilterOptions = {
+  brands: string[];
+  providers: string[];
+};
+
+export async function getInventoryAlertFilterOptions(): Promise<InventoryAlertFilterOptions> {
+  const { data } = await api.get("inventory-alerts/filter-options");
+  return data;
+}
+
+export async function searchInventoryAlertProducts(filters: InventoryAlertProductFilters): Promise<InventoryAlertProduct[]> {
+  const { data } = await api.get("inventory-alerts/products", { params: cleanParams(filters) });
   return data;
 }
 
@@ -125,13 +142,19 @@ export async function getInventoryAlertTop(params: {
   store_ids: number[];
   months: number;
   limit: number;
+  search?: string;
+  brand?: string;
+  provider?: string;
 }): Promise<InventoryAlertProduct[]> {
-  const { data } = await api.post("inventory-alerts/top", params);
+  const { data } = await api.post("inventory-alerts/top", cleanParams(params));
   return data;
 }
 
-export async function addTopToInventoryAlert(id: number, months: number, limit: number): Promise<InventoryAlertProduct[]> {
-  const { data } = await api.post(`inventory-alerts/${id}/top`, { months, limit });
+export async function addTopToInventoryAlert(
+  id: number,
+  params: { months: number; limit: number; search?: string; brand?: string; provider?: string }
+): Promise<InventoryAlertProduct[]> {
+  const { data } = await api.post(`inventory-alerts/${id}/top`, cleanParams(params));
   return data;
 }
 
@@ -158,4 +181,10 @@ export async function sendInventoryAlertTest(id: number): Promise<{ status: stri
 export async function getInventoryAlertHistory(listId?: number): Promise<InventoryAlertHistory[]> {
   const { data } = await api.get("inventory-alerts/history", { params: listId ? { list_id: listId } : undefined });
   return data;
+}
+
+function cleanParams<T extends Record<string, unknown>>(params: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+  ) as Partial<T>;
 }

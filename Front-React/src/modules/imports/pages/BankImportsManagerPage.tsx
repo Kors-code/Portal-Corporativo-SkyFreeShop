@@ -5,6 +5,7 @@ type BankImportBatch = bankApi.BankImportBatch;
 
 const BANK_OPTIONS = [
   { value: "", label: "Todos los bancos" },
+  { value: "davibank", label: "Davibank" },
   { value: "colpatria", label: "Colpatria" },
   { value: "davivienda", label: "Davivienda" },
   { value: "bancolombia", label: "Bancolombia" },
@@ -23,6 +24,7 @@ export default function BankImportsManagerPage() {
   const [batches, setBatches] = useState<BankImportBatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [exportingId, setExportingId] = useState<number | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<any | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -119,6 +121,31 @@ export default function BankImportsManagerPage() {
     } catch (e: any) {
       setError(e?.response?.data?.message || "Error cargando detalles");
       setSelectedBatch(null);
+    }
+  }
+
+  async function handleExportDavibank(batch: BankImportBatch) {
+    setExportingId(batch.id);
+    setError(null);
+    setMsg("");
+
+    try {
+      const response = await bankApi.exportBankImport(batch.id);
+      const blob = response.data;
+      const filename = getFilename(response) || `${batch.bank}_final_${batch.id}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMsg("Excel generado desde la base de datos.");
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Error exportando archivo");
+    } finally {
+      setExportingId(null);
     }
   }
 
@@ -318,6 +345,15 @@ export default function BankImportsManagerPage() {
                     {batch.created_at ? new Date(batch.created_at).toLocaleString() : "-"}
                   </td>
                   <td className="p-3 text-right space-x-2">
+                    {canExportBank(batch) && (
+                      <button
+                        onClick={() => handleExportDavibank(batch)}
+                        disabled={exportingId === batch.id}
+                        className="text-sm text-emerald-700 disabled:opacity-50"
+                      >
+                        {exportingId === batch.id ? "Exportando..." : "Exportar"}
+                      </button>
+                    )}
                     <button onClick={() => showDetails(batch.id)} className="text-sm text-indigo-600">
                       Detalles
                     </button>
@@ -389,4 +425,15 @@ export default function BankImportsManagerPage() {
       )}
     </div>
   );
+}
+
+function canExportBank(batch: BankImportBatch) {
+  return ["davibank", "davivienda", "bancolombia"].includes(String(batch.bank).toLowerCase()) && Number(batch.rows_imported ?? 0) > 0;
+}
+
+function getFilename(response: { headers: { [key: string]: unknown } }) {
+  const rawDisposition = response.headers["content-disposition"];
+  const disposition = typeof rawDisposition === "string" ? rawDisposition : "";
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return match?.[1];
 }
