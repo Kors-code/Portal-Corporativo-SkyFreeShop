@@ -343,14 +343,14 @@ class VisualizationController extends Controller
         if (count($images) === 1) {
             $result = [$sender->sendDailyTemplateImage(
                 (string) $images[0]['bytes'],
-                'Equipo Sky',
-                (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+                'equipo Sky Reporte de ventas',
+                $this->whatsappDailyTemplateUpdatedAt($report)
             )];
         } else {
             $result = $sender->sendDailyTemplateImages(
                 $images,
-                'Equipo Sky',
-                (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+                'equipo Sky Reporte de ventas',
+                $this->whatsappDailyTemplateUpdatedAt($report)
             );
         }
 
@@ -371,8 +371,8 @@ class VisualizationController extends Controller
         $images = $imageService->makeImages($report);
         $result = $sender->sendDailyTemplateImages(
             $images,
-            'Equipo Sky',
-            (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString())
+            'equipo Sky Reporte de ventas',
+            $this->whatsappDailyTemplateUpdatedAt($report)
         );
 
         return response()->json([
@@ -404,6 +404,17 @@ class VisualizationController extends Controller
         ]);
     }
 
+    private function whatsappDailyTemplateUpdatedAt(array $report): string
+    {
+        $updatedAt = $report['sales_data_updated_at'] ?? null;
+
+        if (is_array($updatedAt) && !empty($updatedAt['label'])) {
+            return preg_replace('/^Actualizado:\s*/i', '', (string) $updatedAt['label']) ?: (string) $updatedAt['label'];
+        }
+
+        return (string) ($report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString());
+    }
+
     public function storeSalesSummary(Request $request)
     {
         return response()->json($this->storeSalesReportData($request));
@@ -425,12 +436,12 @@ class VisualizationController extends Controller
         WhatsappNumberReportSender $sender
     ) {
         $report = $this->storeSalesReportData($request);
-        $caption = sprintf('Ventas por tiendas - %s', $report['date']);
+        $caption = sprintf('Ventas Daily - %s', $report['date']);
         $result = $sender->sendImage($imageService->make($report), $caption);
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte de ventas por tiendas enviado a WhatsApp.',
+            'message' => 'Reporte de Ventas Daily enviado a WhatsApp.',
             'whatsapp' => $result,
         ]);
     }
@@ -443,7 +454,7 @@ class VisualizationController extends Controller
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte de ventas por tiendas encolado para WhatsApp.',
+            'message' => 'Reporte de Ventas Daily encolado para WhatsApp.',
             'job' => [
                 'id' => $job->id,
                 'type' => $job->type,

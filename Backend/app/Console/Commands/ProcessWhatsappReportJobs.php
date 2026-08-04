@@ -40,7 +40,11 @@ class ProcessWhatsappReportJobs extends Command
             try {
                 $images = $this->imagesForJob($job, $visualizations, $dailyImages, $storeImages, $advisorImages);
                 $result = in_array($job->type, ['daily', 'advisor_sales', 'store_sales'], true)
-                    ? $sender->sendDailyTemplateImages($images, 'Equipo Sky', optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString())
+                    ? $sender->sendDailyTemplateImages(
+                        $images,
+                        $this->dailyReportTemplateGreeting(),
+                        $this->dailyReportTemplateUpdatedAt($job)
+                    )
                     : $sender->sendImages($images);
 
                 $job->update([
@@ -139,10 +143,23 @@ class ProcessWhatsappReportJobs extends Command
     ): array {
         $date = optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString();
         $payload = is_array($job->payload) ? $job->payload : [];
-        $request = Request::create('/', 'GET', array_merge($payload, ['date' => $date]));
+        $requestPayload = array_merge($payload, ['date' => $date]);
+
+        if ($job->type === 'store_sales' && !empty($payload['ignore_import_batch_id'])) {
+            unset($requestPayload['import_batch_id']);
+        }
+
+        $request = Request::create('/', 'GET', $requestPayload);
 
         if ($job->type === 'daily') {
             $report = $visualizations->dailyWhatsappReportData($request);
+
+            if (!empty($payload['executive_only'])) {
+                return [[
+                    'bytes' => $dailyImages->make($report),
+                    'caption' => sprintf('WhatsApp Daily - %s', $report['date'] ?? $date),
+                ]];
+            }
 
             return $dailyImages->makeImages($report);
         }
@@ -152,7 +169,7 @@ class ProcessWhatsappReportJobs extends Command
 
             return [[
                 'bytes' => $storeImages->make($report),
-                'caption' => sprintf('Ventas por tiendas - %s', $report['date']),
+                'caption' => sprintf('Ventas Daily - %s', $report['date']),
             ]];
         }
 
@@ -166,5 +183,44 @@ class ProcessWhatsappReportJobs extends Command
         }
 
         throw new \RuntimeException('Tipo de tarea WhatsApp no soportado: ' . $job->type);
+    }
+
+    private function dailyReportTemplateGreeting(): string
+    {
+        return 'equipo Sky Reporte de ventas';
+    }
+
+    private function dailyReportTemplateUpdatedAt(WhatsappReportJob $job): string
+    {
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $updatedAt = $payload['sales_data_updated_at'] ?? null;
+
+        if (is_array($updatedAt) && !empty($updatedAt['label'])) {
+            return $this->withoutUpdatedAtPrefix((string) $updatedAt['label']);
+        }
+
+        if (is_string($updatedAt) && $updatedAt !== '') {
+            try {
+                $date = new \DateTimeImmutable($updatedAt);
+                $meridiem = $date->format('A') === 'AM' ? 'a. m.' : 'p. m.';
+
+                return sprintf(
+                    '%s %s:%s %s',
+                    $date->format('d/m/Y'),
+                    $date->format('g'),
+                    $date->format('i'),
+                    $meridiem
+                );
+            } catch (\Throwable) {
+                return $updatedAt;
+            }
+        }
+
+        return optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString();
+    }
+
+    private function withoutUpdatedAtPrefix(string $value): string
+    {
+        return preg_replace('/^Actualizado:\s*/i', '', $value) ?: $value;
     }
 }

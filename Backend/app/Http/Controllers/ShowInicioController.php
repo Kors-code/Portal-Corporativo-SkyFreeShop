@@ -88,6 +88,12 @@ class ShowInicioController extends Controller
                         'icon' => 'fa-solid fa-scale-balanced',
                         'items' => [
                             [
+                                'title' => 'Importar bancos',
+                                'route' => '/panel/davibank-converter',
+                                'icon' => 'fa-solid fa-file-import',
+                                'permissions' => ['accounting.bank-imports.create', 'imports.create'],
+                            ],
+                            [
                                 'title' => 'Bancos',
                                 'route' => '/panel/BankImportsManagerPage',
                                 'icon' => 'fa-solid fa-building-columns',

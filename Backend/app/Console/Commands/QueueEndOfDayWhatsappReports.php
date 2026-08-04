@@ -17,10 +17,17 @@ class QueueEndOfDayWhatsappReports extends Command
 
         $daily = $jobs->enqueueUniqueDaily('daily', $date, [
             'pdvs' => ['COLS1', 'COLS2'],
+            'first_import_full_package' => true,
+            'closed_day_report' => true,
+            'executive_only' => true,
         ]);
-        $advisors = $jobs->enqueueUniqueDaily('advisor_sales', $date);
+        $stores = $jobs->enqueueUniqueDaily('store_sales', $date, [
+            'first_import_full_package' => true,
+            'closed_day_report' => true,
+            'ignore_import_batch_id' => true,
+        ]);
 
-        $this->info("Reportes WhatsApp encolados para {$date}: daily #{$daily->id}, advisor_sales #{$advisors->id}");
+        $this->info("Reportes WhatsApp encolados para {$date}: daily ejecutivo #{$daily->id}, store_sales #{$stores->id}");
 
         $this->call('reports:process-whatsapp-jobs', ['--limit' => 10]);
 

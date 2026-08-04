@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Controllers\Api\VisualizationController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class WhatsappReportConversationService
@@ -51,8 +52,8 @@ class WhatsappReportConversationService
     {
         $command = $this->commandFromMessage($message);
 
-        if ($command === 'daily_today') {
-            $this->sendDailyReport($from, now('America/Bogota')->toDateString());
+        if ($command === 'store_today') {
+            $this->sendStoreReport($from, now('America/Bogota')->toDateString());
             return;
         }
 
@@ -61,25 +62,30 @@ class WhatsappReportConversationService
             return;
         }
 
-        if ($command === 'store_today') {
-            $this->sendStoreReport($from, now('America/Bogota')->toDateString());
+        if ($command === 'daily_executive') {
+            $this->sendDailyExecutiveReport($from, now('America/Bogota')->toDateString());
+            return;
+        }
+
+        if ($command === 'daily_breakdown') {
+            $this->sendDailyBreakdownReport($from, now('America/Bogota')->toDateString());
             return;
         }
 
         if ($command === 'ask_date') {
-            $this->client->sendTextMessage($from, 'Escribe la fecha que quieres consultar en formato YYYY-MM-DD. Ejemplo: 2026-07-16');
+            $this->client->sendTextMessage($from, 'Escribe la fecha para Ventas Daily. Puedes usar 2026-08-03, 03/08, 3/8, hoy o ayer.');
             return;
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $command)) {
-            $this->sendDailyReport($from, $command);
+            $this->sendStoreReport($from, $command);
             return;
         }
 
         $this->client->sendMenuTemplateMessage($from);
     }
 
-    private function sendDailyReport(string $to, string $date): void
+    private function sendDailyExecutiveReport(string $to, string $date): void
     {
         $request = Request::create('/', 'GET', [
             'date' => $date,
@@ -87,7 +93,28 @@ class WhatsappReportConversationService
         ]);
         $report = $this->visualizations->dailyWhatsappReportData($request);
 
-        $this->sender->sendImagesToNumbers($this->dailyImages->makeImages($report), [$to]);
+        $this->sender->sendImageToNumbers(
+            $this->dailyImages->make($report),
+            sprintf('Ventas acumuladas mes - %s', $report['date'] ?? $date),
+            [$to]
+        );
+    }
+
+    private function sendDailyBreakdownReport(string $to, string $date): void
+    {
+        $request = Request::create('/', 'GET', [
+            'date' => $date,
+            'pdvs' => ['COLS1', 'COLS2'],
+        ]);
+        $report = $this->visualizations->dailyWhatsappReportData($request);
+        $images = array_slice($this->dailyImages->makeImages($report), 1);
+
+        if ($images === []) {
+            $this->client->sendTextMessage($to, 'No hay desglose de ventas disponible para esa fecha.');
+            return;
+        }
+
+        $this->sender->sendImagesToNumbers($images, [$to]);
     }
 
     private function sendAdvisorReport(string $to, string $date): void
@@ -109,7 +136,7 @@ class WhatsappReportConversationService
 
         $this->sender->sendImageToNumbers(
             $this->storeImages->make($report),
-            sprintf('Ventas por tienda - %s', $report['date']),
+            sprintf('Ventas Daily - %s', $report['date']),
             [$to]
         );
     }
@@ -140,14 +167,64 @@ class WhatsappReportConversationService
     private function normalizeCommand(string $value): string
     {
         $command = strtolower(trim($value));
+        $date = $this->dateCommand($command);
+
+        if ($date !== null) {
+            return $date;
+        }
+
+        $command = strtr($command, ['_' => ' ', '-' => ' ']);
+        $command = preg_replace('/\s+/', ' ', $command) ?: $command;
 
         return match ($command) {
-            'ventas de hoy', 'ventas hoy', 'daily', 'reporte diario', 'daily_today' => 'daily_today',
-            'ventas asesores', 'asesores', 'asesores hoy', 'advisor_today' => 'advisor_today',
-            'ventas por tienda', 'ventas tienda', 'tiendas', 'store_today', 'store_sales' => 'store_today',
-            'otra fecha', 'fecha', 'ask_date' => 'ask_date',
+            'ventas de hoy', 'ventas hoy', 'daily today', 'ventas daily', 'store today', 'store sales' => 'store_today',
+            'ventas de asesores', 'ventas asesores', 'asesores', 'asesores hoy', 'advisor today' => 'advisor_today',
+            'ventas acumuladas mes', 'ventas acumuladas', 'acumuladas mes', 'daily', 'reporte diario', 'daily executive' => 'daily_executive',
+            'desglose de ventas', 'desglose ventas', 'detalle diario', 'daily breakdown' => 'daily_breakdown',
+            'ventas por tienda', 'ventas tienda', 'tiendas' => 'store_today',
+            'otra fecha', 'fecha', 'ask date' => 'ask_date',
             default => $command,
         };
+    }
+
+    private function dateCommand(string $command): ?string
+    {
+        $command = trim($command);
+
+        if ($command === 'hoy') {
+            return now('America/Bogota')->toDateString();
+        }
+
+        if ($command === 'ayer') {
+            return now('America/Bogota')->subDay()->toDateString();
+        }
+
+        if (preg_match('/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/', $command, $matches)) {
+            return $this->validDate((int) $matches[1], (int) $matches[2], (int) $matches[3]);
+        }
+
+        if (preg_match('/^(\d{1,2})[-\/](\d{1,2})(?:[-\/](\d{2,4}))?$/', $command, $matches)) {
+            $year = isset($matches[3]) && $matches[3] !== ''
+                ? (int) $matches[3]
+                : (int) now('America/Bogota')->format('Y');
+
+            if ($year < 100) {
+                $year += 2000;
+            }
+
+            return $this->validDate($year, (int) $matches[2], (int) $matches[1]);
+        }
+
+        return null;
+    }
+
+    private function validDate(int $year, int $month, int $day): ?string
+    {
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return Carbon::create($year, $month, $day, 0, 0, 0, 'America/Bogota')->toDateString();
     }
 
     private function incomingMessages(array $payload): array

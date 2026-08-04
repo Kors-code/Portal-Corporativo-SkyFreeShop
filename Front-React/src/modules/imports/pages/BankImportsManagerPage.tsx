@@ -9,6 +9,7 @@ const BANK_OPTIONS = [
   { value: "colpatria", label: "Colpatria" },
   { value: "davivienda", label: "Davivienda" },
   { value: "bancolombia", label: "Bancolombia" },
+  { value: "bancodebogota", label: "Banco de Bogota" },
 ];
 
 function money(value: unknown) {
@@ -428,7 +429,7 @@ export default function BankImportsManagerPage() {
 }
 
 function canExportBank(batch: BankImportBatch) {
-  return ["davibank", "davivienda", "bancolombia"].includes(String(batch.bank).toLowerCase()) && Number(batch.rows_imported ?? 0) > 0;
+  return ["davibank", "davivienda", "bancolombia", "bancodebogota"].includes(String(batch.bank).toLowerCase()) && Number(batch.rows_imported ?? 0) > 0;
 }
 
 function getFilename(response: { headers: { [key: string]: unknown } }) {

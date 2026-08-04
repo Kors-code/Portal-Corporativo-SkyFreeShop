@@ -96,6 +96,7 @@ return new class extends Migration
             ['code' => 'davibank', 'name' => 'Davibank'],
             ['code' => 'davivienda', 'name' => 'Davivienda'],
             ['code' => 'bancolombia', 'name' => 'Bancolombia'],
+            ['code' => 'bancodebogota', 'name' => 'Banco de Bogota'],
         ];
 
         foreach ($banks as $bank) {
@@ -131,6 +132,14 @@ return new class extends Migration
                 'accounting_account' => '11200502',
                 'accounting_name' => 'Banc ahorro 4694',
             ],
+            [
+                'bank_code' => 'bancodebogota',
+                'account_number' => '532444098',
+                'account_type' => 'ahorros',
+                'name' => 'Banco de Bogota Ahorros',
+                'accounting_account' => '11102004',
+                'accounting_name' => 'Banco de Bogota Ahorros',
+            ],
         ];
 
         foreach ($accounts as $account) {
@@ -157,6 +166,7 @@ return new class extends Migration
             ['bank_code' => 'davibank', 'code' => 'davibank_sales_csv', 'name' => 'Ventas Davibank CSV', 'source_type' => 'card_settlement'],
             ['bank_code' => 'davivienda', 'code' => 'davivienda_card_detail_html', 'name' => 'Consulta detallada Davivienda', 'source_type' => 'card_settlement'],
             ['bank_code' => 'bancolombia', 'code' => 'bancolombia_movements_csv', 'name' => 'Movimientos Bancolombia CSV', 'source_type' => 'account_movement'],
+            ['bank_code' => 'bancodebogota', 'code' => 'bancodebogota_sales_csv', 'name' => 'Ventas Banco de Bogota CSV', 'source_type' => 'card_settlement'],
         ];
 
         foreach ($formats as $format) {

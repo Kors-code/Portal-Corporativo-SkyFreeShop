@@ -126,22 +126,35 @@ class WhatsappAutomationController extends Controller
     ): array {
         $date = optional($job->report_date)->toDateString() ?: now('America/Bogota')->toDateString();
         $payload = is_array($job->payload) ? $job->payload : [];
-        $request = Request::create('/', 'GET', array_merge($payload, ['date' => $date]));
+        $requestPayload = array_merge($payload, ['date' => $date]);
+
+        if ($job->type === 'store_sales' && !empty($payload['ignore_import_batch_id'])) {
+            unset($requestPayload['import_batch_id']);
+        }
+
+        $request = Request::create('/', 'GET', $requestPayload);
+
         if ($job->type === 'daily') {
             $report = $visualizations->dailyWhatsappReportData($request);
+            $images = !empty($payload['executive_only'])
+                ? [[
+                    'bytes' => $dailyImages->make($report),
+                    'caption' => sprintf('WhatsApp Daily - %s', $report['date'] ?? $date),
+                ]]
+                : $dailyImages->makeImages($report);
 
             return array_map(fn ($image) => [
                 'caption' => (string) ($image['caption'] ?? ''),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode((string) ($image['bytes'] ?? '')),
-            ], $dailyImages->makeImages($report));
+            ], $images);
         }
 
         if ($job->type === 'store_sales') {
             $report = $visualizations->storeSalesReportData($request);
 
             return [[
-                'caption' => sprintf('Ventas por tiendas - %s', $report['date']),
+                'caption' => sprintf('Ventas Daily - %s', $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($storeImages->make($report)),
             ]];

@@ -19,7 +19,7 @@ class BankImportBatchController extends Controller
     public function import(Request $request, BankImportExportService $service): BinaryFileResponse
     {
         $validated = $request->validate([
-            'bank' => ['required', 'string', 'in:davibank,davivienda,bancolombia'],
+            'bank' => ['required', 'string', 'in:davibank,davivienda,bancolombia,bancodebogota'],
             'file' => ['required', 'file', 'max:30720'],
             'receipt_start' => ['required', 'integer', 'min:1', 'max:999999999'],
         ]);

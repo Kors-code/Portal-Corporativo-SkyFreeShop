@@ -9,6 +9,7 @@ const BANK_OPTIONS = [
   { value: "davibank", label: "Davibank", accept: ".csv,text/csv,text/plain" },
   { value: "davivienda", label: "Davivienda", accept: ".xls,.html,text/html,application/vnd.ms-excel" },
   { value: "bancolombia", label: "Bancolombia", accept: ".csv,text/csv,text/plain" },
+  { value: "bancodebogota", label: "Banco de Bogota", accept: ".csv,text/csv,text/plain" },
 ];
 
 export default function DavibankConverterPage() {
@@ -36,7 +37,7 @@ export default function DavibankConverterPage() {
 
     if (!file) {
       setStatus("error");
-      setMessage("Selecciona un CSV de Davibank antes de convertir.");
+      setMessage(`Selecciona el archivo de ${selectedBank.label} antes de convertir.`);
       return;
     }
 

@@ -56,7 +56,7 @@ class StoreSalesWhatsappImageService
         $this->roundedRect($image, 58, 52, 104, 98, 10, $this->colors['pink']);
         imagefilledellipse($image, 81, 75, 18, 18, $this->colors['primary']);
         $this->text($image, 'VISUALIZACIONES', 126, 66, 13, $this->colors['primary'], true);
-        $this->text($image, 'Ventas por tiendas', 126, 98, 29, $this->colors['ink'], true);
+        $this->text($image, 'Ventas Daily', 126, 98, 29, $this->colors['ink'], true);
         $this->textAligned($image, $this->dateLabel($date), 1218, 68, 18, $this->colors['ink'], true, 'right');
         $this->textAligned($image, $this->usd((float) ($totals['total_usd'] ?? 0)), 1218, 102, 25, $this->colors['primary'], true, 'right');
     }

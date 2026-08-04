@@ -347,28 +347,57 @@ private function deletePreviousBatch($file)
             ];
         }
 
-        $reportDate = $this->reportDateForImportBatch($batchId) ?: now('America/Bogota')->toDateString();
+        $eligibleRows = $this->whatsappEligibleStoreRowsForImportBatch($batchId);
+
+        if ($eligibleRows <= 0) {
+            Log::info('IMPORT SALES WHATSAPP REPORTS SKIPPED WITHOUT ELIGIBLE STORES', [
+                'batch_id' => $batchId,
+                'eligible_pdvs' => ['COLS1', 'COLS2'],
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+                'quality' => $quality,
+            ]);
+
+            return [
+                'ok' => true,
+                'queued' => false,
+                'processed' => false,
+                'type' => 'store_sales',
+                'reason' => 'Import omitido para WhatsApp: no contiene ventas COLS1/COLS2.',
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+                'eligible_rows' => $eligibleRows,
+            ];
+        }
+
+        $importReportDate = $this->reportDateForImportBatch($batchId) ?: now('America/Bogota')->toDateString();
+        $closedDayReportDate = now('America/Bogota')->subDay()->toDateString();
         $sendFullPackage = !$this->hasFullWhatsappPackageBeenQueuedToday();
         $jobsService = app(WhatsappReportJobService::class);
         $jobTypes = $sendFullPackage
-            ? ['daily', 'advisor_sales', 'store_sales']
+            ? ['daily', 'store_sales']
             : ['store_sales'];
         $jobs = [];
 
         foreach ($jobTypes as $type) {
+            $jobReportDate = $sendFullPackage ? $closedDayReportDate : $importReportDate;
             $payload = [
                 'sales_data_updated_at' => $salesDataUpdatedAt,
             ];
 
             if ($sendFullPackage) {
                 $payload['first_import_full_package'] = true;
+                $payload['closed_day_report'] = true;
             }
 
             if ($type === 'daily') {
                 $payload['pdvs'] = ['COLS1', 'COLS2'];
+                $payload['executive_only'] = $sendFullPackage;
             }
 
-            $jobs[] = $jobsService->enqueueUniqueForImportBatch($type, $reportDate, $batchId, $payload);
+            if ($sendFullPackage && $type === 'store_sales') {
+                $payload['ignore_import_batch_id'] = true;
+            }
+
+            $jobs[] = $jobsService->enqueueUniqueForImportBatch($type, $jobReportDate, $batchId, $payload);
         }
 
         $primaryJob = end($jobs) ?: null;
@@ -376,7 +405,9 @@ private function deletePreviousBatch($file)
 
         Log::info('IMPORT SALES WHATSAPP REPORTS QUEUED', [
             'batch_id' => $batchId,
-            'report_date' => $reportDate,
+            'report_date' => $sendFullPackage ? $closedDayReportDate : $importReportDate,
+            'import_report_date' => $importReportDate,
+            'closed_day_report_date' => $closedDayReportDate,
             'mode' => $sendFullPackage ? 'first_import_full_package' : 'store_sales_only',
             'job_ids' => array_map(fn ($job) => $job->id, $jobs),
             'job_types' => $jobTypes,
@@ -414,7 +445,7 @@ private function deletePreviousBatch($file)
             'type' => $primaryJob?->type ?? 'store_sales',
             'reason' => $processed
                 ? ($sendFullPackage
-                    ? 'Primer import del dia: paquete completo enviado a WhatsApp.'
+                    ? 'Primer import del dia: Daily ejecutivo y tiendas de dia vencido enviados a WhatsApp.'
                     : 'Reporte de ventas por tiendas enviado a WhatsApp.')
                 : 'Reportes WhatsApp encolados, pero no se pudieron enviar todos inmediatamente.',
             'sales_data_updated_at' => $salesDataUpdatedAt,
@@ -436,6 +467,14 @@ private function deletePreviousBatch($file)
             ->whereDate('created_at', now('America/Bogota')->toDateString())
             ->where('payload->first_import_full_package', true)
             ->exists();
+    }
+
+    private function whatsappEligibleStoreRowsForImportBatch(int $batchId): int
+    {
+        return (int) DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->whereIn('pdv', ['COLS1', 'COLS2'])
+            ->count();
     }
 
     private function importQualityForWhatsapp(int $batchId, ?int $expectedRows = null, array $lastSummary = []): array
