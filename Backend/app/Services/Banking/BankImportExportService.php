@@ -169,7 +169,7 @@ class BankImportExportService
                 $row[$column] = $this->parseMoney($row[$column]);
             }
 
-            if ((float) $row['VALOR_COMISION'] === 0.0 && (float) $row['VALOR_RETENCION'] === 0.0 && (float) $row['NETO_ABONADO'] === 0.0) {
+            if ((float) $row['VALOR_COMISION'] === 0.0) {
                 $skipped++;
                 continue;
             }
@@ -288,7 +288,10 @@ class BankImportExportService
             $code = $this->cleanText($values[6] ?? '');
             $description = $this->cleanText($values[7] ?? '');
 
-            if ($amount <= 0 || ! in_array($code, ['4027', '4065'], true)) {
+            $descriptionUpper = strtoupper($description);
+            $isQrPayment = str_contains($descriptionUpper, 'PAGO QR');
+            $isTransfer = str_contains($descriptionUpper, 'TRANSFER') || str_contains($descriptionUpper, 'PAGO INTERBANC');
+            if ($amount <= 0 || (! $isQrPayment && ! $isTransfer)) {
                 $skipped++;
                 continue;
             }
@@ -444,17 +447,24 @@ class BankImportExportService
     {
         $spreadsheet = $this->newSpreadsheet();
         $receipt = $receiptStart;
-        foreach ($this->groupRows('davibank', $rows) as $dateKey => $dayRows) {
+        foreach ($this->groupRows('davibank', $this->normalRows('davibank', $rows)) as $dateKey => $dayRows) {
             $date = $this->dateObject($dateKey);
             $sheet = new Worksheet($spreadsheet, $this->sheetName($date));
             $spreadsheet->addSheet($sheet);
             $receipt = $this->fillDavibankSheet($sheet, $headers, $dayRows, $date, $receipt);
         }
+        foreach ($this->groupAcquisitionRows('davibank', $rows) as $group) {
+            $date = $this->dateObject($group['deposit_date']);
+            $dayRows = $this->orderedAcquisitionRows('davibank', $group['rows']);
+            $sheet = new Worksheet($spreadsheet, $this->acquisitionSheetName('davibank', $date, $this->dateObject($group['sale_month'] . '-01')));
+            $spreadsheet->addSheet($sheet);
+            $receipt = $this->fillDavibankSheet($sheet, $headers, $dayRows, $date, $receipt, true);
+        }
 
         return $this->saveSpreadsheet($spreadsheet, 'davibank_final_');
     }
 
-    private function fillDavibankSheet(Worksheet $sheet, array $headers, array $rows, \DateTimeImmutable $date, int $receipt): int
+    private function fillDavibankSheet(Worksheet $sheet, array $headers, array $rows, \DateTimeImmutable $date, int $receipt, bool $isAcquisition = false): int
     {
         $visa = $this->sumWhere($rows, 'CODIGO_RED', 'VD', 'VALOR_ABONADO');
         $redeban = $this->sumWhere($rows, 'CODIGO_RED', 'RD', 'VALOR_ABONADO');
@@ -470,13 +480,13 @@ class BankImportExportService
         $sheet->setCellValue('D6', '=+D4');
         $sheet->setCellValue('F6', '=+F4-F5');
         $this->writeTable($sheet, $headers, $rows, 8);
-        $subtotalRow = count($rows) + 10;
+        $subtotalRow = count($rows) + ($isAcquisition ? 11 : 10);
         foreach (range('I', 'T') as $column) {
             $sheet->setCellValue("{$column}{$subtotalRow}", "=SUBTOTAL(9,{$column}9:{$column}" . ($subtotalRow - 2) . ')');
         }
         $this->styleSheet($sheet, count($headers), $subtotalRow);
         $receiptRow = $subtotalRow + 4;
-        $this->fillDavibankReceipt($sheet, $date, $receiptRow, $receipt, $subtotalRow);
+        $this->fillDavibankReceipt($sheet, $date, $receiptRow, $receipt, $subtotalRow, $isAcquisition, $isAcquisition ? $this->acquisitionDetailText('davibank', $rows, $date) : null);
         if ($this->hasDavibankReturnRows($rows)) {
             $this->fillDavibankRefundReceipt($sheet, $date, $receiptRow + 11, $receipt + 1, $rows);
         }
@@ -485,9 +495,11 @@ class BankImportExportService
         return $receipt + ($this->hasDavibankReturnRows($rows) ? 2 : 1);
     }
 
-    private function fillDavibankReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $subtotalRow): void
+    private function fillDavibankReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $subtotalRow, bool $isAcquisition = false, ?string $detailDayText = null): void
     {
-        $dayText = $this->dayText($date);
+        $dayText = $detailDayText ?? $this->dayText($date);
+        $clientAccount = $isAcquisition ? '11102097' : '13050503';
+        $clientName = $isAcquisition ? 'Adquirencias por ingresar banco cta cte Colpatria' : 'Clientes Nacionales';
         $rows = [
             ['13551808', 'Ica 0.6%', '860034594', 'Colpatria', "=+S{$subtotalRow}", null, "RC VTAS PAGO {$dayText} TARJETA COLPATRIA ICA"],
             ['13551508', 'Rtefte 1,5%', '860034594', 'Colpatria', "=+K{$subtotalRow}", null, "RC VTAS PAGO {$dayText} TARJETACOLPATRIARETENCION"],
@@ -495,7 +507,7 @@ class BankImportExportService
             ['11102006', 'Cuenta corriente Colpatria 6841002235-pesos', '860034594', 'Colpatria', '=+C6', null, "RC VTAS PAGO {$dayText} PAGO DE VISA"],
             ['11102006', 'Cuenta corriente Colpatria 6841002235-pesos', '860034594', 'Colpatria', '=+D6', null, "RC VTAS PAGO {$dayText} PAGO REDEBAN"],
             ['11102006', 'Cuenta corriente Colpatria 6841002235-pesos', '860034594', 'Colpatria', null, '=+F' . ($startRow + 2) . '+F' . ($startRow + 1) . '+F' . $startRow, "RC VTAS PAGO {$dayText} PAGO"],
-            ['13050503', 'Clientes Nacionales', '222222222', 'Vtas Mostrador', null, '=SUM(F' . $startRow . ':F' . ($startRow + 6) . ')-SUM(G' . $startRow . ':G' . ($startRow + 5) . ')', "RC VTAS PAGO {$dayText} PAGO TARJETA COLPATRIA"],
+            [$clientAccount, $clientName, '222222222', 'Vtas Mostrador', null, '=SUM(F' . $startRow . ':F' . ($startRow + 6) . ')-SUM(G' . $startRow . ':G' . ($startRow + 5) . ')', "RC VTAS PAGO {$dayText} PAGO TARJETA COLPATRIA"],
         ];
         $this->writeReceiptBlock($sheet, $startRow, $receipt, ['RECIBO DE CAJA', 'CUENTA', 'NOMBRE CUENTA', 'NIT', 'NOMBRE NIT', 'DEBITO', 'CREDITO', 'DETALLE'], $rows, 'F', 'G', 'H');
     }
@@ -535,36 +547,52 @@ class BankImportExportService
     {
         $spreadsheet = $this->newSpreadsheet();
         $receipt = $receiptStart;
-        foreach ($this->groupRows('davivienda', $rows) as $dateKey => $dayRows) {
+        foreach ($this->groupRows('davivienda', $this->normalRows('davivienda', $rows)) as $dateKey => $dayRows) {
             $date = $this->dateObject($dateKey);
             $sheet = new Worksheet($spreadsheet, $this->sheetName($date));
             $spreadsheet->addSheet($sheet);
-            $this->writeTable($sheet, $headers, $dayRows, 1);
-            $totalRow = count($dayRows) + 2;
-            foreach (range('J', 'S') as $column) {
-                $sheet->setCellValue("{$column}{$totalRow}", "=SUM({$column}2:{$column}" . ($totalRow - 1) . ')');
-            }
-            $receiptRow = $totalRow + 6;
-            $this->fillDaviviendaReceipt($sheet, $date, $receiptRow, $receipt, $totalRow);
-            if ($this->hasDaviviendaReturnRows($dayRows)) {
-                $this->fillDaviviendaRefundReceipt($sheet, $date, $receiptRow + 8, $receipt + 1, $dayRows);
-            }
-            $this->styleSheet($sheet, count($headers), $totalRow);
-            $this->autosize($sheet, count($headers));
-            $receipt += $this->hasDaviviendaReturnRows($dayRows) ? 2 : 1;
+            $receipt = $this->fillDaviviendaSheet($sheet, $headers, $dayRows, $date, $receipt, false);
+        }
+        foreach ($this->groupAcquisitionRows('davivienda', $rows) as $group) {
+            $date = $this->dateObject($group['deposit_date']);
+            $dayRows = $this->orderedAcquisitionRows('davivienda', $group['rows']);
+            $sheet = new Worksheet($spreadsheet, $this->acquisitionSheetName('davivienda', $date, $this->dateObject($group['sale_month'] . '-01')));
+            $spreadsheet->addSheet($sheet);
+            $receipt = $this->fillDaviviendaSheet($sheet, $headers, $dayRows, $date, $receipt, true);
         }
 
         return $this->saveSpreadsheet($spreadsheet, 'davivienda_final_');
     }
 
-    private function fillDaviviendaReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $totalRow): void
+    private function fillDaviviendaSheet(Worksheet $sheet, array $headers, array $dayRows, \DateTimeImmutable $date, int $receipt, bool $isAcquisition): int
+    {
+        $this->writeTable($sheet, $headers, $dayRows, 1);
+        $totalRow = count($dayRows) + ($isAcquisition ? 5 : 2);
+        foreach (range('J', 'S') as $column) {
+            $sheet->setCellValue("{$column}{$totalRow}", "=SUM({$column}2:{$column}" . ($totalRow - 1) . ')');
+        }
+        $receiptRow = $totalRow + ($isAcquisition ? 4 : 6);
+        $this->fillDaviviendaReceipt($sheet, $date, $receiptRow, $receipt, $totalRow, $isAcquisition, $isAcquisition ? $this->acquisitionDetailText('davivienda', $dayRows, $date) : null);
+        if ($this->hasDaviviendaReturnRows($dayRows)) {
+            $this->fillDaviviendaRefundReceipt($sheet, $date, $receiptRow + 8, $receipt + 1, $dayRows);
+        }
+        $this->styleSheet($sheet, count($headers), $totalRow);
+        $this->autosize($sheet, count($headers));
+
+        return $receipt + ($this->hasDaviviendaReturnRows($dayRows) ? 2 : 1);
+    }
+
+    private function fillDaviviendaReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $totalRow, bool $isAcquisition = false, ?string $detailDayText = null): void
     {
         $day = ((int) $date->format('d'));
+        $detailText = $detailDayText ?? ($this->monthName((int) $date->format('n')) . " {$day}");
+        $clientAccount = $isAcquisition ? '11200599' : '13050501';
+        $clientName = $isAcquisition ? 'Adquirencias por ingresar banco cta ahorros Davivi' : 'Clientes nacionales';
         $rows = [
-            ['11200501', 'Cta ahorro Davivienda 475670049406', '860034313', "=+R{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA {$this->monthName((int) $date->format('n'))} {$day}"],
-            ['13551508', 'Retención en la fuente 1.5%', '860034313', "=+O{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA RETEFUENTE DAVIVIENDA {$this->monthName((int) $date->format('n'))} {$day}"],
-            ['53051501', 'Comisiones bancarias no gravadas', '860034313', "=+N{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA COMISION DAVIVIENDA {$this->monthName((int) $date->format('n'))} {$day}"],
-            ['13050501', 'Clientes nacionales', '222222222', null, "=+J{$totalRow}", "RC VTAS PAGO TARJETA DAVIVIENDA {$this->monthName((int) $date->format('n'))} {$day}"],
+            ['11200501', 'Cta ahorro Davivienda 475670049406', '860034313', "=+R{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA {$detailText}"],
+            ['13551508', 'Retención en la fuente 1.5%', '860034313', "=+O{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA RETEFUENTE DAVIVIENDA {$detailText}"],
+            ['53051501', 'Comisiones bancarias no gravadas', '860034313', "=+N{$totalRow}", null, "RC VTAS PAGO TARJETA DAVIVIENDA COMISION DAVIVIENDA {$detailText}"],
+            [$clientAccount, $clientName, '222222222', null, "=+J{$totalRow}", "RC VTAS PAGO TARJETA DAVIVIENDA {$detailText}"],
         ];
         $this->writeReceiptBlock($sheet, $startRow, $receipt, ['COMPROBANTE', 'CUENTA', 'NOMBRE CUENTA', 'NIT', 'DEBITO', 'CREDITO', 'DETALLE'], $rows, 'E', 'F', 'G');
     }
@@ -622,18 +650,26 @@ class BankImportExportService
     {
         $spreadsheet = $this->newSpreadsheet();
         $receipt = $receiptStart;
-        foreach ($this->groupRows('bancodebogota', $rows) as $dateKey => $dayRows) {
+        foreach ($this->groupRows('bancodebogota', $this->normalRows('bancodebogota', $rows)) as $dateKey => $dayRows) {
             $date = $this->dateObject($dateKey);
             $sheet = new Worksheet($spreadsheet, $this->sheetName($date));
             $spreadsheet->addSheet($sheet);
-            $this->fillBancoBogotaSheet($sheet, $headers, $dayRows, $date, $receipt);
+            $this->fillBancoBogotaSheet($sheet, $headers, $dayRows, $date, $receipt, false);
+            $receipt++;
+        }
+        foreach ($this->groupAcquisitionRows('bancodebogota', $rows) as $group) {
+            $date = $this->dateObject($group['deposit_date']);
+            $dayRows = $this->orderedAcquisitionRows('bancodebogota', $group['rows']);
+            $sheet = new Worksheet($spreadsheet, $this->acquisitionSheetName('bancodebogota', $date, $this->dateObject($group['sale_month'] . '-01')));
+            $spreadsheet->addSheet($sheet);
+            $this->fillBancoBogotaSheet($sheet, $headers, $dayRows, $date, $receipt, true);
             $receipt++;
         }
 
         return $this->saveSpreadsheet($spreadsheet, 'bancodebogota_final_');
     }
 
-    private function fillBancoBogotaSheet(Worksheet $sheet, array $headers, array $rows, \DateTimeImmutable $date, int $receipt): void
+    private function fillBancoBogotaSheet(Worksheet $sheet, array $headers, array $rows, \DateTimeImmutable $date, int $receipt, bool $isAcquisition = false): void
     {
         foreach (['Fecha', 'Ciudad', 'Debitos', 'Creditos', 'Marca', 'Franquicia', 'Descripcion'] as $index => $header) {
             $sheet->setCellValue([$index + 1, 3], $header);
@@ -659,12 +695,12 @@ class BankImportExportService
         $this->fillBancoBogotaControl($sheet, $rows);
 
         $this->writeTable($sheet, $headers, $rows, 10);
-        $totalRow = count($rows) + 11;
+        $totalRow = count($rows) + ($isAcquisition ? 15 : 12);
         foreach (range('O', 'Z') as $column) {
             $sheet->setCellValue("{$column}{$totalRow}", "=SUM({$column}11:{$column}" . ($totalRow - 1) . ')');
         }
         $this->styleSheet($sheet, count($headers), $totalRow);
-        $this->fillBancoBogotaReceipt($sheet, $date, $totalRow + 4, $receipt, $totalRow);
+        $this->fillBancoBogotaReceipt($sheet, $date, $totalRow + 5, $receipt, $totalRow, $isAcquisition, $isAcquisition ? $this->acquisitionDetailText('bancodebogota', $rows, $date) : null);
         $this->autosize($sheet, count($headers));
     }
 
@@ -685,9 +721,11 @@ class BankImportExportService
         $sheet->getStyle('N3:P3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9EAF7');
     }
 
-    private function fillBancoBogotaReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $totalRow): void
+    private function fillBancoBogotaReceipt(Worksheet $sheet, \DateTimeImmutable $date, int $startRow, int $receipt, int $totalRow, bool $isAcquisition = false, ?string $detailDayText = null): void
     {
-        $dayText = $this->dayText($date);
+        $dayText = $detailDayText ?? $this->dayText($date);
+        $clientAccount = $isAcquisition ? '11200598' : '13050501';
+        $clientName = $isAcquisition ? 'Adquirencias por ingresar banco cta ahorros Bogota' : 'Clientes Nacionales';
         $rows = [
             ['13551817', 'ICA 0.4%', '860002963', 'Banco de Bogota', "=+Y{$totalRow}", null, "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
             ['13551508', 'Rtefte 1,5%', '860002964', 'Banco de Bogota', "=+W{$totalRow}", null, "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
@@ -695,9 +733,24 @@ class BankImportExportService
             ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D4', null, "RC VTAS PAGO {$dayText} PAGO DE AMERICANEXPRESS"],
             ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D6', null, "RC VTAS PAGO {$dayText} PAGO DE VISA"],
             ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D5', null, "RC VTAS PAGO {$dayText} PAGO DE MASTERCARD"],
-            ['13050501', 'Clientes Nacionales', '222222222', 'Vtas Mostrador', null, "=+S{$totalRow}", "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
+            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', null, '=-Q7', "RC VTAS PAGO {$dayText} PAGO DE COMISION Y RETEFUENTE"],
+            [$clientAccount, $clientName, '222222222', 'Vtas Mostrador', null, '=SUM(G' . $startRow . ':G' . ($startRow + 7) . ')-SUM(H' . $startRow . ':H' . ($startRow + 6) . ')', "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
         ];
-        $this->writeReceiptBlock($sheet, $startRow, $receipt, ['RECIBO DE CAJA', 'CUENTA', 'NOMBRE CUENTA', 'NIT', 'NOMBRE NIT', 'DEBITO', 'CREDITO', 'DETALLE'], $rows, 'F', 'G', 'H');
+        foreach (['PREFIJO', '# RECIBO CAJA', 'CUENTA', 'NOMBRE CUENTA', 'NIT', 'NOMBRE NIT', 'DEBITO', 'CREDITO', 'DETALLE'] as $index => $header) {
+            $sheet->setCellValue([$index + 1, $startRow - 1], $header);
+        }
+        foreach ($rows as $index => $row) {
+            $excelRow = $startRow + $index;
+            $sheet->setCellValue("A{$excelRow}", 'CC-15');
+            $sheet->setCellValue("B{$excelRow}", $index === 0 ? $receipt : '=+B' . ($excelRow - 1));
+            foreach ($row as $column => $value) {
+                $sheet->setCellValue([$column + 3, $excelRow], $value);
+            }
+        }
+        $lastRow = $startRow + count($rows) - 1;
+        $sheet->getStyle("A" . ($startRow - 1) . ":I{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A" . ($startRow - 1) . ":I" . ($startRow - 1))->getFont()->setBold(true);
+        $sheet->getStyle("A" . ($startRow - 1) . ":I" . ($startRow - 1))->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9EAF7');
     }
 
     private function writeBancolombiaWorkbook(array $rows, int $receiptStart): string
@@ -867,6 +920,79 @@ class BankImportExportService
         return $groups;
     }
 
+    private function normalRows(string $bankCode, array $rows): array
+    {
+        return array_values(array_filter($rows, fn (array $row): bool => ! $this->isAcquisitionRow($bankCode, $row)));
+    }
+
+    /**
+     * @return array<int, array{deposit_date: string, sale_month: string, rows: array<int, array<string, mixed>>}>
+     */
+    private function groupAcquisitionRows(string $bankCode, array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            if (! $this->isAcquisitionRow($bankCode, $row)) {
+                continue;
+            }
+
+            $saleDate = $this->movementDate($bankCode, $row);
+            $depositDate = $this->depositDate($bankCode, $row);
+            if ($saleDate === null || $depositDate === null) {
+                continue;
+            }
+
+            $key = $depositDate . '|' . substr($saleDate, 0, 7);
+            $groups[$key]['deposit_date'] = $depositDate;
+            $groups[$key]['sale_month'] = substr($saleDate, 0, 7);
+            $groups[$key]['rows'][] = $row;
+        }
+        ksort($groups);
+
+        return array_values($groups);
+    }
+
+    private function orderedAcquisitionRows(string $bankCode, array $rows): array
+    {
+        if ($bankCode !== 'bancodebogota') {
+            return array_values($rows);
+        }
+
+        $indexed = [];
+        foreach (array_values($rows) as $index => $row) {
+            $indexed[] = ['index' => $index, 'row' => $row];
+        }
+
+        usort($indexed, function (array $left, array $right): int {
+            $brandOrder = ['1' => 1, '4' => 2, '2' => 3];
+            $typeOrder = ['C' => 1, 'D' => 2];
+            $leftRow = $left['row'];
+            $rightRow = $right['row'];
+
+            return [
+                $brandOrder[(string) ($leftRow['MARCA'] ?? '')] ?? 99,
+                $typeOrder[(string) ($leftRow['T'] ?? '')] ?? 99,
+                (int) ($leftRow['_row_number'] ?? $left['index']),
+            ] <=> [
+                $brandOrder[(string) ($rightRow['MARCA'] ?? '')] ?? 99,
+                $typeOrder[(string) ($rightRow['T'] ?? '')] ?? 99,
+                (int) ($rightRow['_row_number'] ?? $right['index']),
+            ];
+        });
+
+        return array_map(fn (array $item): array => $item['row'], $indexed);
+    }
+
+    private function isAcquisitionRow(string $bankCode, array $row): bool
+    {
+        $saleDate = $this->movementDate($bankCode, $row);
+        $depositDate = $this->depositDate($bankCode, $row);
+
+        return $saleDate !== null
+            && $depositDate !== null
+            && substr($saleDate, 0, 7) !== substr($depositDate, 0, 7);
+    }
+
     private function writeTable(Worksheet $sheet, array $headers, array $rows, int $headerRow): void
     {
         foreach ($headers as $index => $header) {
@@ -998,10 +1124,14 @@ class BankImportExportService
         if ($value === '' || $value === '0000/00/00') {
             return null;
         }
+        $value = str_replace('|', '/', $value);
+        $value = preg_replace('#/+#', '/', $value) ?? $value;
+        if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{3})$#', $value, $matches)) {
+            $value = $matches[1] . '/' . $matches[2] . '/2' . $matches[3];
+        }
         if (preg_match('/^\d{8}$/', $value)) {
             return substr($value, 0, 4) . '-' . substr($value, 4, 2) . '-' . substr($value, 6, 2);
         }
-        $value = str_replace('//', '/', $value);
         foreach (['Y/m/d', 'Y-m-d', 'd/m/Y', 'd/m/y'] as $format) {
             $date = \DateTimeImmutable::createFromFormat('!' . $format, $value);
             if ($date) {
@@ -1114,6 +1244,52 @@ class BankImportExportService
     private function sheetName(\DateTimeImmutable $date): string
     {
         return $date->format('d') . ' ' . $this->monthName((int) $date->format('n'));
+    }
+
+    private function acquisitionSheetName(string $bankCode, \DateTimeImmutable $depositDate, \DateTimeImmutable $saleMonth): string
+    {
+        $depositText = $depositDate->format('d') . ' ' . $this->monthName((int) $depositDate->format('n'));
+        $saleMonthText = $this->monthName((int) $saleMonth->format('n'));
+
+        $name = match ($bankCode) {
+            'davibank' => "VENTAS {$saleMonthText} APLICADAS {$depositText}",
+            'davivienda' => "{$depositText} VTAS {$saleMonthText}",
+            'bancodebogota' => "VENTAS {$saleMonthText} REFLEJADAS {$depositText}",
+            default => "{$depositText} VTAS {$saleMonthText}",
+        };
+
+        if (strlen($name) > 31 && str_starts_with($name, 'VENTAS ')) {
+            $name = 'VTAS ' . substr($name, 7);
+        }
+
+        return substr($name, 0, 31);
+    }
+
+    private function acquisitionDetailText(string $bankCode, array $rows, \DateTimeImmutable $depositDate): string
+    {
+        $saleDates = [];
+        foreach ($rows as $row) {
+            $saleDate = $this->movementDate($bankCode, $row);
+            if ($saleDate !== null) {
+                $saleDates[$saleDate] = $saleDate;
+            }
+        }
+        sort($saleDates);
+
+        if ($saleDates === []) {
+            return $this->dayText($depositDate);
+        }
+
+        $first = $this->dateObject($saleDates[0]);
+        $last = $this->dateObject($saleDates[count($saleDates) - 1]);
+        $saleMonth = $this->monthName((int) $last->format('n'));
+        $saleText = count($saleDates) === 1
+            ? ((int) $first->format('d')) . " {$saleMonth}"
+            : ((int) $first->format('d')) . ' A ' . ((int) $last->format('d')) . " {$saleMonth}";
+
+        $verb = in_array($bankCode, ['davivienda', 'bancodebogota'], true) ? 'REFLEJADAS' : 'APLICADAS';
+
+        return $saleText . " {$verb} " . ((int) $depositDate->format('d')) . ' ' . $this->monthName((int) $depositDate->format('n'));
     }
 
     private function dayText(\DateTimeImmutable $date): string

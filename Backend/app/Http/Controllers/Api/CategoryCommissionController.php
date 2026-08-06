@@ -34,10 +34,39 @@ class CategoryCommissionController extends Controller
         return is_numeric($value) ? round((float) $value, $decimals) : 0.0;
     }
 
+    private function adjustedSellerTargetAmount($budgetId): float
+    {
+        if (!$budgetId) {
+            return 0.0;
+        }
+
+        $budgetTotal = (float) (Budget::on('budget')->where('id', $budgetId)->value('target_amount') ?? 0);
+        if ($budgetTotal <= 0) {
+            return 0.0;
+        }
+
+        $discountAmount = (float) DB::connection('budget')
+            ->table('category_commissions as cc')
+            ->join('categories as c', 'c.id', '=', 'cc.category_id')
+            ->where('cc.budget_id', $budgetId)
+            ->where('cc.role_id', 1)
+            ->where('c.classification_code', '25')
+            ->sum('cc.participation_value');
+
+        return max(0.0, $budgetTotal - $discountAmount);
+    }
+
     private function resolveBaseBudget(int $roleId, $budgetId): float
     {
         if (!$budgetId) {
             return 0.0;
+        }
+
+        if ($roleId === 1) {
+            $sellerBase = $this->adjustedSellerTargetAmount($budgetId);
+            if ($sellerBase > 0) {
+                return $sellerBase;
+            }
         }
 
         $advisorBudget = in_array($roleId, [4, 5], true)
@@ -52,9 +81,9 @@ class CategoryCommissionController extends Controller
         return $advisorBudget > 0 ? $advisorBudget : $budgetTotal;
     }
 
-    private function resolveParticipationFields(array $data, int $roleId, $budgetId): array
+    private function resolveParticipationFields(array $data, int $roleId, $budgetId, ?float $baseBudgetOverride = null): array
     {
-        $baseBudget = $this->resolveBaseBudget($roleId, $budgetId);
+        $baseBudget = $baseBudgetOverride ?? $this->resolveBaseBudget($roleId, $budgetId);
         $hasValue = array_key_exists('participation_value', $data)
             && $data['participation_value'] !== null
             && $data['participation_value'] !== '';
@@ -75,6 +104,75 @@ class CategoryCommissionController extends Controller
         $value = 0.0;
 
         return [$value, $pct];
+    }
+
+    private function sellerBaseBudgetFromPayload(array $items, int $budgetId): ?float
+    {
+        $budgetTotal = (float) (Budget::on('budget')->where('id', $budgetId)->value('target_amount') ?? 0);
+        if ($budgetTotal <= 0) {
+            return null;
+        }
+
+        $categoryIds = array_values(array_filter(array_map(
+            fn ($item) => isset($item['category_id']) ? (int) $item['category_id'] : null,
+            $items
+        )));
+
+        if (empty($categoryIds)) {
+            return null;
+        }
+
+        $advisorCategoryIds = DB::connection('budget')
+            ->table('categories')
+            ->whereIn('id', $categoryIds)
+            ->where('classification_code', '25')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (empty($advisorCategoryIds)) {
+            return null;
+        }
+
+        $advisorValue = 0.0;
+        foreach ($items as $item) {
+            if (in_array((int) ($item['category_id'] ?? 0), $advisorCategoryIds, true)) {
+                $advisorValue += $this->normalizeDecimal($item['participation_value'] ?? 0, 2);
+            }
+        }
+
+        return max(0.0, $budgetTotal - $advisorValue);
+    }
+
+    private function sellerBaseBudgetFromItem(array $data, int $budgetId): ?float
+    {
+        $budgetTotal = (float) (Budget::on('budget')->where('id', $budgetId)->value('target_amount') ?? 0);
+        if ($budgetTotal <= 0) {
+            return null;
+        }
+
+        $isAdvisorCategory = DB::connection('budget')
+            ->table('categories')
+            ->where('id', (int) ($data['category_id'] ?? 0))
+            ->where('classification_code', '25')
+            ->exists();
+
+        if (!$isAdvisorCategory) {
+            return null;
+        }
+
+        $advisorValue = $this->normalizeDecimal($data['participation_value'] ?? 0, 2);
+
+        return max(0.0, $budgetTotal - $advisorValue);
+    }
+
+    private function isAdvisorSpecialistCategory($categoryId): bool
+    {
+        return DB::connection('budget')
+            ->table('categories')
+            ->where('id', (int) $categoryId)
+            ->where('classification_code', '25')
+            ->exists();
     }
 
     // List categories with commission (optionally filter by role_id)
@@ -126,6 +224,7 @@ class CategoryCommissionController extends Controller
                 'commission_percentage120' => $r ? (float)$r->commission_percentage120 : null,
                 'participation_pct' => $r ? (float)$r->participation_pct : null,
                 'participation_value'      => $r ? (float)$r->participation_value : null,
+                'particiaption_pct_sellers' => $r ? (float)$r->particiaption_pct_sellers : null,
                 'budget_id' => $r ? (float)$r->budget_id : null,
             ];
 
@@ -149,8 +248,19 @@ class CategoryCommissionController extends Controller
 
     ]);
         $this->ensureBudgetOpen($data['budget_id'] ?? null);
-        [$participationValue, $participationPct] = $this->resolveParticipationFields($data, (int) $data['role_id'], $data['budget_id'] ?? null);
+        $budgetId = isset($data['budget_id']) ? (int) $data['budget_id'] : null;
+        $baseBudgetOverride = ((int) $data['role_id'] === 1 && $budgetId)
+            ? $this->sellerBaseBudgetFromItem($data, $budgetId)
+            : null;
 
+        [$participationValue, $participationPct] = $this->resolveParticipationFields($data, (int) $data['role_id'], $data['budget_id'] ?? null, $baseBudgetOverride);
+
+
+        $particiaption_pct_sellers = 0;
+        if($data['role_id'] == 1 && !$this->isAdvisorSpecialistCategory($data['category_id'])){
+            
+            $particiaption_pct_sellers = $participationPct;
+        }
         DB::connection('budget')->beginTransaction();
         try {
                 $row = CategoryCommission::on('budget')->updateOrCreate(
@@ -164,6 +274,7 @@ class CategoryCommissionController extends Controller
                 'commission_percentage100' => $data['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $data['commission_percentage120'] ?? 0,
                 'participation_pct' => $participationPct,
+                'particiaption_pct_sellers' => $particiaption_pct_sellers,
                 'participation_value' => $participationValue,
             ]
         );
@@ -211,8 +322,25 @@ public function bulkUpdate(Request $request)
     DB::connection('budget')->beginTransaction();
 
     try {
+        $baseBudgetOverrides = [];
         foreach ($payload['items'] as $it) {
-            [$participationValue, $participationPct] = $this->resolveParticipationFields($it, (int) $payload['role_id'], $it['budget_id'] ?? null);
+            $itemBudgetId = isset($it['budget_id']) ? (int) $it['budget_id'] : null;
+            $baseBudgetOverride = null;
+            if ((int) $payload['role_id'] === 1 && $itemBudgetId) {
+                if (!array_key_exists($itemBudgetId, $baseBudgetOverrides)) {
+                    $itemsForBudget = array_values(array_filter(
+                        $payload['items'],
+                        fn ($item) => (int) ($item['budget_id'] ?? 0) === $itemBudgetId
+                    ));
+                    $baseBudgetOverrides[$itemBudgetId] = $this->sellerBaseBudgetFromPayload($itemsForBudget, $itemBudgetId);
+                }
+                $baseBudgetOverride = $baseBudgetOverrides[$itemBudgetId];
+            }
+
+            [$participationValue, $participationPct] = $this->resolveParticipationFields($it, (int) $payload['role_id'], $it['budget_id'] ?? null, $baseBudgetOverride);
+            $particiaption_pct_sellers = (int) $payload['role_id'] === 1 && !$this->isAdvisorSpecialistCategory($it['category_id'])
+                ? $participationPct
+                : 0;
 
             CategoryCommission::on('budget')->updateOrCreate(
                 [
@@ -225,6 +353,7 @@ public function bulkUpdate(Request $request)
                     'commission_percentage100' => $it['commission_percentage100'] ?? 0,
                     'commission_percentage120' => $it['commission_percentage120'] ?? 0,
                     'participation_pct' => $participationPct,
+                    'particiaption_pct_sellers' => $particiaption_pct_sellers,
                     'participation_value' => $participationValue,
                 ]
             );

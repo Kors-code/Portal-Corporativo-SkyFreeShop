@@ -221,7 +221,7 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
     ->select(
         'c.id',
         'c.classification_code',
-        DB::raw('MAX(cc.participation_pct) as participation_pct')
+        DB::raw('MAX(cc.particiaption_pct_sellers) as particiaption_pct_sellers')
     )
     ->groupBy('c.id', 'c.classification_code')
     ->get();
@@ -237,19 +237,19 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
                     })->toArray()
                 );
 
-            $categoryGroupMap = []; // group => ['category_ids'=>[], 'participation_pct'=>SUM]
+            $categoryGroupMap = []; // group => ['category_ids'=>[], 'particiaption_pct_sellers'=>SUM]
             foreach ($categoriesWithParticipation as $c) {
                 $grp = $this->normalizeClassification($c->classification_code);
-                $pctVal = (float)$c->participation_pct;
+                $pctVal = (float)$c->particiaption_pct_sellers;
                 if (!isset($categoryGroupMap[$grp])) {
                     $categoryGroupMap[$grp] = [
                         'category_ids' => [$c->id],
-                        'participation_pct' => $pctVal
+                        'particiaption_pct_sellers' => $pctVal
                     ];
                 } else {
                     $categoryGroupMap[$grp]['category_ids'][] = $c->id;
                     // Si hay múltiples filas por alguna razón, sumamos (esto imita lógica previa)
-                    $categoryGroupMap[$grp]['participation_pct'] += $pctVal;
+                    $categoryGroupMap[$grp]['particiaption_pct_sellers'] += $pctVal;
                 }
             }
 
@@ -258,7 +258,7 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
                     if (!isset($categoryGroupMap[$grp])) {
                         $categoryGroupMap[$grp] = [
                             'category_ids' => [],
-                            'participation_pct' => 0.0,
+                            'particiaption_pct_sellers' => 0.0,
                         ];
                     }
                 }
@@ -301,7 +301,7 @@ $categoriesWithParticipation = $this->budgetDB()->table('categories as c')
                 $userBudgetUsd = $totalTurns > 0 ? round($commissionTargetAmount * ($assigned / $totalTurns), 2) : 0.0;
 
                 foreach ($categoryGroupMap as $grp => $meta) {
-                    $participation = $meta['participation_pct'] ?? 0;
+                    $participation = $meta['particiaption_pct_sellers'] ?? 0;
                     $categoryBudgetForUser = $userBudgetUsd * ($participation / 100);
 
                     $salesUsd = $salesByUserGroup[$uid][$grp]['sales_usd'] ?? 0.0;

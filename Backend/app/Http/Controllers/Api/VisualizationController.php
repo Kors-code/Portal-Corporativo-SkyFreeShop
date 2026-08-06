@@ -436,7 +436,7 @@ class VisualizationController extends Controller
         WhatsappNumberReportSender $sender
     ) {
         $report = $this->storeSalesReportData($request);
-        $caption = sprintf('Ventas Daily - %s', $report['date']);
+        $caption = sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']);
         $result = $sender->sendImage($imageService->make($report), $caption);
 
         return response()->json([
@@ -517,6 +517,13 @@ class VisualizationController extends Controller
     {
         $today = now('America/Bogota')->toDateString();
         $date = $request->query('date', $request->input('date', $today));
+        $requestedStartDate = $request->query('start_date', $request->input('start_date'));
+        $requestedEndDate = $request->query('end_date', $request->input('end_date'));
+
+        if ($requestedEndDate !== null && $requestedEndDate !== '') {
+            $date = $requestedEndDate;
+        }
+
         $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
 
         $budget = $this->budgetDB()->table('budgets')
@@ -530,9 +537,17 @@ class VisualizationController extends Controller
         }
 
         $pdvs = $this->normalizePdvs($request) ?: self::WHATSAPP_DAILY_PDVS;
+        $rangeStart = $requestedStartDate !== null && $requestedStartDate !== ''
+            ? (new \DateTimeImmutable((string) $requestedStartDate))->format('Y-m-d')
+            : (new \DateTimeImmutable((string) $budget->start_date))->format('Y-m-d');
+
+        if ($rangeStart > $date) {
+            [$rangeStart, $date] = [$date, $rangeStart];
+        }
+
         $dailyRequest = Request::create($request->path(), 'GET', [
             'budget_id' => $budget->id,
-            'start_date' => (new \DateTimeImmutable((string) $budget->start_date))->format('Y-m-d'),
+            'start_date' => $rangeStart,
             'end_date' => $date,
             'pdvs' => $pdvs,
         ]);
@@ -546,7 +561,22 @@ class VisualizationController extends Controller
     public function storeSalesReportData(Request $request): array
     {
         $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
-        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $startDate = $request->query('start_date', $request->input('start_date'));
+        $endDate = $request->query('end_date', $request->input('end_date'));
+
+        if ($startDate !== null && $startDate !== '' && $endDate !== null && $endDate !== '') {
+            $startDate = (new \DateTimeImmutable((string) $startDate))->format('Y-m-d');
+            $endDate = (new \DateTimeImmutable((string) $endDate))->format('Y-m-d');
+
+            if ($startDate > $endDate) {
+                [$startDate, $endDate] = [$endDate, $startDate];
+            }
+        } else {
+            $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+            $startDate = $date;
+            $endDate = $date;
+        }
+
         $importBatchId = $request->query('import_batch_id', $request->input('import_batch_id'));
         $storeMap = [
             'COLS2' => 'MDE DE ARRIVALS',
@@ -554,7 +584,7 @@ class VisualizationController extends Controller
         ];
 
         $base = $this->budgetDB()->table('sales as s')
-            ->whereDate('s.sale_date', $date)
+            ->whereBetween('s.sale_date', [$startDate, $endDate])
             ->whereIn('s.pdv', array_keys($storeMap));
 
         if ($importBatchId !== null && $importBatchId !== '') {
@@ -595,10 +625,16 @@ class VisualizationController extends Controller
         $totalSales = array_sum(array_column($stores, 'total_usd'));
         $totalTrx = array_sum(array_column($stores, 'trx'));
         $totalUnits = array_sum(array_column($stores, 'units'));
-        $meta = round((float) ($this->budgetDailyByDate($date, $date)[$date] ?? 0), 2);
+        $meta = round((float) array_sum($this->budgetDailyByDate($startDate, $endDate)), 2);
+        $dateLabel = $startDate === $endDate
+            ? $this->dateLabel($endDate)
+            : $this->dateLabel($startDate) . ' hasta ' . $this->dateLabel($endDate);
 
         return [
-            'date' => $date,
+            'date' => $endDate,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'date_label' => $dateLabel,
             'stores' => $stores,
             'totals' => [
                 'label' => 'Globales',
@@ -723,6 +759,15 @@ class VisualizationController extends Controller
             $date->format('i'),
             $meridiem
         );
+    }
+
+    protected function dateLabel(string $value): string
+    {
+        try {
+            return (new \DateTimeImmutable($value))->format('d/m/Y');
+        } catch (\Throwable) {
+            return $value;
+        }
     }
 
     protected function normalizePdvs(Request $request): array

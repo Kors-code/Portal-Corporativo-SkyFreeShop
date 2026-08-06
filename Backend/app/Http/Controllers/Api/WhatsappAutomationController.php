@@ -154,7 +154,7 @@ class WhatsappAutomationController extends Controller
             $report = $visualizations->storeSalesReportData($request);
 
             return [[
-                'caption' => sprintf('Ventas Daily - %s', $report['date']),
+                'caption' => sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($storeImages->make($report)),
             ]];

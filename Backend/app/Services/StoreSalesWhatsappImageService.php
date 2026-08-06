@@ -22,7 +22,8 @@ class StoreSalesWhatsappImageService
         $this->bootColors($image);
         imagefilledrectangle($image, 0, 0, $width, $height, $this->colors['bg']);
 
-        $date = (string) ($report['date'] ?? now('America/Bogota')->toDateString());
+        $date = (string) ($report['date_label'] ?? $report['date'] ?? now('America/Bogota')->toDateString());
+        $isRange = (string) ($report['start_date'] ?? $report['date'] ?? '') !== (string) ($report['end_date'] ?? $report['date'] ?? '');
         $stores = array_values($report['stores'] ?? []);
         $totals = $report['totals'] ?? [];
         $meta = (float) ($report['meta_usd'] ?? 0);
@@ -30,7 +31,7 @@ class StoreSalesWhatsappImageService
 
         $this->drawHeader($image, $date, $totals);
         $this->drawMetrics($image, $date, $totals);
-        $this->drawTableHeader($image);
+        $this->drawTableHeader($image, $isRange);
 
         $y = 465;
         foreach ($stores as $row) {
@@ -39,7 +40,7 @@ class StoreSalesWhatsappImageService
         }
 
         $this->drawRow($image, $totals, $y, true);
-        $this->drawFooter($image, $compliance, $meta, $this->updatedAtLabel($report));
+        $this->drawFooter($image, $compliance, $meta, $this->updatedAtLabel($report), $isRange);
 
         ob_start();
         imagepng($image, null, 9);
@@ -83,12 +84,12 @@ class StoreSalesWhatsappImageService
         }
     }
 
-    private function drawTableHeader($image): void
+    private function drawTableHeader($image, bool $isRange): void
     {
         $this->roundedRect($image, 34, 288, 1246, 650, 16, $this->colors['white']);
         imagerectangle($image, 34, 288, 1246, 650, $this->colors['line']);
         $this->text($image, 'Resumen por tienda', 58, 324, 20, $this->colors['ink'], true);
-        $this->text($image, 'Arrivals + Departures, corte diario.', 58, 348, 12, $this->colors['muted'], false);
+        $this->text($image, $isRange ? 'Arrivals + Departures, corte seleccionado.' : 'Arrivals + Departures, corte diario.', 58, 348, 12, $this->colors['muted'], false);
         imagefilledrectangle($image, 34, 370, 1246, 420, $this->colors['dark']);
         $this->text($image, 'TIENDA', 58, 402, 12, $this->colors['white'], true);
         $this->textAligned($image, 'VENTA', 720, 402, 12, $this->colors['white'], true, 'right');
@@ -116,7 +117,7 @@ class StoreSalesWhatsappImageService
         $this->textAligned($image, $this->number((float) ($row['units_per_ticket'] ?? 0)), 1216, $y, 19, $color, true, 'right');
     }
 
-    private function drawFooter($image, float $compliance, float $meta, string $updatedAtLabel): void
+    private function drawFooter($image, float $compliance, float $meta, string $updatedAtLabel, bool $isRange): void
     {
         $this->roundedRect($image, 34, 680, 620, 780, 14, $this->colors['white']);
         imagerectangle($image, 34, 680, 620, 780, $this->colors['line']);
@@ -125,7 +126,7 @@ class StoreSalesWhatsappImageService
 
         $this->roundedRect($image, 660, 680, 1246, 780, 14, $this->colors['white']);
         imagerectangle($image, 660, 680, 1246, 780, $this->colors['line']);
-        $this->text($image, 'META DIARIA', 684, 718, 12, $this->colors['muted'], true);
+        $this->text($image, $isRange ? 'META RANGO' : 'META DIARIA', 684, 718, 12, $this->colors['muted'], true);
         $this->text($image, $this->usd($meta), 684, 754, 28, $this->colors['ink'], true);
 
         $this->text($image, 'Generado automaticamente desde Portal Sky Free Shop', 34, 808, 12, $this->colors['muted'], false);

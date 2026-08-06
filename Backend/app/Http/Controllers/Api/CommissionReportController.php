@@ -280,7 +280,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
     $rows = $q->select(
         'c.classification_code',
-        DB::raw('SUM(cc.participation_pct) as participation')
+        DB::raw('SUM(cc.particiaption_pct_sellers) as participation')
     )
     ->groupBy('c.classification_code')
     ->get();
@@ -960,9 +960,10 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
     // Build categories_summary for response (using participationByCode + categoryTotalsRaw)
     $categoriesSummary = [];
+
     foreach ($categoryTotalsRaw as $norm => $data) {
         $participation = $participationByCode[$norm] ?? 0.0;
-        $categoryBudgetUsd = round($targetAmount * ($participation / 100), 2);
+        $categoryBudgetUsd = round($sellerTargetAmount * ($participation / 100), 2);
         $salesUsd = round($data['sales_usd'], 2);
         $salesCop = round($data['sales_cop'], 2);
         $pctOfCategory = $categoryBudgetUsd > 0 ? round(($salesUsd / $categoryBudgetUsd) * 100, 2) : null;
@@ -1031,7 +1032,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
      * Detail per seller using aggregated tables where possible and fallback to sales for ticket-level rows.
      *
      * IMPORTANT: this endpoint exposes both:
-     *  - category_budget_usd (GLOBAL per-category budget = target_amount * participation)
+     *  - category_budget_usd (GLOBAL per-category budget = adjusted target_amount * participation)
      *  - category_budget_usd_for_user (USER's share based on assigned_turns)
      *
      * That keeps la vista general (dashboard) y la vista por usuario consistentes.
@@ -1299,8 +1300,8 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
             // GLOBAL participation for this normalized classification
             $participationPct = $participationMap[$classificationNorm] ?? 0.0;
 
-            // GLOBAL category budget (what dashboard displays)
-            $categoryBudgetUsdGlobal = round($totalTarget * ($participationPct / 100), 2);
+            // GLOBAL category budget (same adjusted base used for sellers)
+            $categoryBudgetUsdGlobal = round($adjustedTarget * ($participationPct / 100), 2);
 
             // USER category budget (based on assigned turns)
             $categoryBudgetUsdForUser = round($userBudgetUsd * ($participationPct / 100), 2);

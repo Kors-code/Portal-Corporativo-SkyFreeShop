@@ -52,6 +52,7 @@ class ImportBatchController extends Controller
             }
 
             $this->deleteSalesForBatch((int) $batch->id);
+            $this->deleteStagedSalesForBatch((int) $batch->id);
 
             $deleted = DB::connection('budget')->table('import_batches')
                 ->where('id', $batch->id)
@@ -105,6 +106,7 @@ class ImportBatchController extends Controller
 
             foreach ($batches as $batch) {
                 $this->deleteSalesForBatch((int) $batch->id);
+                $this->deleteStagedSalesForBatch((int) $batch->id);
             }
 
             $deleted = DB::connection('budget')->table('import_batches')
@@ -175,18 +177,28 @@ class ImportBatchController extends Controller
 
     private function deleteSalesForBatch(int $batchId): void
     {
-        $saleIds = DB::connection('budget')->table('sales')
-            ->where('import_batch_id', $batchId)
-            ->pluck('id')
-            ->all();
-
-        if (!empty($saleIds) && Schema::connection('budget')->hasTable('commissions')) {
+        if (Schema::connection('budget')->hasTable('commissions')) {
             DB::connection('budget')->table('commissions')
-                ->whereIn('sale_id', $saleIds)
+                ->whereIn('sale_id', function ($query) use ($batchId) {
+                    $query->select('id')
+                        ->from('sales')
+                        ->where('import_batch_id', $batchId);
+                })
                 ->delete();
         }
 
         DB::connection('budget')->table('sales')
+            ->where('import_batch_id', $batchId)
+            ->delete();
+    }
+
+    private function deleteStagedSalesForBatch(int $batchId): void
+    {
+        if (!Schema::connection('budget')->hasTable('sales_import_staging')) {
+            return;
+        }
+
+        DB::connection('budget')->table('sales_import_staging')
             ->where('import_batch_id', $batchId)
             ->delete();
     }

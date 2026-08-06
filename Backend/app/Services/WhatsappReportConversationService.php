@@ -63,7 +63,7 @@ class WhatsappReportConversationService
         }
 
         if ($command === 'daily_executive') {
-            $this->sendDailyExecutiveReport($from, now('America/Bogota')->toDateString());
+            $this->sendDailyExecutiveReport($from, now('America/Bogota')->subDay()->toDateString());
             return;
         }
 
@@ -73,29 +73,36 @@ class WhatsappReportConversationService
         }
 
         if ($command === 'ask_date') {
-            $this->client->sendTextMessage($from, 'Escribe la fecha para Ventas Daily. Puedes usar 2026-08-03, 03/08, 3/8, hoy o ayer.');
+            $this->client->sendTextMessage($from, 'Escribe la fecha para el reporte bonito en formato YYYY-MM-DD. Ejemplo: 2026-07-20. Para un rango usa YYYY-MM-DD hasta YYYY-MM-DD. Ejemplo: 2026-07-01 hasta 2026-07-20. Tambien puedes escribir hoy o ayer.');
+            return;
+        }
+
+        if (preg_match('/^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/', $command, $matches)) {
+            $this->sendDailyExecutiveReport($from, $matches[1], $matches[2]);
             return;
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $command)) {
-            $this->sendStoreReport($from, $command);
+            $this->sendDailyExecutiveReport($from, $command);
             return;
         }
 
         $this->client->sendMenuTemplateMessage($from);
     }
 
-    private function sendDailyExecutiveReport(string $to, string $date): void
+    private function sendDailyExecutiveReport(string $to, string $date, ?string $endDate = null): void
     {
-        $request = Request::create('/', 'GET', [
-            'date' => $date,
-            'pdvs' => ['COLS1', 'COLS2'],
-        ]);
+        $payload = $endDate !== null
+            ? ['start_date' => $date, 'end_date' => $endDate]
+            : ['date' => $date];
+        $payload['pdvs'] = ['COLS1', 'COLS2'];
+
+        $request = Request::create('/', 'GET', $payload);
         $report = $this->visualizations->dailyWhatsappReportData($request);
 
         $this->sender->sendImageToNumbers(
             $this->dailyImages->make($report),
-            sprintf('Ventas acumuladas mes - %s', $report['date'] ?? $date),
+            sprintf('Ventas acumuladas mes - %s', $report['budget']['period']['end'] ?? $report['date'] ?? $endDate ?? $date),
             [$to]
         );
     }
@@ -129,14 +136,17 @@ class WhatsappReportConversationService
         );
     }
 
-    private function sendStoreReport(string $to, string $date): void
+    private function sendStoreReport(string $to, string $date, ?string $endDate = null): void
     {
-        $request = Request::create('/', 'GET', ['date' => $date]);
+        $payload = $endDate !== null
+            ? ['start_date' => $date, 'end_date' => $endDate]
+            : ['date' => $date];
+        $request = Request::create('/', 'GET', $payload);
         $report = $this->visualizations->storeSalesReportData($request);
 
         $this->sender->sendImageToNumbers(
             $this->storeImages->make($report),
-            sprintf('Ventas Daily - %s', $report['date']),
+            sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']),
             [$to]
         );
     }
@@ -167,6 +177,12 @@ class WhatsappReportConversationService
     private function normalizeCommand(string $value): string
     {
         $command = strtolower(trim($value));
+        $range = $this->dateRangeCommand($command);
+
+        if ($range !== null) {
+            return $range;
+        }
+
         $date = $this->dateCommand($command);
 
         if ($date !== null) {
@@ -185,6 +201,34 @@ class WhatsappReportConversationService
             'otra fecha', 'fecha', 'ask date' => 'ask_date',
             default => $command,
         };
+    }
+
+    private function dateRangeCommand(string $command): ?string
+    {
+        $command = trim($command);
+        $separator = '(?:\s+(?:hasta el|hasta|al|a|to)\s+|\s+[-–—]\s+)';
+
+        if (!preg_match('/^(.+?)' . $separator . '(.+)$/i', $command, $matches)) {
+            return null;
+        }
+
+        $start = $this->dateCommand(trim($matches[1]));
+        $end = $this->dateCommand(trim($matches[2]));
+
+        if ($start !== null && $end === null && preg_match('/^(?:el\s+)?(\d{1,2})$/', trim($matches[2]), $dayMatch)) {
+            $startDate = Carbon::parse($start, 'America/Bogota');
+            $end = $this->validDate((int) $startDate->format('Y'), (int) $startDate->format('m'), (int) $dayMatch[1]);
+        }
+
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        if ($start > $end) {
+            [$start, $end] = [$end, $start];
+        }
+
+        return "range:{$start}:{$end}";
     }
 
     private function dateCommand(string $command): ?string

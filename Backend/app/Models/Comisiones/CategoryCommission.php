@@ -19,6 +19,7 @@ protected $fillable = [
     'commission_percentage120',
     'participation_pct',
     'participation_value',
+    'particiaption_pct_sellers',
     'budget_id',
 ];
 

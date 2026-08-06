@@ -139,6 +139,27 @@ export default function CategoryCommissionsPage() {
     return fallbackBase > 0 ? normalizeParticipationValue(fallbackBase) : normalizeParticipationValue(current);
   };
 
+  const isSellerBudgetRole = () => roleId === 1;
+
+  const isAdvisorCategory = (row: CategoryWithCommission) => {
+    const code = String((row as any).code ?? '').trim().toLowerCase();
+    const name = String((row as any).name ?? '').trim().toLowerCase();
+    return code === '25' || code === '25.0' || name.includes('asesores especializados');
+  };
+
+  const getSellerAdjustedBudget = (rows: CategoryWithCommission[], fallbackBase = 0) => {
+    const globalBudget = fallbackBase > 0 ? fallbackBase : getBudgetTotal(budgetId);
+    if (!isSellerBudgetRole()) {
+      return globalBudget;
+    }
+
+    const advisorDiscount = rows.reduce((acc, row) => {
+      return isAdvisorCategory(row) ? acc + Number((row as any).participation_value ?? 0) : acc;
+    }, 0);
+
+    return Math.max(0, normalizeParticipationValue(globalBudget - advisorDiscount));
+  };
+
   /* =========================================================
    * Normalización: participation_value es la verdad,
    * participation_pct se deriva.
@@ -255,7 +276,7 @@ export default function CategoryCommissionsPage() {
       const globalBudget = getBudgetTotal(bId);
       const specialistBase = isSpecialistRole
         ? getRowsBaseBudget(filtered, Number(advisorBudgetOverride ?? 0) || globalBudget)
-        : globalBudget;
+        : getSellerAdjustedBudget(filtered, globalBudget);
 
       const withValues = normalizeRowsWithBase(filtered, specialistBase);
 
@@ -269,7 +290,7 @@ export default function CategoryCommissionsPage() {
         ? (advisorBudgetOverride && advisorBudgetOverride > 0
             ? advisorBudgetOverride
             : getRowsBaseBudget(withValues, 0))
-        : globalBudget;
+        : getSellerAdjustedBudget(withValues, globalBudget);
     } catch (err) {
       console.error('Error cargando categorias:', err);
       setItems([]);
@@ -349,7 +370,7 @@ export default function CategoryCommissionsPage() {
 
     const baseBudget = isSpecialistRole
       ? (advisorBudgetUsd > 0 ? advisorBudgetUsd : getRowsBaseBudget(items, 0))
-      : getBudgetTotal(budgetId);
+      : getSellerAdjustedBudget(items, getBudgetTotal(budgetId));
 
     if (baseBudget <= 0) return;
 
@@ -394,7 +415,7 @@ export default function CategoryCommissionsPage() {
       const fallback = advisorBudgetUsd > 0 ? advisorBudgetUsd : getRowsBaseBudget(items, 0);
       return normalizeParticipationValue(fallback);
     }
-    return getBudgetTotal(budgetId);
+    return getSellerAdjustedBudget(items, getBudgetTotal(budgetId));
   };
 
   const onChangeField = (categoryId: number, field: string, rawVal: string) => {
@@ -601,16 +622,21 @@ export default function CategoryCommissionsPage() {
   }, [items]);
 
   const totalParticipation = useMemo(() => {
-    const total = normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0);
+    const rowsForTotal = isSellerBudgetRole()
+      ? normalizedItems.filter((it) => !isAdvisorCategory(it))
+      : normalizedItems;
+    const total = rowsForTotal.reduce((acc, it) => acc + Number((it as any).participation_pct ?? 0), 0);
     return roundTo(total, PARTICIPATION_PCT_DECIMALS);
-  }, [normalizedItems]);
+  }, [normalizedItems, roleId]);
 
   const totalParticipationValue = useMemo(() => {
     const total = normalizedItems.reduce((acc, it) => acc + Number((it as any).participation_value ?? 0), 0);
     return normalizeParticipationValue(total);
   }, [normalizedItems]);
 
-  const visibleBaseBudget = isSpecialistRole ? advisorBudgetUsd : getBudgetTotal(budgetId);
+  const visibleBaseBudget = isSpecialistRole
+    ? advisorBudgetUsd
+    : getSellerAdjustedBudget(normalizedItems, getBudgetTotal(budgetId));
 
   /* =========================================================
    * Render
@@ -923,7 +949,7 @@ export default function CategoryCommissionsPage() {
                   )}
                 </div>
 
-                {isSpecialistRole ? (
+                  {isSpecialistRole ? (
                   <div className="mt-3">
                     <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
                       Presupuesto asesor
@@ -942,7 +968,7 @@ export default function CategoryCommissionsPage() {
                   </div>
                 ) : (
                   <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    Base actual: <strong>{formatUSD(getBudgetTotal(budgetId))}</strong>
+                    Base actual: <strong>{formatUSD(visibleBaseBudget)}</strong>
                   </div>
                 )}
               </div>

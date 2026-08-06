@@ -24,9 +24,26 @@ use Throwable;
 class ImportSalesController extends Controller
 {
 
-private function deletePreviousBatch($file)
+private function deletePreviousBatch($file, ?int $excludeBatchId = null)
 {
-        $originalName = $file->getClientOriginalName();
+        $originalName = is_string($file) ? $file : $file->getClientOriginalName();
+        $batches = $this->previousBatchesForFilename($originalName, $excludeBatchId);
+
+        if ($batches->isEmpty()) {
+            return;
+        }
+
+        DB::connection('budget')->transaction(function () use ($batches) {
+            foreach ($batches as $batch) {
+                $this->deleteSalesForBatch((int) $batch->id);
+                $this->deleteStagedSalesForBatch((int) $batch->id);
+                $batch->delete();
+            }
+        });
+    }
+
+    private function previousBatchesForFilename(string $originalName, ?int $excludeBatchId = null)
+    {
 
         /*
         SALES DFP COLOMBIA Marzo 2026.xlsx
@@ -42,7 +59,7 @@ private function deletePreviousBatch($file)
         $year = $matches[2] ?? null;
 
         if (!$monthName || !$year) {
-            return;
+            return collect();
         }
 
         $company = stripos($originalName, 'DFP') !== false
@@ -57,37 +74,146 @@ private function deletePreviousBatch($file)
             ->where('filename', 'LIKE', "%{$company}%")
             ->where('filename', 'LIKE', "%{$type}%")
             ->where('filename', 'LIKE', "%{$monthName}%")
-            ->where('filename', 'LIKE', "%{$year}%")
-            ->get();
+            ->where('filename', 'LIKE', "%{$year}%");
 
-        if ($batches->isEmpty()) {
-            return;
+        if ($excludeBatchId !== null) {
+            $batches->where('id', '<>', $excludeBatchId);
         }
 
-        DB::connection('budget')->transaction(function () use ($batches) {
-            foreach ($batches as $batch) {
-                $this->deleteSalesForBatch((int) $batch->id);
-                $batch->delete();
-            }
-        });
+        return $batches->get();
     }
 
     private function deleteSalesForBatch(int $batchId): void
     {
-        $saleIds = DB::connection('budget')->table('sales')
-            ->where('import_batch_id', $batchId)
-            ->pluck('id')
-            ->all();
-
-        if (!empty($saleIds) && Schema::connection('budget')->hasTable('commissions')) {
+        if (Schema::connection('budget')->hasTable('commissions')) {
             DB::connection('budget')->table('commissions')
-                ->whereIn('sale_id', $saleIds)
+                ->whereIn('sale_id', function ($query) use ($batchId) {
+                    $query->select('id')
+                        ->from('sales')
+                        ->where('import_batch_id', $batchId);
+                })
                 ->delete();
         }
 
         DB::connection('budget')->table('sales')
             ->where('import_batch_id', $batchId)
             ->delete();
+    }
+
+    private function deleteStagedSalesForBatch(int $batchId): void
+    {
+        if (!Schema::connection('budget')->hasTable('sales_import_staging')) {
+            return;
+        }
+
+        DB::connection('budget')->table('sales_import_staging')
+            ->where('import_batch_id', $batchId)
+            ->delete();
+    }
+
+    private function salesWriteTable(): string
+    {
+        return Schema::connection('budget')->hasTable('sales_import_staging')
+            ? 'sales_import_staging'
+            : 'sales';
+    }
+
+    private function publishSalesImportBatch(int $batchId): array
+    {
+        if (!Schema::connection('budget')->hasTable('sales_import_staging')) {
+            $batch = DB::connection('budget')->table('import_batches')->where('id', $batchId)->first();
+            $previousBatches = ($batch && (bool) ($batch->replace_existing ?? false))
+                ? $this->previousBatchesForFilename((string) $batch->filename, $batchId)
+                : collect();
+
+            DB::connection('budget')->transaction(function () use ($batchId, $batch, $previousBatches) {
+                foreach ($previousBatches as $previousBatch) {
+                    $this->deleteSalesForBatch((int) $previousBatch->id);
+                    DB::connection('budget')->table('import_batches')->where('id', $previousBatch->id)->delete();
+                }
+
+                $batchUpdate = [
+                    'status' => 'done',
+                    'published_at' => now(),
+                    'updated_at' => now(),
+                ];
+
+                if (!empty($batch?->source_checksum)) {
+                    $batchUpdate['checksum'] = $batch->source_checksum;
+                }
+
+                DB::connection('budget')->table('import_batches')
+                    ->where('id', $batchId)
+                    ->update($batchUpdate);
+            });
+
+            return ['published_rows' => null, 'deleted_batches' => $previousBatches->count(), 'mode' => 'direct_sales'];
+        }
+
+        $batch = DB::connection('budget')->table('import_batches')->where('id', $batchId)->first();
+
+        if (!$batch) {
+            throw new \RuntimeException("No existe el batch {$batchId} para publicar.");
+        }
+
+        $replaceExisting = (bool) ($batch->replace_existing ?? false);
+        $previousBatches = $replaceExisting
+            ? $this->previousBatchesForFilename((string) $batch->filename, $batchId)
+            : collect();
+
+        $salesColumns = Schema::connection('budget')->getColumnListing('sales');
+        $stagingColumns = Schema::connection('budget')->getColumnListing('sales_import_staging');
+        $columns = array_values(array_diff(array_intersect($salesColumns, $stagingColumns), ['id']));
+
+        if (empty($columns)) {
+            throw new \RuntimeException('No hay columnas compatibles para publicar ventas.');
+        }
+
+        $quotedColumns = implode(', ', array_map(fn ($column) => "`{$column}`", $columns));
+        $selectColumns = implode(', ', array_map(fn ($column) => "`{$column}`", $columns));
+
+        return DB::connection('budget')->transaction(function () use ($batchId, $batch, $previousBatches, $quotedColumns, $selectColumns) {
+            foreach ($previousBatches as $previousBatch) {
+                $this->deleteSalesForBatch((int) $previousBatch->id);
+                $this->deleteStagedSalesForBatch((int) $previousBatch->id);
+                DB::connection('budget')->table('import_batches')->where('id', $previousBatch->id)->delete();
+            }
+
+            DB::connection('budget')->statement(
+                "INSERT INTO `sales` ({$quotedColumns}) SELECT {$selectColumns} FROM `sales_import_staging` WHERE `import_batch_id` = ?",
+                [$batchId]
+            );
+
+            $publishedRows = (int) DB::connection('budget')->table('sales')
+                ->where('import_batch_id', $batchId)
+                ->count();
+
+            DB::connection('budget')->table('sales_import_staging')
+                ->where('import_batch_id', $batchId)
+                ->delete();
+
+            $batchUpdate = [
+                'status' => 'done',
+                'rows' => $publishedRows,
+                'note' => 'Importacion publicada',
+                'published_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if (!empty($batch->source_checksum)) {
+                $batchUpdate['checksum'] = $batch->source_checksum;
+            }
+
+            DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->update($batchUpdate);
+
+            return [
+                'published_rows' => $publishedRows,
+                'deleted_batches' => $previousBatches->count(),
+                'mode' => 'staging_publish',
+            ];
+        });
     }
 
     private function recalculateCommissionsForImportBatch(int $batchId): array
@@ -1059,14 +1185,9 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'message' => 'Archivo requerido'
             ], 422);
         }
-        if ($request->boolean('replace_existing')) {
-            $this->deletePreviousBatch(
-                $request->file('file')
-            );
-        }
-
         $file = $request->file('file');
         $selectedStoreId = (int) $request->store_id;
+        $replaceExisting = $request->boolean('replace_existing');
 
         $selectedStore = DB::connection('budget')->table('stores')
             ->select('id', 'code', 'name')
@@ -1080,7 +1201,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ->where('checksum', $checksum)
             ->first();
 
-        if ($existingBatch) {
+        if ($existingBatch && !$replaceExisting) {
             return response()->json([
                 'message' => 'Archivo ya importado',
                 'batch_id' => $existingBatch->id,
@@ -1089,10 +1210,12 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
         $batchId = DB::connection('budget')->table('import_batches')->insertGetId([
             'filename' => $file->getClientOriginalName(),
-            'checksum' => $checksum,
+            'checksum' => $replaceExisting ? 'pending:' . Str::uuid()->toString() : $checksum,
+            'source_checksum' => $checksum,
             'import_date' => now()->toDateString(),
             'rows' => 0,
             'status' => 'processing',
+            'replace_existing' => $replaceExisting,
             'note' => null,
             'created_at' => now(),
             'updated_at' => now(),
@@ -1468,7 +1591,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                         $processed++;
 
                         if (count($salesBuffer) >= 500) {
-                            DB::connection('budget')->table('sales')->insert($salesBuffer);
+                            DB::connection('budget')->table($this->salesWriteTable())->insert($salesBuffer);
                             $created['sales'] += count($salesBuffer);
                             $salesBuffer = [];
                         }
@@ -1490,7 +1613,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 }
 
                 if (!empty($salesBuffer)) {
-                    DB::connection('budget')->table('sales')->insert($salesBuffer);
+                    DB::connection('budget')->table($this->salesWriteTable())->insert($salesBuffer);
                     $created['sales'] += count($salesBuffer);
                     $salesBuffer = [];
                 }
@@ -1514,13 +1637,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             }
         }
 
-        DB::connection('budget')->table('import_batches')
-            ->where('id', $batchId)
-            ->update([
-                'status' => 'done',
-                'rows' => $created['sales'],
-                'updated_at' => now(),
-            ]);
+        $publication = $this->publishSalesImportBatch((int) $batchId);
 
         Log::info('IMPORT FINISHED', [
             'batch_id' => $batchId,
@@ -1546,6 +1663,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'created' => $created,
             'errors' => $errors,
             'batch_id' => $batchId,
+            'publication' => $publication,
             'roles_rectification' => $rolesRectification,
             'commission_recalc' => $commissionRecalc,
             'daily_whatsapp' => $whatsappReports,
@@ -1563,20 +1681,19 @@ protected function parseDate($value, string $context = 'sale'): ?string
             return $validationResponse;
         }
 
-        if ($request->boolean('replace_existing')) {
-            $this->deletePreviousBatch($request->file('file'));
-        }
-
         $file = $request->file('file');
         $selectedStoreId = (int) $request->store_id;
+        $replaceExisting = $request->boolean('replace_existing');
         $pendingChecksum = 'pending:' . Str::uuid()->toString();
 
         $batchId = DB::connection('budget')->table('import_batches')->insertGetId([
             'filename' => $file->getClientOriginalName(),
             'checksum' => $pendingChecksum,
+            'source_checksum' => null,
             'import_date' => now()->toDateString(),
             'rows' => 0,
             'status' => 'processing',
+            'replace_existing' => $replaceExisting,
             'note' => 'Preparando archivo de ventas',
             'created_at' => now(),
             'updated_at' => now(),
@@ -1601,7 +1718,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 ->where('id', '<>', $batchId)
                 ->first();
 
-            if ($existingBatch) {
+            if ($existingBatch && !$replaceExisting) {
                 Storage::delete($path);
 
                 DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
@@ -1619,7 +1736,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
             try {
                 DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
-                    'checksum' => $checksum,
+                    'checksum' => $replaceExisting ? $pendingChecksum : $checksum,
+                    'source_checksum' => $checksum,
                     'updated_at' => now(),
                 ]);
             } catch (Throwable $duplicateChecksumEx) {
@@ -1761,6 +1879,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'note' => $this->formatImportFailureNote($e),
                 'updated_at' => now(),
             ]);
+            $this->deleteStagedSalesForBatch($batchId);
             return response()->json(['message' => $e->getMessage()], 500);
         }
 
@@ -1784,11 +1903,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
 
         if ($done) {
-            DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
-                'status' => 'done',
-                'note' => 'Importacion completada por bloques',
-                'updated_at' => now(),
-            ]);
+            $publication = $this->publishSalesImportBatch($batchId);
             Storage::delete($data['path']);
             $totalRows = max(0, $absoluteHighestRow - 1);
             $whatsappReports = $this->trySendWhatsappReportsForImportBatch($batchId, $totalRows, $result);
@@ -1798,6 +1913,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             $rolesRectification = null;
             $commissionRecalc = null;
             $whatsappReports = null;
+            $publication = null;
             DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
                 'note' => "Ultimo chunk OK {$startRow}-{$lastRow}; siguiente fila {$nextRow}; {$timing['total_ms']} ms",
                 'updated_at' => now(),
@@ -1812,6 +1928,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             'total_rows' => max(0, $absoluteHighestRow - 1),
             'summary' => $result,
             'timing' => $timing,
+            'publication' => $publication,
             'roles_rectification' => $rolesRectification,
             'commission_recalc' => $commissionRecalc,
             'daily_whatsapp' => $whatsappReports,
@@ -1959,7 +2076,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
             }
 
             if (!empty($salesBuffer)) {
-                DB::connection('budget')->table('sales')->insert($salesBuffer);
+                DB::connection('budget')->table($this->salesWriteTable())->insert($salesBuffer);
                 $created['sales'] += count($salesBuffer);
             }
 
