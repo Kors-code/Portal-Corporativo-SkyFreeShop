@@ -26,9 +26,39 @@ export type BankImportBatch = {
   [key: string]: any;
 };
 
+export type BankMovementFilters = {
+  bank?: string;
+  batch_id?: number | string;
+  movement_date_from?: string;
+  movement_date_to?: string;
+  movement_month?: string;
+  deposit_date_from?: string;
+  deposit_date_to?: string;
+  search?: string;
+  per_page?: number;
+  page?: number;
+};
+
 export const getBankImports = async (params?: Record<string, any>) => {
   const res = await api.get("bank-imports", { params });
   return res.data;
+};
+
+export const getBankMovementsAudit = async () => {
+  const res = await api.get("bank-imports/movements/audit");
+  return res.data;
+};
+
+export const getBankMovements = async (params?: BankMovementFilters) => {
+  const res = await api.get("bank-imports/movements", { params });
+  return res.data;
+};
+
+export const exportBankMovements = async (params?: BankMovementFilters) => {
+  return api.get("bank-imports/movements/export", {
+    params,
+    responseType: "blob",
+  });
 };
 
 export const getBankImport = async (id: number) => {

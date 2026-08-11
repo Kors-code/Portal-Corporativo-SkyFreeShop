@@ -79,6 +79,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $Frontend "node_modules"))) {
 }
 
 $envValues = Read-DotEnv -Path $BackendEnv
+$databaseProfile = "local"
+if ($envValues.ContainsKey("DB_DATABASE_PROFILE") -and -not [string]::IsNullOrWhiteSpace($envValues["DB_DATABASE_PROFILE"])) {
+    $databaseProfile = $envValues["DB_DATABASE_PROFILE"].ToLowerInvariant()
+}
 
 if ($WithTunnel) {
     foreach ($required in @("VPS_SSH_HOST", "VPS_SSH_USER")) {
@@ -125,4 +129,8 @@ Write-Host "Local development URLs:" -ForegroundColor Cyan
 Write-Host "  Backend:  http://127.0.0.1:$BackendPort"
 Write-Host "  Frontend: http://127.0.0.1:$FrontendPort/panel/"
 Write-Host ""
-Write-Host "Database stays on the VPS. Use tools/test-vps-db.ps1 to verify Laravel can reach it." -ForegroundColor Cyan
+if ($databaseProfile -eq "vps") {
+    Write-Host "Database profile: VPS. Keep the SSH tunnel open and use tools/test-vps-db.ps1 to verify Laravel can reach it." -ForegroundColor Cyan
+} else {
+    Write-Host "Database profile: local. Change DB_DATABASE_PROFILE=vps in Backend\.env when you want to use the VPS again." -ForegroundColor Cyan
+}

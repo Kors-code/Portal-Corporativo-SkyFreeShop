@@ -156,6 +156,265 @@ class BankImportBatchController extends Controller
         ]);
     }
 
+    public function movementsAudit()
+    {
+        $summary = BankMovement::query()
+            ->select('bank')
+            ->selectRaw('COUNT(*) as rows_count')
+            ->selectRaw('COUNT(DISTINCT movement_uid) as unique_uids')
+            ->selectRaw("SUM(CASE WHEN movement_uid IS NULL OR movement_uid = '' THEN 1 ELSE 0 END) as missing_uid")
+            ->groupBy('bank')
+            ->orderBy('bank')
+            ->get();
+
+        $duplicateGroups = BankMovement::query()
+            ->select('bank', 'movement_uid')
+            ->selectRaw('COUNT(*) as duplicates_count')
+            ->whereNotNull('movement_uid')
+            ->groupBy('bank', 'movement_uid')
+            ->having('duplicates_count', '>', 1)
+            ->orderByDesc('duplicates_count')
+            ->limit(50)
+            ->get();
+
+        $indexRows = DB::connection('budget')
+            ->select("SHOW INDEX FROM bank_movements WHERE Key_name = 'bank_movements_bank_uid_unique'");
+
+        return response()->json([
+            'unique_index_exists' => count($indexRows) >= 2,
+            'unique_index_columns' => array_values(array_map(fn ($row) => $row->Column_name ?? null, $indexRows)),
+            'summary_by_bank' => $summary,
+            'duplicate_uid_groups' => $duplicateGroups,
+        ]);
+    }
+
+    public function movements(Request $request)
+    {
+        $validated = $request->validate([
+            'bank' => ['nullable', 'string', 'in:davibank,colpatria,davivienda,bancolombia,bancodebogota'],
+            'batch_id' => ['nullable', 'integer', 'exists:budget.bank_import_batches,id'],
+            'movement_date_from' => ['nullable', 'date'],
+            'movement_date_to' => ['nullable', 'date'],
+            'movement_month' => ['nullable', 'date_format:Y-m'],
+            'deposit_date_from' => ['nullable', 'date'],
+            'deposit_date_to' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:120'],
+            'per_page' => ['nullable', 'integer', 'min:10', 'max:200'],
+        ]);
+
+        $baseQuery = $this->movementFilterQuery($request);
+
+        $byMonth = $this->movementFilterQuery($request, true)
+            ->selectRaw("DATE_FORMAT(bank_movements.movement_date, '%Y-%m') as movement_month")
+            ->selectRaw('COUNT(*) as rows_count')
+            ->selectRaw('COUNT(DISTINCT bank_movements.movement_date) as days_count')
+            ->selectRaw('COUNT(DISTINCT bank_movements.bank) as banks_count')
+            ->selectRaw('SUM(sale_amount) as sale_amount')
+            ->selectRaw('SUM(commission_amount) as commission_amount')
+            ->selectRaw('SUM(withholding_amount) as withholding_amount')
+            ->selectRaw('SUM(income_amount) as income_amount')
+            ->selectRaw("SUM(CASE WHEN movement_type = 'debit' OR sale_amount < 0 OR income_amount < 0 OR category = 'refund' THEN 1 ELSE 0 END) as refund_count")
+            ->selectRaw("SUM(CASE WHEN category = 'acquisition' OR description LIKE '%ADQUIRE%' OR description LIKE '%APLICAD%' THEN 1 ELSE 0 END) as acquisition_count")
+            ->selectRaw("SUM(CASE WHEN movement_uid IS NULL OR movement_uid = '' THEN 1 ELSE 0 END) as missing_uid")
+            ->whereNotNull('bank_movements.movement_date')
+            ->whereRaw('YEAR(bank_movements.movement_date) BETWEEN 2020 AND 2100')
+            ->groupByRaw("DATE_FORMAT(bank_movements.movement_date, '%Y-%m')")
+            ->orderByDesc('movement_month')
+            ->limit(18)
+            ->get();
+
+        $totals = (clone $baseQuery)
+            ->selectRaw('COUNT(*) as rows_count')
+            ->selectRaw('SUM(sale_amount) as sale_amount')
+            ->selectRaw('SUM(commission_amount) as commission_amount')
+            ->selectRaw('SUM(withholding_amount) as withholding_amount')
+            ->selectRaw('SUM(income_amount) as income_amount')
+            ->selectRaw('SUM(debit_amount) as debit_amount')
+            ->selectRaw('SUM(credit_amount) as credit_amount')
+            ->first();
+
+        $byDay = (clone $baseQuery)
+            ->select('bank_movements.bank', 'bank_movements.movement_date')
+            ->selectRaw('COUNT(*) as rows_count')
+            ->selectRaw('SUM(sale_amount) as sale_amount')
+            ->selectRaw('SUM(commission_amount) as commission_amount')
+            ->selectRaw('SUM(withholding_amount) as withholding_amount')
+            ->selectRaw('SUM(income_amount) as income_amount')
+            ->selectRaw("SUM(CASE WHEN movement_type = 'debit' OR sale_amount < 0 OR income_amount < 0 OR category = 'refund' THEN 1 ELSE 0 END) as refund_count")
+            ->selectRaw("SUM(CASE WHEN category = 'acquisition' OR description LIKE '%ADQUIRE%' OR description LIKE '%APLICAD%' THEN 1 ELSE 0 END) as acquisition_count")
+            ->selectRaw("SUM(CASE WHEN movement_uid IS NULL OR movement_uid = '' THEN 1 ELSE 0 END) as missing_uid")
+            ->whereNotNull('bank_movements.movement_date')
+            ->whereRaw('YEAR(bank_movements.movement_date) BETWEEN 2020 AND 2100')
+            ->groupBy('bank_movements.bank', 'bank_movements.movement_date')
+            ->orderByDesc('bank_movements.movement_date')
+            ->limit(120)
+            ->get();
+
+        $byBank = (clone $baseQuery)
+            ->select('bank_movements.bank')
+            ->selectRaw('COUNT(*) as rows_count')
+            ->selectRaw('COUNT(DISTINCT movement_uid) as unique_uids')
+            ->selectRaw("SUM(CASE WHEN movement_uid IS NULL OR movement_uid = '' THEN 1 ELSE 0 END) as missing_uid")
+            ->selectRaw('SUM(sale_amount) as sale_amount')
+            ->selectRaw('SUM(commission_amount) as commission_amount')
+            ->selectRaw('SUM(withholding_amount) as withholding_amount')
+            ->selectRaw('SUM(income_amount) as income_amount')
+            ->groupBy('bank_movements.bank')
+            ->orderBy('bank_movements.bank')
+            ->get();
+
+        $movements = (clone $baseQuery)
+            ->select([
+                'bank_movements.id',
+                'bank_movements.batch_id',
+                'bank_movements.bank',
+                'bank_movements.movement_uid',
+                'bank_movements.row_number',
+                'bank_movements.movement_date',
+                'bank_movements.process_date',
+                'bank_movements.deposit_date',
+                'bank_movements.account_number',
+                'bank_movements.transaction_code',
+                'bank_movements.reference',
+                'bank_movements.receipt_number',
+                'bank_movements.authorization_number',
+                'bank_movements.terminal',
+                'bank_movements.network',
+                'bank_movements.card_type',
+                'bank_movements.card_last_digits',
+                'bank_movements.description',
+                'bank_movements.movement_type',
+                'bank_movements.category',
+                'bank_movements.sale_amount',
+                'bank_movements.commission_amount',
+                'bank_movements.withholding_amount',
+                'bank_movements.income_amount',
+                'bank_movements.net_amount',
+                'bank_import_batches.filename',
+            ])
+            ->orderByDesc('bank_movements.movement_date')
+            ->orderByDesc('bank_movements.id')
+            ->paginate((int) ($validated['per_page'] ?? 50));
+
+        return response()->json([
+            'data' => $movements->items(),
+            'meta' => [
+                'current_page' => $movements->currentPage(),
+                'last_page' => $movements->lastPage(),
+                'per_page' => $movements->perPage(),
+                'total' => $movements->total(),
+            ],
+            'totals' => $totals,
+            'by_month' => $byMonth,
+            'by_day' => $byDay,
+            'by_bank' => $byBank,
+        ]);
+    }
+
+    public function exportMovements(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $request->validate([
+            'bank' => ['nullable', 'string', 'in:davibank,colpatria,davivienda,bancolombia,bancodebogota'],
+            'batch_id' => ['nullable', 'integer', 'exists:budget.bank_import_batches,id'],
+            'movement_date_from' => ['nullable', 'date'],
+            'movement_date_to' => ['nullable', 'date'],
+            'movement_month' => ['nullable', 'date_format:Y-m'],
+            'deposit_date_from' => ['nullable', 'date'],
+            'deposit_date_to' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $query = $this->movementFilterQuery($request)
+            ->select([
+                'bank_movements.bank',
+                'bank_movements.movement_uid',
+                'bank_movements.movement_date',
+                'bank_movements.process_date',
+                'bank_movements.deposit_date',
+                'bank_movements.account_number',
+                'bank_movements.transaction_code',
+                'bank_movements.reference',
+                'bank_movements.receipt_number',
+                'bank_movements.authorization_number',
+                'bank_movements.terminal',
+                'bank_movements.card_type',
+                'bank_movements.card_last_digits',
+                'bank_movements.description',
+                'bank_movements.movement_type',
+                'bank_movements.sale_amount',
+                'bank_movements.commission_amount',
+                'bank_movements.withholding_amount',
+                'bank_movements.income_amount',
+                'bank_movements.net_amount',
+                'bank_import_batches.filename',
+            ])
+            ->orderBy('bank_movements.bank')
+            ->orderBy('bank_movements.movement_date')
+            ->orderBy('bank_movements.id');
+
+        $filename = 'movimientos_bancarios_' . now('America/Bogota')->format('Ymd_His') . '.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $handle = fopen('php://output', 'wb');
+            $dateText = fn ($value): string => $value instanceof \DateTimeInterface ? $value->format('Y-m-d') : (string) ($value ?? '');
+            fputcsv($handle, [
+                'Banco',
+                'UID',
+                'Fecha movimiento',
+                'Fecha proceso',
+                'Fecha deposito',
+                'Cuenta',
+                'Codigo',
+                'Referencia',
+                'Recibo',
+                'Autorizacion',
+                'Terminal',
+                'Tipo tarjeta',
+                'Ultimos digitos',
+                'Descripcion',
+                'Tipo movimiento',
+                'Venta',
+                'Comision',
+                'Retencion',
+                'Ingreso',
+                'Neto',
+                'Archivo',
+            ]);
+
+            $query->chunk(500, function ($rows) use ($handle): void {
+                foreach ($rows as $row) {
+                    fputcsv($handle, [
+                        $row->bank,
+                        $row->movement_uid,
+                        $dateText($row->movement_date),
+                        $dateText($row->process_date),
+                        $dateText($row->deposit_date),
+                        $row->account_number,
+                        $row->transaction_code,
+                        $row->reference,
+                        $row->receipt_number,
+                        $row->authorization_number,
+                        $row->terminal,
+                        $row->card_type,
+                        $row->card_last_digits,
+                        $row->description,
+                        $row->movement_type,
+                        $row->sale_amount,
+                        $row->commission_amount,
+                        $row->withholding_amount,
+                        $row->income_amount,
+                        $row->net_amount,
+                        $row->filename,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     public function exportDavibank(Request $request, int $id, DavibankConverterService $converter): BinaryFileResponse
     {
         $validated = $request->validate([
@@ -286,6 +545,60 @@ class BankImportBatchController extends Controller
                 'detail' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function movementFilterQuery(Request $request, bool $ignoreMovementDates = false)
+    {
+        $query = BankMovement::query()
+            ->leftJoin('bank_import_batches', 'bank_import_batches.id', '=', 'bank_movements.batch_id');
+
+        if ($request->filled('bank')) {
+            $query->where('bank_movements.bank', $request->string('bank')->toString());
+        }
+
+        if ($request->filled('batch_id')) {
+            $query->where('bank_movements.batch_id', (int) $request->input('batch_id'));
+        }
+
+        if (! $ignoreMovementDates) {
+            if ($request->filled('movement_date_from')) {
+                $query->whereDate('bank_movements.movement_date', '>=', $request->date('movement_date_from'));
+            }
+
+            if ($request->filled('movement_date_to')) {
+                $query->whereDate('bank_movements.movement_date', '<=', $request->date('movement_date_to'));
+            }
+
+            if (! $request->filled('movement_date_from') && ! $request->filled('movement_date_to') && $request->filled('movement_month')) {
+                $month = \Carbon\Carbon::createFromFormat('Y-m', $request->string('movement_month')->toString());
+                $query->whereDate('bank_movements.movement_date', '>=', $month->copy()->startOfMonth()->toDateString())
+                    ->whereDate('bank_movements.movement_date', '<=', $month->copy()->endOfMonth()->toDateString());
+            }
+        }
+
+        if ($request->filled('deposit_date_from')) {
+            $query->whereDate('bank_movements.deposit_date', '>=', $request->date('deposit_date_from'));
+        }
+
+        if ($request->filled('deposit_date_to')) {
+            $query->whereDate('bank_movements.deposit_date', '<=', $request->date('deposit_date_to'));
+        }
+
+        if ($request->filled('search')) {
+            $search = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $request->string('search')->toString()) . '%';
+            $query->where(function ($inner) use ($search): void {
+                $inner->where('bank_movements.movement_uid', 'like', $search)
+                    ->orWhere('bank_movements.reference', 'like', $search)
+                    ->orWhere('bank_movements.receipt_number', 'like', $search)
+                    ->orWhere('bank_movements.authorization_number', 'like', $search)
+                    ->orWhere('bank_movements.terminal', 'like', $search)
+                    ->orWhere('bank_movements.card_last_digits', 'like', $search)
+                    ->orWhere('bank_movements.description', 'like', $search)
+                    ->orWhere('bank_import_batches.filename', 'like', $search);
+            });
+        }
+
+        return $query;
     }
 
     private function deletePhysicalFile(?string $storedPath, ?string $filename): void

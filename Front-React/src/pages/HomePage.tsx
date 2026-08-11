@@ -33,6 +33,7 @@ export default function HomePage() {
       title: "Contabilidad",
       items: [
         { title: "Bancos", to: "/BankImportsManagerPage", description: "Historial de importaciones bancarias" },
+        { title: "Movimientos bancarios", to: "/BankMovementsPage", description: "UID, filtros por banco, dias y descarga CSV" },
       ],
     },
     {

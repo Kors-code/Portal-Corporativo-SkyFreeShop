@@ -63,7 +63,7 @@ export default function AdvisorSalesDashboard() {
       setError("");
       setMessage("");
       const result = await sendAdvisorSalesWhatsappReport({ date });
-      setMessage(result.message || "Reporte encolado para WhatsApp.");
+      setMessage(result.message || "Reporte enviado a WhatsApp.");
     } catch (err) {
       console.error(err);
       setError("No se pudo enviar a WhatsApp. Revisa que el servicio este conectado.");
@@ -100,7 +100,7 @@ export default function AdvisorSalesDashboard() {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             <Send size={16} />
-            {sending ? "Encolando..." : "WhatsApp numero"}
+            {sending ? "Enviando..." : "Enviar a WhatsApp"}
           </button>
         </div>
       </section>
@@ -143,9 +143,9 @@ export default function AdvisorSalesDashboard() {
           </label>
 
           <div className="mt-4 rounded-lg bg-slate-50 p-3">
-            <div className="text-xs font-black uppercase tracking-wide text-slate-500">Programacion</div>
-            <div className="mt-2 text-2xl font-black text-slate-950">23:59</div>
-            <div className="mt-1 text-sm font-bold text-slate-500">Envio automatico diario</div>
+            <div className="text-xs font-black uppercase tracking-wide text-slate-500">WhatsApp</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">Manual</div>
+            <div className="mt-1 text-sm font-bold text-slate-500">Usa el boton superior para enviar el reporte seleccionado.</div>
           </div>
         </div>
 

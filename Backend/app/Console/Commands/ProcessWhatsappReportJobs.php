@@ -169,7 +169,7 @@ class ProcessWhatsappReportJobs extends Command
 
             return [[
                 'bytes' => $storeImages->make($report),
-                'caption' => sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']),
+                'caption' => sprintf('Daily Sales - %s', $report['date_label'] ?? $report['date']),
             ]];
         }
 
@@ -178,7 +178,7 @@ class ProcessWhatsappReportJobs extends Command
 
             return [[
                 'bytes' => $advisorImages->make($report),
-                'caption' => sprintf('Ventas por asesor - %s', $report['date']),
+                'caption' => sprintf('Advisor Sales - %s', $report['date']),
             ]];
         }
 

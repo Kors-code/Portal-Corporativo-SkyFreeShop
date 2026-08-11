@@ -102,7 +102,7 @@ class WhatsappReportConversationService
 
         $this->sender->sendImageToNumbers(
             $this->dailyImages->make($report),
-            sprintf('Ventas acumuladas mes - %s', $report['budget']['period']['end'] ?? $report['date'] ?? $endDate ?? $date),
+            sprintf('Month-to-date Sales - %s', $report['budget']['period']['end'] ?? $report['date'] ?? $endDate ?? $date),
             [$to]
         );
     }
@@ -131,7 +131,7 @@ class WhatsappReportConversationService
 
         $this->sender->sendImageToNumbers(
             $this->advisorImages->make($report),
-            sprintf('Ventas por asesor - %s', $report['date']),
+            sprintf('Advisor Sales - %s', $report['date']),
             [$to]
         );
     }
@@ -146,7 +146,7 @@ class WhatsappReportConversationService
 
         $this->sender->sendImageToNumbers(
             $this->storeImages->make($report),
-            sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']),
+            sprintf('Daily Sales - %s', $report['date_label'] ?? $report['date']),
             [$to]
         );
     }

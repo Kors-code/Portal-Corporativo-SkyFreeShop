@@ -67,7 +67,7 @@ export default function StoreSalesDashboard() {
       setError("");
       setMessage("");
       const result = await sendStoreSalesWhatsappReport({ date });
-      setMessage(result.message || "Reporte encolado para WhatsApp.");
+      setMessage(result.message || "Reporte enviado a WhatsApp.");
     } catch (err) {
       console.error(err);
       setError("No se pudo enviar a WhatsApp. Revisa que el servicio este conectado.");
@@ -105,7 +105,7 @@ export default function StoreSalesDashboard() {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             <Send size={16} />
-            {sending ? "Encolando..." : "WhatsApp numero"}
+            {sending ? "Enviando..." : "Enviar a WhatsApp"}
           </button>
         </div>
       </section>

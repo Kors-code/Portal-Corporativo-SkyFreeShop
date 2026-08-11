@@ -168,7 +168,7 @@ export async function sendDailyWhatsappReport(params: {
   pdvs?: string[];
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/daily-whatsapp/queue",
+    "/visualizaciones/daily-whatsapp/send-to-recipients",
     {},
     { params }
   );
@@ -191,7 +191,7 @@ export async function sendStoreSalesWhatsappReport(params: {
   date?: string;
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/ventas-tiendas/whatsapp/queue",
+    "/visualizaciones/ventas-tiendas/whatsapp/send",
     {},
     { params }
   );
@@ -214,7 +214,7 @@ export async function sendAdvisorSalesWhatsappReport(params: {
   date?: string;
 }): Promise<{ ok: boolean; message: string }> {
   const response = await api.post<{ ok: boolean; message: string }>(
-    "/visualizaciones/ventas-asesores/whatsapp/queue",
+    "/visualizaciones/ventas-asesores/whatsapp/send",
     {},
     { params }
   );

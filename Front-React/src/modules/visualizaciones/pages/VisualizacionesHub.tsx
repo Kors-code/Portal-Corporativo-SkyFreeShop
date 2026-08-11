@@ -3,25 +3,25 @@ import { Link } from "react-router-dom";
 
 const dashboards = [
   {
-    title: "Daily",
-    description: "Indicadores diarios de ventas, clientes, tickets y productos para monitorear el desempeño de cada tienda en tiempo real.",
-    to: "/visualizaciones/cierre-caja",
+    title: "Daily Sales",
+    description: "Budget tracking, store filters, date ranges, daily compliance, and WhatsApp delivery.",
+    to: "/visualizaciones/daily-sales",
     icon: BarChart3,
-    status: "Disponible",
+    status: "Available",
   },
   {
-    title: "Ventas por tiendas",
-    description: "Resumen ejecutivo diario de arrivals y departures con ventas, transacciones, ticket promedio y unidades por ticket.",
+    title: "Store Sales",
+    description: "Daily Arrivals + Departures summary with sales, transactions, average ticket, and units per ticket.",
     to: "/visualizaciones/ventas-tiendas",
     icon: TrendingUp,
-    status: "Prueba",
+    status: "Available",
   },
   {
-    title: "Ventas por asesor",
-    description: "Cierre diario por asesor con ventas, transacciones, ticket promedio y unidades por ticket para envio de fin de dia.",
+    title: "Advisor Sales",
+    description: "Daily advisor ranking with sales, transactions, average ticket, and units per ticket.",
     to: "/visualizaciones/ventas-asesores",
     icon: CalendarDays,
-    status: "23:59",
+    status: "Available",
   },
 ];
 
@@ -31,16 +31,16 @@ export default function VisualizacionesHub() {
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizaciones</p>
-            <h1 className="mt-2 text-3xl font-black text-slate-950">Hub de tableros</h1>
+            <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizations</p>
+            <h1 className="mt-2 text-3xl font-black text-slate-950">Dashboard Hub</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Accesos ejecutivos para consultar indicadores, cierres y lecturas diarias sin mezclar configuraciones
-              operativas con tableros de seguimiento.
+              Executive dashboards for reviewing sales indicators and daily performance without mixing operational setup
+              with reporting views.
             </p>
           </div>
 
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary">
-            Acceso para super admin y lideres
+            Access for super admin and leaders
           </div>
         </div>
       </section>
@@ -48,7 +48,7 @@ export default function VisualizacionesHub() {
       <section>
         <div className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-700">
           <TrendingUp size={18} className="text-primary" />
-          Tableros disponibles
+          Available Dashboards
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -76,10 +76,10 @@ export default function VisualizacionesHub() {
                 <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-400">
                     <CalendarDays size={14} />
-                    Diario
+                    Daily
                   </div>
                   <div className="inline-flex items-center gap-2 text-sm font-bold text-primary">
-                    Abrir
+                    Open
                     <ChevronRight size={17} className="transition group-hover:translate-x-1" />
                   </div>
                 </div>
@@ -91,10 +91,9 @@ export default function VisualizacionesHub() {
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm">
               <LockKeyhole size={21} />
             </div>
-            <h2 className="mt-5 text-xl font-black text-slate-800">Proximos tableros</h2>
+            <h2 className="mt-5 text-xl font-black text-slate-800">Next Dashboards</h2>
             <p className="mt-2 text-sm leading-6">
-              Este espacio queda listo para agregar inventario, ventas por tienda, cumplimiento por lider o cierres por
-              cajero cuando los necesitemos.
+              This area is ready for inventory, leader compliance, or cashier dashboards when needed.
             </p>
           </div>
         </div>

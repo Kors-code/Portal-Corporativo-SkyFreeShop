@@ -78,6 +78,7 @@ export default function AppRouter() {
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/inventarios/alertas" element={<InventoryAlertsPage />} />
           <Route path="/visualizaciones" element={<VisualizacionesGuard><VisualizacionesHub /></VisualizacionesGuard>} />
+          <Route path="/visualizaciones/daily-sales" element={<VisualizacionesGuard><CashClosureDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/cierre-caja" element={<VisualizacionesGuard><CashClosureDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/ventas-tiendas" element={<VisualizacionesGuard><StoreSalesDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/ventas-asesores" element={<VisualizacionesGuard><AdvisorSalesDashboard /></VisualizacionesGuard>} />
@@ -99,6 +100,7 @@ export default function AppRouter() {
 
           <Route path="/InventoryImportsManagerPage" element={<InventoryImportsManagerPage />} />
           <Route path="/BankImportsManagerPage" element={<BankImportsManagerPage />} />
+          <Route path="/BankMovementsPage" element={<BankImportsManagerPage initialView="movements" />} />
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />

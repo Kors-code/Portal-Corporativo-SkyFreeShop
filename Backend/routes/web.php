@@ -713,6 +713,12 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:accounting.bank-imports.view,imports.create');
         Route::post('bank-imports/import', [BankImportBatchController::class, 'import'])
             ->middleware('permission:accounting.bank-imports.create,imports.create');
+        Route::get('bank-imports/movements/audit', [BankImportBatchController::class, 'movementsAudit'])
+            ->middleware('permission:accounting.bank-imports.view,imports.create');
+        Route::get('bank-imports/movements/export', [BankImportBatchController::class, 'exportMovements'])
+            ->middleware('permission:accounting.bank-imports.export,imports.manage');
+        Route::get('bank-imports/movements', [BankImportBatchController::class, 'movements'])
+            ->middleware('permission:accounting.bank-imports.view,imports.create');
         Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show'])
             ->middleware('permission:accounting.bank-imports.view,imports.manage');
         Route::get('bank-imports/{id}/export', [BankImportBatchController::class, 'export'])
@@ -752,6 +758,8 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/panel/BankImportsManagerPage', fn () => view('panel'))
         ->middleware(['permission:accounting.bank-imports.view,imports.create']);
+    Route::get('/panel/BankMovementsPage', fn () => view('panel'))
+        ->middleware(['permission:accounting.bank-imports.view,imports.create']);
 
     Route::get('/panel/budget', fn () => view('panel'))
         ->middleware(['permission:budget.admin.view']);
@@ -789,6 +797,9 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/visualizaciones/cierre-caja', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/visualizaciones/daily-sales', fn () => view('panel'))
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/visualizaciones/ventas-tiendas', fn () => view('panel'))

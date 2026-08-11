@@ -132,6 +132,12 @@ Route::get('/v1/ping', function () {
         ->middleware('permission:accounting.bank-imports.view,imports.create');
     Route::post('bank-imports/import', [BankImportBatchController::class, 'import'])
         ->middleware('permission:accounting.bank-imports.create,imports.create');
+    Route::get('bank-imports/movements/audit', [BankImportBatchController::class, 'movementsAudit'])
+        ->middleware('permission:accounting.bank-imports.view,imports.create');
+    Route::get('bank-imports/movements/export', [BankImportBatchController::class, 'exportMovements'])
+        ->middleware('permission:accounting.bank-imports.export,imports.manage');
+    Route::get('bank-imports/movements', [BankImportBatchController::class, 'movements'])
+        ->middleware('permission:accounting.bank-imports.view,imports.create');
     Route::get('bank-imports/{id}', [BankImportBatchController::class, 'show'])
         ->middleware('permission:accounting.bank-imports.view,imports.manage');
     Route::get('bank-imports/{id}/export', [BankImportBatchController::class, 'export'])

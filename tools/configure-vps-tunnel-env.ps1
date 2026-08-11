@@ -75,6 +75,8 @@ $values = @{
     APP_DEBUG = "true"
     APP_URL = "http://127.0.0.1:8000"
 
+    DB_DATABASE_PROFILE = "vps"
+
     DB_CONNECTION = "mysql"
     DB_HOST = "127.0.0.1"
     DB_PORT = [string] $LocalDbPort
@@ -94,6 +96,24 @@ $values = @{
     DB_BUDGET_DATABASE = $BudgetDbName
     DB_BUDGET_USERNAME = $BudgetDbUser
     DB_BUDGET_PASSWORD = $BudgetDbPassword
+
+    DB_VPS_HOST = "127.0.0.1"
+    DB_VPS_PORT = [string] $LocalDbPort
+    DB_VPS_DATABASE = $MainDbName
+    DB_VPS_USERNAME = $MainDbUser
+    DB_VPS_PASSWORD = $MainDbPassword
+
+    DB_SECOND_VPS_HOST = "127.0.0.1"
+    DB_SECOND_VPS_PORT = [string] $LocalDbPort
+    DB_SECOND_VPS_DATABASE = $PersonalDbName
+    DB_SECOND_VPS_USERNAME = $PersonalDbUser
+    DB_SECOND_VPS_PASSWORD = $PersonalDbPassword
+
+    DB_BUDGET_VPS_HOST = "127.0.0.1"
+    DB_BUDGET_VPS_PORT = [string] $LocalDbPort
+    DB_BUDGET_VPS_DATABASE = $BudgetDbName
+    DB_BUDGET_VPS_USERNAME = $BudgetDbUser
+    DB_BUDGET_VPS_PASSWORD = $BudgetDbPassword
 
     SESSION_DRIVER = "file"
     CACHE_STORE = "file"

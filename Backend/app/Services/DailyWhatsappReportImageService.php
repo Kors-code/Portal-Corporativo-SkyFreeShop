@@ -13,14 +13,14 @@ class DailyWhatsappReportImageService
         $images = [
             [
                 'bytes' => $this->makeExecutive($report),
-                'caption' => $this->caption($report, 'Resumen ejecutivo'),
+                'caption' => $this->caption($report, 'Executive summary'),
             ],
         ];
 
         foreach ($this->makeDailyTablePages($report) as $index => $bytes) {
             $images[] = [
                 'bytes' => $bytes,
-                'caption' => $this->caption($report, 'Detalle diario ' . ($index + 1)),
+                'caption' => $this->caption($report, 'Daily breakdown ' . ($index + 1)),
             ];
         }
 
@@ -70,17 +70,17 @@ class DailyWhatsappReportImageService
         $unitsPerTicket = $totalTrx > 0 ? $totalUnits / $totalTrx : 0;
         $forecast = $avgDaily * $this->daysInMonth($periodStart);
 
-        $this->header($image, $budget['name'] ?? 'Presupuesto activo', $periodStart, $periodEnd, $this->updatedAtLabel($report));
+        $this->header($image, $this->englishBudgetName((string) ($budget['name'] ?? 'Active budget')), $periodStart, $periodEnd, $this->updatedAtLabel($report));
 
         $kpis = [
-            ['Budget daily', $this->usd($budgetDaily), 'Meta diaria', $this->colors['primary']],
-            ['Ventas reales rango', $this->usd($totalSales), number_format($project, 1, ',', '.') . '% del esperado', $this->colors['green']],
-            ['Diff budget', $this->usd($diffBudget), $diffBudget >= 0 ? 'Sobre meta' : 'Por recuperar', $diffBudget >= 0 ? $this->colors['green'] : $this->colors['red']],
-            ['Promedio diario', $this->usd($avgDaily), number_format($totalTrx, 0, ',', '.') . ' transacciones', $this->colors['blue']],
-            ['Sales forecast', $this->usd($forecast), 'Promedio diario por mes', $this->colors['blue']],
-            ['Ticket promedio', $this->usd($avgTicket), 'Ventas rango / transacciones', $this->colors['primary']],
-            ['Transacciones promedio', number_format($avgTrx, 1, ',', '.'), 'Transacciones / dias vendidos', $this->colors['ink']],
-            ['Unidades por ticket', number_format($unitsPerTicket, 1, ',', '.'), 'Unidades totales / tickets', $this->colors['primary']],
+            ['Daily budget', $this->usd($budgetDaily), 'Daily target', $this->colors['primary']],
+            ['Actual sales range', $this->usd($totalSales), number_format($project, 1, ',', '.') . '% of expected', $this->colors['green']],
+            ['Budget variance', $this->usd($diffBudget), $diffBudget >= 0 ? 'Above target' : 'To recover', $diffBudget >= 0 ? $this->colors['green'] : $this->colors['red']],
+            ['Daily average', $this->usd($avgDaily), number_format($totalTrx, 0, ',', '.') . ' transactions', $this->colors['blue']],
+            ['Sales forecast', $this->usd($forecast), 'Monthly daily average', $this->colors['blue']],
+            ['Average ticket', $this->usd($avgTicket), 'Range sales / transactions', $this->colors['primary']],
+            ['Average transactions', number_format($avgTrx, 1, ',', '.'), 'Transactions / sales days', $this->colors['ink']],
+            ['Units per ticket', number_format($unitsPerTicket, 1, ',', '.'), 'Total units / tickets', $this->colors['primary']],
         ];
 
         $this->drawKpis($image, $kpis);
@@ -133,10 +133,10 @@ class DailyWhatsappReportImageService
 
             imagefilledrectangle($image, 0, 0, $width, $height, $this->colors['bg']);
             $this->card($image, 50, 35, 1400, 95);
-            $this->text($image, 'Detalle diario', 82, 78, 30, $this->colors['ink'], true);
-            $this->text($image, 'Project es el cumplimiento contra Budget daily', 82, 108, 14, $this->colors['muted'], false);
+            $this->text($image, 'Daily Breakdown', 82, 78, 30, $this->colors['ink'], true);
+            $this->text($image, 'Project is compliance against daily budget', 82, 108, 14, $this->colors['muted'], false);
             $this->text($image, $this->updatedAtLabel($report), 82, 126, 12, $this->colors['muted'], true);
-            $this->text($image, 'Pagina ' . ($pageIndex + 1) . ' de ' . $totalPages, 1245, 92, 16, $this->colors['muted'], true);
+            $this->text($image, 'Page ' . ($pageIndex + 1) . ' of ' . $totalPages, 1245, 92, 16, $this->colors['muted'], true);
 
             $this->drawDailyTable(
                 $image,
@@ -169,7 +169,7 @@ class DailyWhatsappReportImageService
     {
         $this->card($image, 50, 35, 1400, 105);
         $this->text($image, 'SKY FREE SHOP', 82, 75, 19, $this->colors['primary'], true);
-        $this->text($image, 'WhatsApp Daily - Reporte diario', 82, 112, 30, $this->colors['ink'], true);
+        $this->text($image, 'WhatsApp Daily - Daily Report', 82, 112, 30, $this->colors['ink'], true);
         $this->text($image, $this->truncate((string) $budgetName, 46), 950, 78, 18, $this->colors['ink'], true);
         $this->text($image, $start . ' / ' . $end, 950, 112, 18, $this->colors['muted'], false);
         $this->text($image, $updatedAtLabel, 950, 133, 12, $this->colors['primary'], true);
@@ -207,7 +207,7 @@ class DailyWhatsappReportImageService
             $w,
             $h,
             'PROJECT',
-            'Cumplimiento proyectado contra presupuesto',
+            'Projected compliance against budget',
             $project
         );
     }
@@ -220,8 +220,8 @@ class DailyWhatsappReportImageService
             $y,
             $w,
             $h,
-            'COMPLETADO BUDGET',
-            'Ventas reales rango / Presupuesto total del mes',
+            'BUDGET COMPLETION',
+            'Actual range sales / Total monthly budget',
             $completedBudget
         );
     }
@@ -256,7 +256,7 @@ class DailyWhatsappReportImageService
         imagefilledrectangle($image, $tableX, $tableY, $tableX + $tableW, $tableY + $headerH, $this->colors['ink']);
 
         $cols = [
-            ['DIA', 14, 'left'],
+            ['DAY', 14, 'left'],
             ['WEEKDAY', 85, 'left'],
             ['SALES', 350, 'right'],
             ['BUDGET DAILY', 535, 'right'],
@@ -313,8 +313,8 @@ class DailyWhatsappReportImageService
     private function drawDailyChart($image, int $x, int $y, int $w, int $h, array $rows): void
     {
         $this->card($image, $x, $y, $w, $h);
-        $this->text($image, 'Cumplimiento diario', $x + 22, $y + 34, 20, $this->colors['ink'], true);
-        $this->text($image, 'Ventas vs Budget daily', $x + 22, $y + 58, 12, $this->colors['muted'], false);
+        $this->text($image, 'Daily Compliance', $x + 22, $y + 34, 20, $this->colors['ink'], true);
+        $this->text($image, 'Sales vs daily budget', $x + 22, $y + 58, 12, $this->colors['muted'], false);
 
         $chartX = $x + 92;
         $chartY = $y + 92;
@@ -354,12 +354,12 @@ class DailyWhatsappReportImageService
     private function drawCategories($image, int $x, int $y, int $w, int $h, array $rows): void
     {
         $this->card($image, $x, $y, $w, $h);
-        $this->text($image, 'Categorias', $x + 22, $y + 34, 20, $this->colors['ink'], true);
-        $this->text($image, 'Mix del periodo seleccionado', $x + 22, $y + 58, 12, $this->colors['muted'], false);
+        $this->text($image, 'Categories', $x + 22, $y + 34, 20, $this->colors['ink'], true);
+        $this->text($image, 'Selected period mix', $x + 22, $y + 58, 12, $this->colors['muted'], false);
 
         $rows = array_slice(array_values($rows), 0, 7);
         if (!$rows) {
-            $this->text($image, 'Sin categorias para mostrar.', $x + 22, $y + 130, 14, $this->colors['muted'], false);
+            $this->text($image, 'No categories to display.', $x + 22, $y + 130, 14, $this->colors['muted'], false);
             return;
         }
 
@@ -367,7 +367,7 @@ class DailyWhatsappReportImageService
         $barMax = 230;
         $lineY = $y + 100;
         foreach ($rows as $row) {
-            $label = $this->truncate((string) ($row['category'] ?? 'Sin categoria'), 15);
+            $label = $this->truncate((string) ($row['category'] ?? 'No category'), 15);
             $value = (float) ($row['sales_usd'] ?? 0);
             $barW = $max > 0 ? (int) (($value / $max) * $barMax) : 0;
             $this->textAligned($image, $label, $x + 145, $lineY + 18, 10, $this->colors['ink'], true, 'right');
@@ -476,13 +476,13 @@ class DailyWhatsappReportImageService
     private function weekday(string $value): string
     {
         return [
-            'Mon' => 'Lun',
-            'Tue' => 'Mar',
-            'Wed' => 'Mie',
-            'Thu' => 'Jue',
-            'Fri' => 'Vie',
-            'Sat' => 'Sab',
-            'Sun' => 'Dom',
+            'Mon' => 'Mon',
+            'Tue' => 'Tue',
+            'Wed' => 'Wed',
+            'Thu' => 'Thu',
+            'Fri' => 'Fri',
+            'Sat' => 'Sat',
+            'Sun' => 'Sun',
         ][$value] ?? $value;
     }
 
@@ -518,9 +518,14 @@ class DailyWhatsappReportImageService
 
     private function caption(array $report, string $label): string
     {
-        $budget = $report['budget']['name'] ?? 'Presupuesto activo';
+        $budget = $this->englishBudgetName((string) ($report['budget']['name'] ?? 'Active budget'));
         $end = $report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString();
 
-        return 'Daily cierre de caja - ' . $label . ' - ' . $budget . ' - ' . $end;
+        return 'Daily report - ' . $label . ' - ' . $budget . ' - ' . $end;
+    }
+
+    private function englishBudgetName(string $value): string
+    {
+        return str_ireplace('Presupuesto', 'Budget', $value);
     }
 }

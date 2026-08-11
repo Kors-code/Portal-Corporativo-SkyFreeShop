@@ -74,6 +74,12 @@ class WhatsappNumberReportSender
 
     private function dailyTemplateBodyParameters(string $recipientLabel, string $reportDate): array
     {
+        $names = collect(preg_split('/[\s,;]+/', (string) config('services.whatsapp_cloud.daily_report_template_body_param_names', '')) ?: [])
+            ->map(fn ($name) => trim((string) $name))
+            ->filter()
+            ->values()
+            ->all();
+
         $parameters = [$recipientLabel, $reportDate];
         $count = max(0, min(count($parameters), (int) config('services.whatsapp_cloud.daily_report_template_body_params', 2)));
 

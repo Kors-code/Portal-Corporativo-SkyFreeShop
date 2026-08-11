@@ -132,7 +132,7 @@ class VisualizationController extends Controller
 
         $byPdv = (clone $dayBase)
             ->selectRaw("
-                COALESCE(NULLIF(TRIM(s.pdv), ''), 'Sin PDV') as pdv,
+                COALESCE(NULLIF(TRIM(s.pdv), ''), 'No POS') as pdv,
                 COALESCE(SUM(s.amount_cop), 0) as sales_cop,
                 COALESCE(SUM(s.value_usd), 0) as sales_usd,
                 COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as tickets
@@ -150,7 +150,7 @@ class VisualizationController extends Controller
 
         $cashiers = (clone $dayBase)
             ->selectRaw("
-                COALESCE(NULLIF(TRIM(s.cashier), ''), 'Sin cajero') as cashier,
+                COALESCE(NULLIF(TRIM(s.cashier), ''), 'No cashier') as cashier,
                 COALESCE(SUM(s.amount_cop), 0) as sales_cop,
                 COALESCE(SUM(s.value_usd), 0) as sales_usd,
                 COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as tickets
@@ -170,7 +170,7 @@ class VisualizationController extends Controller
         $categories = (clone $periodBase)
             ->leftJoin('products as p', 'p.id', '=', 's.product_id')
             ->selectRaw("
-                COALESCE(NULLIF(TRIM(p.classification_desc), ''), NULLIF(TRIM(p.classification), ''), 'Sin categoria') as category,
+                COALESCE(NULLIF(TRIM(p.classification_desc), ''), NULLIF(TRIM(p.classification), ''), 'No category') as category,
                 COALESCE(SUM(s.value_usd), 0) as sales_usd
             ")
             ->groupBy('category')
@@ -205,7 +205,7 @@ class VisualizationController extends Controller
                 'time' => $row->hora,
                 'folio' => $row->folio,
                 'pdv' => $row->pdv,
-                'cashier' => $row->cashier ?: 'Sin cajero',
+                'cashier' => $row->cashier ?: 'No cashier',
                 'product' => $row->product ?: 'Producto sin descripcion',
                 'quantity' => (float) $row->quantity,
                 'amount_cop' => (int) $row->amount_cop,
@@ -335,9 +335,9 @@ class VisualizationController extends Controller
         $report = $this->dailyWhatsappReportData($request);
         $images = $imageService->makeImages($report);
         $caption = sprintf(
-            'Daily ventas %s - %s',
+            'Daily Sales %s - %s',
             $report['budget']['period']['end'] ?? $report['date'] ?? now('America/Bogota')->toDateString(),
-            $report['budget']['name'] ?? 'Presupuesto activo'
+            $report['budget']['name'] ?? 'Active budget'
         );
 
         if (count($images) === 1) {
@@ -377,7 +377,7 @@ class VisualizationController extends Controller
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte diario enviado a numeros de WhatsApp.',
+            'message' => 'Daily report sent to WhatsApp numbers.',
             'images_count' => count($images),
             'whatsapp' => $result,
         ]);
@@ -394,7 +394,7 @@ class VisualizationController extends Controller
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte diario encolado para WhatsApp.',
+            'message' => 'Daily report queued for WhatsApp.',
             'job' => [
                 'id' => $job->id,
                 'type' => $job->type,
@@ -436,12 +436,12 @@ class VisualizationController extends Controller
         WhatsappNumberReportSender $sender
     ) {
         $report = $this->storeSalesReportData($request);
-        $caption = sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']);
+        $caption = sprintf('Daily Sales - %s', $report['date_label'] ?? $report['date']);
         $result = $sender->sendImage($imageService->make($report), $caption);
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte de Ventas Daily enviado a WhatsApp.',
+            'message' => 'Daily Sales report sent to WhatsApp.',
             'whatsapp' => $result,
         ]);
     }
@@ -454,7 +454,7 @@ class VisualizationController extends Controller
 
         return response()->json([
             'ok' => true,
-            'message' => 'Reporte de Ventas Daily encolado para WhatsApp.',
+            'message' => 'Daily Sales report queued for WhatsApp.',
             'job' => [
                 'id' => $job->id,
                 'type' => $job->type,
@@ -485,7 +485,7 @@ class VisualizationController extends Controller
         WhatsappNumberReportSender $sender
     ) {
         $report = $this->advisorSalesReportData($request);
-        $caption = sprintf('Ventas por asesor - %s', $report['date']);
+        $caption = sprintf('Advisor Sales - %s', $report['date']);
         $result = $sender->sendImage($imageService->make($report), $caption);
 
         return response()->json([
@@ -637,7 +637,7 @@ class VisualizationController extends Controller
             'date_label' => $dateLabel,
             'stores' => $stores,
             'totals' => [
-                'label' => 'Globales',
+                'label' => 'Global',
                 'total_usd' => round($totalSales, 2),
                 'trx' => $totalTrx,
                 'tkt_usd' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0,
@@ -660,13 +660,13 @@ class VisualizationController extends Controller
             ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
             ->whereDate('s.sale_date', $date)
             ->whereNotNull('s.seller_id')
-            ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) <> 'VENTAS MOSTRADOR'");
+            ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) NOT IN ('VENTAS MOSTRADOR', 'USUARIO PREDETERMINADO')");
         $this->excludeGpwCategory($base);
 
         $advisors = (clone $base)
             ->selectRaw("
                 s.seller_id as user_id,
-                COALESCE(NULLIF(TRIM(u.name), ''), CONCAT('Asesor ', s.seller_id)) as advisor,
+                COALESCE(NULLIF(TRIM(u.name), ''), CONCAT('Advisor ', s.seller_id)) as advisor,
                 u.codigo_vendedor as seller_code,
                 COALESCE(SUM(s.value_usd), 0) as total_usd,
                 COALESCE(SUM(s.quantity), 0) as units,
@@ -703,7 +703,7 @@ class VisualizationController extends Controller
             'date' => $date,
             'advisors' => $advisors,
             'totals' => [
-                'label' => 'Total asesores',
+                'label' => 'Total advisors',
                 'total_usd' => round($totalSales, 2),
                 'trx' => $totalTrx,
                 'tkt_usd' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0,

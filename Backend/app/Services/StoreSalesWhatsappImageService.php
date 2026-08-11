@@ -56,8 +56,8 @@ class StoreSalesWhatsappImageService
         imagerectangle($image, 34, 28, 1246, 124, $this->colors['line']);
         $this->roundedRect($image, 58, 52, 104, 98, 10, $this->colors['pink']);
         imagefilledellipse($image, 81, 75, 18, 18, $this->colors['primary']);
-        $this->text($image, 'VISUALIZACIONES', 126, 66, 13, $this->colors['primary'], true);
-        $this->text($image, 'Ventas Daily', 126, 98, 29, $this->colors['ink'], true);
+        $this->text($image, 'VISUALIZATIONS', 126, 66, 13, $this->colors['primary'], true);
+        $this->text($image, 'Daily Sales', 126, 98, 29, $this->colors['ink'], true);
         $this->textAligned($image, $this->dateLabel($date), 1218, 68, 18, $this->colors['ink'], true, 'right');
         $this->textAligned($image, $this->usd((float) ($totals['total_usd'] ?? 0)), 1218, 102, 25, $this->colors['primary'], true, 'right');
     }
@@ -65,10 +65,10 @@ class StoreSalesWhatsappImageService
     private function drawMetrics($image, string $date, array $totals): void
     {
         $cards = [
-            ['Venta global', $this->usd((float) ($totals['total_usd'] ?? 0)), $date],
-            ['TRX', $this->number((float) ($totals['trx'] ?? 0)), 'Transacciones'],
-            ['TKT', $this->usd((float) ($totals['tkt_usd'] ?? 0)), 'Ticket promedio'],
-            ['UND/TKT', $this->number((float) ($totals['units_per_ticket'] ?? 0)), 'Unidades por ticket'],
+            ['Global sales', $this->usd((float) ($totals['total_usd'] ?? 0)), $date],
+            ['TRX', $this->number((float) ($totals['trx'] ?? 0)), 'Transactions'],
+            ['TKT', $this->usd((float) ($totals['tkt_usd'] ?? 0)), 'Average ticket'],
+            ['UNITS/TKT', $this->number((float) ($totals['units_per_ticket'] ?? 0)), 'Units per ticket'],
         ];
 
         $x = 34;
@@ -88,14 +88,14 @@ class StoreSalesWhatsappImageService
     {
         $this->roundedRect($image, 34, 288, 1246, 650, 16, $this->colors['white']);
         imagerectangle($image, 34, 288, 1246, 650, $this->colors['line']);
-        $this->text($image, 'Resumen por tienda', 58, 324, 20, $this->colors['ink'], true);
-        $this->text($image, $isRange ? 'Arrivals + Departures, corte seleccionado.' : 'Arrivals + Departures, corte diario.', 58, 348, 12, $this->colors['muted'], false);
+        $this->text($image, 'Store Summary', 58, 324, 20, $this->colors['ink'], true);
+        $this->text($image, $isRange ? 'Arrivals + Departures, selected period.' : 'Arrivals + Departures, daily period.', 58, 348, 12, $this->colors['muted'], false);
         imagefilledrectangle($image, 34, 370, 1246, 420, $this->colors['dark']);
-        $this->text($image, 'TIENDA', 58, 402, 12, $this->colors['white'], true);
-        $this->textAligned($image, 'VENTA', 720, 402, 12, $this->colors['white'], true, 'right');
+        $this->text($image, 'STORE', 58, 402, 12, $this->colors['white'], true);
+        $this->textAligned($image, 'SALES', 720, 402, 12, $this->colors['white'], true, 'right');
         $this->textAligned($image, 'TRX', 875, 402, 12, $this->colors['white'], true, 'right');
         $this->textAligned($image, 'TKT', 1030, 402, 12, $this->colors['white'], true, 'right');
-        $this->textAligned($image, 'UND/TKT', 1216, 402, 12, $this->colors['white'], true, 'right');
+        $this->textAligned($image, 'UNITS/TKT', 1216, 402, 12, $this->colors['white'], true, 'right');
     }
 
     private function drawRow($image, array $row, int $y, bool $highlight): void
@@ -121,12 +121,12 @@ class StoreSalesWhatsappImageService
     {
         $this->roundedRect($image, 34, 680, 620, 780, 14, $this->colors['white']);
         imagerectangle($image, 34, 680, 620, 780, $this->colors['line']);
-        $this->text($image, '% CUMPLIMIENTO', 58, 718, 12, $this->colors['muted'], true);
+        $this->text($image, '% COMPLIANCE', 58, 718, 12, $this->colors['muted'], true);
         $this->text($image, $this->percent($compliance), 58, 754, 28, $compliance >= 100 ? $this->colors['green'] : $this->colors['red'], true);
 
         $this->roundedRect($image, 660, 680, 1246, 780, 14, $this->colors['white']);
         imagerectangle($image, 660, 680, 1246, 780, $this->colors['line']);
-        $this->text($image, $isRange ? 'META RANGO' : 'META DIARIA', 684, 718, 12, $this->colors['muted'], true);
+        $this->text($image, $isRange ? 'RANGE TARGET' : 'DAILY TARGET', 684, 718, 12, $this->colors['muted'], true);
         $this->text($image, $this->usd($meta), 684, 754, 28, $this->colors['ink'], true);
 
         $this->text($image, 'Generado automaticamente desde Portal Sky Free Shop', 34, 808, 12, $this->colors['muted'], false);

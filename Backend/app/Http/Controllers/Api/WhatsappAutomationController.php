@@ -154,7 +154,7 @@ class WhatsappAutomationController extends Controller
             $report = $visualizations->storeSalesReportData($request);
 
             return [[
-                'caption' => sprintf('Ventas Daily - %s', $report['date_label'] ?? $report['date']),
+                'caption' => sprintf('Daily Sales - %s', $report['date_label'] ?? $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($storeImages->make($report)),
             ]];
@@ -164,7 +164,7 @@ class WhatsappAutomationController extends Controller
             $report = $visualizations->advisorSalesReportData($request);
 
             return [[
-                'caption' => sprintf('Ventas por asesor - %s', $report['date']),
+                'caption' => sprintf('Advisor Sales - %s', $report['date']),
                 'mimeType' => 'image/png',
                 'imageBase64' => base64_encode($advisorImages->make($report)),
             ]];

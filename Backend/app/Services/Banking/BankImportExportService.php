@@ -730,9 +730,9 @@ class BankImportExportService
             ['13551817', 'ICA 0.4%', '860002963', 'Banco de Bogota', "=+Y{$totalRow}", null, "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
             ['13551508', 'Rtefte 1,5%', '860002964', 'Banco de Bogota', "=+W{$totalRow}", null, "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
             ['53051501', 'Comisiones no gravadas', '860002964', 'Banco de Bogota', "=+U{$totalRow}", null, "RC VTAS PAGO {$dayText} PAGO TARJETA BANCO DE BOGOTA"],
-            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D4', null, "RC VTAS PAGO {$dayText} PAGO DE AMERICANEXPRESS"],
-            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D6', null, "RC VTAS PAGO {$dayText} PAGO DE VISA"],
-            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+D5', null, "RC VTAS PAGO {$dayText} PAGO DE MASTERCARD"],
+            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+P6', null, "RC VTAS PAGO {$dayText} PAGO DE AMERICANEXPRESS"],
+            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+N6', null, "RC VTAS PAGO {$dayText} PAGO DE VISA"],
+            ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', '=+O6', null, "RC VTAS PAGO {$dayText} PAGO DE MASTERCARD"],
             ['11102004', 'Banco de Bogota Ahorros', '860002964', 'Banco de Bogota', null, '=-Q7', "RC VTAS PAGO {$dayText} PAGO DE COMISION Y RETEFUENTE"],
             [$clientAccount, $clientName, '222222222', 'Vtas Mostrador', null, '=SUM(G' . $startRow . ':G' . ($startRow + 7) . ')-SUM(H' . $startRow . ':H' . ($startRow + 6) . ')', "RC VTAS PAGO {$dayText} TARJETA BANCO DE BOGOTA"],
         ];

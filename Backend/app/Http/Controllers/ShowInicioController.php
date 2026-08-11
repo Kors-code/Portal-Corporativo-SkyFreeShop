@@ -99,6 +99,12 @@ class ShowInicioController extends Controller
                                 'icon' => 'fa-solid fa-building-columns',
                                 'permissions' => ['accounting.bank-imports.view', 'imports.create'],
                             ],
+                            [
+                                'title' => 'Movimientos bancarios',
+                                'route' => '/panel/BankMovementsPage',
+                                'icon' => 'fa-solid fa-receipt',
+                                'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                            ],
                         ],
                     ],
                     [
@@ -309,6 +315,14 @@ class ShowInicioController extends Controller
                         'text' => 'Historial de importaciones bancarias y movimientos normalizados.',
                         'area' => 'Contabilidad',
                         'route' => '/panel/BankImportsManagerPage',
+                        'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-receipt',
+                        'title' => 'Movimientos bancarios',
+                        'text' => 'Consulta UID, filtros por banco, dias y descarga CSV.',
+                        'area' => 'Contabilidad',
+                        'route' => '/panel/BankMovementsPage',
                         'permissions' => ['accounting.bank-imports.view', 'imports.create'],
                     ],
                     [

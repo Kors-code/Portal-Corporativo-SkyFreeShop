@@ -44,28 +44,28 @@ const num = new Intl.NumberFormat("es-CO", {
 });
 
 const monthLabels: Record<string, string> = {
-  January: "Enero",
-  February: "Febrero",
-  March: "Marzo",
-  April: "Abril",
+  January: "January",
+  February: "February",
+  March: "March",
+  April: "April",
   May: "Mayo",
-  June: "Junio",
-  July: "Julio",
-  August: "Agosto",
-  September: "Septiembre",
-  October: "Octubre",
-  November: "Noviembre",
-  December: "Diciembre",
+  June: "June",
+  July: "July",
+  August: "August",
+  September: "September",
+  October: "October",
+  November: "November",
+  December: "December",
 };
 
 const weekdayLabels: Record<string, string> = {
-  Mon: "Lun",
-  Tue: "Mar",
-  Wed: "Mie",
-  Thu: "Jue",
-  Fri: "Vie",
-  Sat: "Sab",
-  Sun: "Dom",
+  Mon: "Mon",
+  Tue: "Tue",
+  Wed: "Wed",
+  Thu: "Thu",
+  Fri: "Fri",
+  Sat: "Sat",
+  Sun: "Sun",
 };
 
 const defaultPdvs = ["COLS1", "COLS2"];
@@ -77,7 +77,7 @@ function moneyClass(value: number) {
 function budgetMonthLabel(startDate: string) {
   const month = Number(startDate.slice(5, 7));
   const year = startDate.slice(0, 4);
-  const names = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${names[month - 1] ?? startDate.slice(5, 7)} ${year}`;
 }
 
@@ -146,7 +146,7 @@ export default function CashClosureDashboard() {
       setRangeEnd(result.budget.range.end);
     } catch (err) {
       console.error(err);
-      setError("No se pudo cargar la visualizacion.");
+      setError("Could not load the visualization.");
     } finally {
       setLoading(false);
     }
@@ -292,7 +292,7 @@ export default function CashClosureDashboard() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `cierre-caja-${data.budget.period.start}.csv`;
+    link.download = `daily-sales-${data.budget.period.start}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -303,10 +303,10 @@ export default function CashClosureDashboard() {
       setError("");
       setWhatsappMessage("");
       const result = await sendDailyWhatsappReport({ date: rangeEnd || undefined, pdvs: selectedPdvs });
-      setWhatsappMessage(result.message || "Reporte encolado para WhatsApp.");
+      setWhatsappMessage(result.message || "Report sent to WhatsApp.");
     } catch (err) {
       console.error(err);
-      setError("No se pudo enviar el reporte a WhatsApp. Revisa que el servicio este conectado y configurado.");
+      setError("Could not send the report to WhatsApp. Check the template and service configuration.");
     } finally {
       setSendingWhatsapp(false);
     }
@@ -316,10 +316,10 @@ export default function CashClosureDashboard() {
     <div className="space-y-5 text-slate-950">
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizaciones</p>
-          <h1 className="mt-1 text-2xl font-black leading-tight text-slate-950">Cierre de caja diario</h1>
+          <p className="text-xs font-bold uppercase tracking-wide text-primary">Visualizations</p>
+          <h1 className="mt-1 text-2xl font-black leading-tight text-slate-950">Daily Sales</h1>
           <p className="mt-2 text-sm font-medium text-slate-500">
-            Seguimiento por presupuesto, rango, tiendas, cumplimiento diario y exportacion CSV.
+            Budget tracking, date ranges, stores, daily compliance, and CSV export.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -329,7 +329,7 @@ export default function CashClosureDashboard() {
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             <Send size={16} />
-            {sendingWhatsapp ? "Encolando..." : "WhatsApp"}
+            {sendingWhatsapp ? "Sending..." : "Send to WhatsApp"}
           </button>
           <button
             onClick={exportCsv}
@@ -345,7 +345,7 @@ export default function CashClosureDashboard() {
       <main className="space-y-5">
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-[minmax(240px,360px)_1fr]">
-            <Field label="Presupuesto / periodo" icon={<CalendarDays size={15} />}>
+            <Field label="Budget / period" icon={<CalendarDays size={15} />}>
               <select
                 value={selectedBudgetId}
                 onChange={(event) => changeBudget(event.target.value ? Number(event.target.value) : "")}
@@ -361,7 +361,7 @@ export default function CashClosureDashboard() {
 
             <div>
               <div className="grid gap-3 sm:grid-cols-[120px_1fr]">
-                <Field label="Año" icon={<Building2 size={15} />}>
+                <Field label="Year" icon={<Building2 size={15} />}>
                   <select
                     value={selectedYear}
                     onChange={(event) => changeMonthYear(event.target.value, selectedMonth)}
@@ -378,7 +378,7 @@ export default function CashClosureDashboard() {
                 <div>
                   <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
                     <CalendarDays size={15} />
-                    Mes
+                    Month
                   </div>
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {monthOptions.map((budget) => {
@@ -407,7 +407,7 @@ export default function CashClosureDashboard() {
           <div className="mt-4 border-t border-slate-100 pt-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-black uppercase tracking-wide text-slate-500">
-                Rango de fechas
+                Date Range
               </div>
               <div className="text-sm font-black text-primary">
                 {rangeStart || "-"} / {rangeEnd || "-"}
@@ -415,7 +415,7 @@ export default function CashClosureDashboard() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label>
-                <span className="mb-1 block text-[11px] font-black uppercase text-slate-400">Desde</span>
+                <span className="mb-1 block text-[11px] font-black uppercase text-slate-400">From</span>
                 <input
                   type="date"
                   min={availableStart}
@@ -426,7 +426,7 @@ export default function CashClosureDashboard() {
                 />
               </label>
               <label>
-                <span className="mb-1 block text-[11px] font-black uppercase text-slate-400">Hasta</span>
+                <span className="mb-1 block text-[11px] font-black uppercase text-slate-400">To</span>
                 <input
                   type="date"
                   min={availableStart}
@@ -439,8 +439,8 @@ export default function CashClosureDashboard() {
             </div>
             <div className="mt-4 rounded-lg bg-slate-50 p-3">
               <div className="mb-2 flex justify-between text-[11px] font-black uppercase text-slate-400">
-                <span>Inicio {rangeStart || "-"}</span>
-                <span>Fin {rangeEnd || "-"}</span>
+                <span>Start {rangeStart || "-"}</span>
+                <span>End {rangeEnd || "-"}</span>
               </div>
               <input
                 type="range"
@@ -469,11 +469,11 @@ export default function CashClosureDashboard() {
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
                 <Store size={15} />
-                Tiendas
+                Stores
               </div>
               {selectedPdvs.length > 0 && (
                 <button onClick={clearStores} className="text-xs font-bold text-primary">
-                  Seleccionar todas
+                  Select all
                 </button>
               )}
             </div>
@@ -505,7 +505,7 @@ export default function CashClosureDashboard() {
           )}
           {!loading && data && data.budget.monthly_usd <= 0 && (
             <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
-              Este periodo no tiene presupuesto cargado. Budget daily y Project quedan en 0 hasta crear el presupuesto.
+              This period has no loaded budget. Daily budget and Project stay at 0 until the budget is created.
             </div>
           )}
         </section>
@@ -514,21 +514,21 @@ export default function CashClosureDashboard() {
           <Kpi icon={<Target size={19} />} label="Budget daily" value={usd2.format(data?.budget.budget_daily_usd ?? 0)} />
           <Kpi
             icon={<TrendingUp size={19} />}
-            label="Ventas reales rango"
+            label="Actual sales range"
             value={usd.format(data?.budget.month_sales_usd ?? 0)}
-            detail={`${num.format(data?.budget.month_compliance_pct ?? 0)}% del esperado`}
+            detail={`${num.format(data?.budget.month_compliance_pct ?? 0)}% of expected`}
           />
           <Kpi icon={<Store size={19} />} label="Diff budget" value={usd.format(data?.budget.month_diff_usd ?? 0)} valueClass={moneyClass(data?.budget.month_diff_usd ?? 0)} />
-          <Kpi icon={<CalendarDays size={19} />} label="Promedio diario" value={usd.format(avgDaily)} detail={`${totalTrx} transacciones`} />
-          <Kpi icon={<TrendingUp size={19} />} label="Sales forecast" value={usd.format(projectedSales)} detail={`Promedio diario por ${forecastMonthDays} dias del mes`} />
-          <Kpi icon={<Target size={19} />} label="Ticket promedio" value={usd2.format(avgTicket)} detail="Ventas rango / transacciones" />
-          <Kpi icon={<Store size={19} />} label="Transacciones promedio" value={num.format(avgTrx)} detail="Transacciones / dias vendidos" />
-          <Kpi icon={<Target size={19} />} label="Unidades por ticket" value={num.format(unitsPerTicket)} detail="Unidades totales / tickets" />
+          <Kpi icon={<CalendarDays size={19} />} label="Daily average" value={usd.format(avgDaily)} detail={`${totalTrx} transactions`} />
+          <Kpi icon={<TrendingUp size={19} />} label="Sales forecast" value={usd.format(projectedSales)} detail={`Daily average over ${forecastMonthDays} month days`} />
+          <Kpi icon={<Target size={19} />} label="Average ticket" value={usd2.format(avgTicket)} detail="Range sales / transactions" />
+          <Kpi icon={<Store size={19} />} label="Average transactions" value={num.format(avgTrx)} detail="Transactions / sales days" />
+          <Kpi icon={<Target size={19} />} label="Units per ticket" value={num.format(unitsPerTicket)} detail="Total units / tickets" />
         </section>
 
         <ProjectBar value={data?.budget.month_compliance_pct ?? 0} />
 
-        <Card title="Detalle diario" subtitle="Project es el cumplimiento contra Budget daily">
+        <Card title="Daily Breakdown" subtitle="Project is compliance against daily budget">
           <div className="space-y-3 md:hidden">
             {dailyRows.map((row) => (
               <div key={row.date} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -554,7 +554,7 @@ export default function CashClosureDashboard() {
             ))}
             {!loading && data && (
               <div className="rounded-lg border-2 border-slate-900 bg-white p-3">
-                <div className="text-xs font-black uppercase text-primary">Total periodo</div>
+                <div className="text-xs font-black uppercase text-primary">Period Total</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <Mini label="Sales" value={usd.format(data.budget.month_sales_usd)} />
                   <Mini label="Budget" value={usd.format(data.budget.range_budget_usd)} />
@@ -571,7 +571,7 @@ export default function CashClosureDashboard() {
             <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-slate-950 text-left text-xs uppercase tracking-wide text-white">
                 <tr>
-                  <th className="px-3 py-3">Dia</th>
+                  <th className="px-3 py-3">Day</th>
                   <th className="px-3 py-3">Weekday</th>
                   <th className="px-3 py-3 text-right">Sales</th>
                   <th className="px-3 py-3 text-right">Budget daily</th>
@@ -586,7 +586,7 @@ export default function CashClosureDashboard() {
                 {loading && (
                   <tr>
                     <td colSpan={9} className="px-3 py-10 text-center font-bold text-slate-500">
-                      Cargando...
+                      Loading...
                     </td>
                   </tr>
                 )}
@@ -626,7 +626,7 @@ export default function CashClosureDashboard() {
         </Card>
 
         <section className="grid gap-4 xl:grid-cols-[1.6fr_.9fr]">
-          <Card title="Cumplimiento diario" subtitle="Ventas vs Budget daily">
+          <Card title="Daily Compliance" subtitle="Sales vs daily budget">
             <div className="h-72 sm:h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={dailyChart} margin={{ top: 24, right: 20, left: 0, bottom: 0 }}>
@@ -654,7 +654,7 @@ export default function CashClosureDashboard() {
             </div>
           </Card>
 
-          <Card title="Categorias" subtitle="Mix del periodo seleccionado">
+          <Card title="Categories" subtitle="Selected period mix">
             <div className="h-72 sm:h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={categoryChart} layout="vertical" margin={{ left: 12, right: 72 }}>
@@ -662,7 +662,7 @@ export default function CashClosureDashboard() {
                   <YAxis type="category" dataKey="name" width={112} tick={{ fontSize: 11, fontWeight: 700 }} />
                   <Tooltip
                     formatter={(value) => usd2.format(Number(value))}
-                    labelFormatter={(label) => `Categoria: ${label}`}
+                    labelFormatter={(label) => `Category: ${label}`}
                   />
                   <Bar dataKey="sales_usd" fill="#2563eb" radius={[0, 4, 4, 0]}>
                     <LabelList
@@ -727,7 +727,7 @@ function ProjectBar({ value }: { value: number }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-black uppercase tracking-wide text-slate-500">Project</div>
-          <div className="mt-1 text-sm font-semibold text-slate-500">Cumplimiento proyectado contra presupuesto</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Projected compliance against budget</div>
         </div>
         <div className="text-2xl font-black text-slate-950">{num.format(value)}%</div>
       </div>

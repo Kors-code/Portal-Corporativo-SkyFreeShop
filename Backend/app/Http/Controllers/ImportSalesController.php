@@ -161,9 +161,9 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
             ? $this->previousBatchesForFilename((string) $batch->filename, $batchId)
             : collect();
 
-        $salesColumns = Schema::connection('budget')->getColumnListing('sales');
+        $salesColumns = $this->insertableSalesColumns();
         $stagingColumns = Schema::connection('budget')->getColumnListing('sales_import_staging');
-        $columns = array_values(array_diff(array_intersect($salesColumns, $stagingColumns), ['id']));
+        $columns = array_values(array_intersect($salesColumns, $stagingColumns));
 
         if (empty($columns)) {
             throw new \RuntimeException('No hay columnas compatibles para publicar ventas.');
@@ -214,6 +214,34 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
                 'mode' => 'staging_publish',
             ];
         });
+    }
+
+    private function insertableSalesColumns(): array
+    {
+        $columns = Schema::connection('budget')->getColumnListing('sales');
+        $generatedColumns = [];
+
+        try {
+            $database = DB::connection('budget')->getDatabaseName();
+            $generatedColumns = DB::connection('budget')
+                ->table('information_schema.columns')
+                ->where('table_schema', $database)
+                ->where('table_name', 'sales')
+                ->where(function ($query) {
+                    $query->where('extra', 'LIKE', '%GENERATED%')
+                        ->orWhereRaw("COALESCE(generation_expression, '') <> ''");
+                })
+                ->selectRaw('COLUMN_NAME as column_name')
+                ->pluck('column_name')
+                ->map(fn ($column) => (string) $column)
+                ->all();
+        } catch (Throwable $e) {
+            Log::warning('No se pudieron detectar columnas generadas de sales', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return array_values(array_diff($columns, array_merge(['id'], $generatedColumns)));
     }
 
     private function recalculateCommissionsForImportBatch(int $batchId): array
@@ -494,12 +522,29 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
             ];
         }
 
+        if (!$this->claimWhatsappReportsForImportBatch($batchId)) {
+            Log::info('IMPORT SALES WHATSAPP REPORTS SKIPPED ALREADY CLAIMED', [
+                'batch_id' => $batchId,
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+                'quality' => $quality,
+            ]);
+
+            return [
+                'ok' => true,
+                'queued' => false,
+                'processed' => false,
+                'type' => 'store_sales',
+                'reason' => 'Reportes WhatsApp omitidos: este import ya los disparo o estan en proceso.',
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+            ];
+        }
+
         $importReportDate = $this->reportDateForImportBatch($batchId) ?: now('America/Bogota')->toDateString();
         $closedDayReportDate = now('America/Bogota')->subDay()->toDateString();
         $sendFullPackage = !$this->hasFullWhatsappPackageBeenQueuedToday();
         $jobsService = app(WhatsappReportJobService::class);
         $jobTypes = $sendFullPackage
-            ? ['daily', 'store_sales']
+            ? ['daily', 'advisor_sales', 'store_sales']
             : ['store_sales'];
         $jobs = [];
 
@@ -549,6 +594,12 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
         $jobs = array_map(fn ($job) => $job->fresh(), $jobs);
         $processed = !empty($jobs) && collect($jobs)->every(fn ($job) => $job?->status === 'sent');
 
+        if ($processed) {
+            $this->markWhatsappReportsSentForImportBatch($batchId);
+        } else {
+            $this->releaseWhatsappReportsClaimForImportBatch($batchId);
+        }
+
         Log::info('IMPORT SALES WHATSAPP REPORTS PROCESSED', [
             'batch_id' => $batchId,
             'mode' => $sendFullPackage ? 'first_import_full_package' : 'store_sales_only',
@@ -571,7 +622,7 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
             'type' => $primaryJob?->type ?? 'store_sales',
             'reason' => $processed
                 ? ($sendFullPackage
-                    ? 'Primer import del dia: Daily ejecutivo y tiendas de dia vencido enviados a WhatsApp.'
+                    ? 'Primer import del dia: Daily ejecutivo, asesores y tiendas de dia vencido enviados a WhatsApp.'
                     : 'Reporte de ventas por tiendas enviado a WhatsApp.')
                 : 'Reportes WhatsApp encolados, pero no se pudieron enviar todos inmediatamente.',
             'sales_data_updated_at' => $salesDataUpdatedAt,
@@ -587,11 +638,96 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
         ];
     }
 
+    private function claimWhatsappReportsForImportBatch(int $batchId): bool
+    {
+        if (!$this->hasWhatsappReportMarkColumns()) {
+            return true;
+        }
+
+        return (bool) DB::connection('budget')->transaction(function () use ($batchId) {
+            $batch = DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$batch) {
+                return false;
+            }
+
+            if (!empty($batch->whatsapp_reports_sent_at)) {
+                return false;
+            }
+
+            if (!empty($batch->whatsapp_reports_started_at)) {
+                try {
+                    $startedAt = new \DateTimeImmutable((string) $batch->whatsapp_reports_started_at);
+                    if ($startedAt > now('America/Bogota')->subMinutes(15)->toDateTimeImmutable()) {
+                        return false;
+                    }
+                } catch (Throwable) {
+                    return false;
+                }
+            }
+
+            DB::connection('budget')->table('import_batches')
+                ->where('id', $batchId)
+                ->update([
+                    'whatsapp_reports_started_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            return true;
+        });
+    }
+
+    private function markWhatsappReportsSentForImportBatch(int $batchId): void
+    {
+        if (!$this->hasWhatsappReportMarkColumns()) {
+            return;
+        }
+
+        DB::connection('budget')->table('import_batches')
+            ->where('id', $batchId)
+            ->update([
+                'whatsapp_reports_sent_at' => now(),
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function releaseWhatsappReportsClaimForImportBatch(int $batchId): void
+    {
+        if (!$this->hasWhatsappReportMarkColumns()) {
+            return;
+        }
+
+        DB::connection('budget')->table('import_batches')
+            ->where('id', $batchId)
+            ->whereNull('whatsapp_reports_sent_at')
+            ->update([
+                'whatsapp_reports_started_at' => null,
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function hasWhatsappReportMarkColumns(): bool
+    {
+        return Schema::connection('budget')->hasColumn('import_batches', 'whatsapp_reports_started_at')
+            && Schema::connection('budget')->hasColumn('import_batches', 'whatsapp_reports_sent_at');
+    }
+
     private function hasFullWhatsappPackageBeenQueuedToday(): bool
     {
+        $closedDayReportDate = now('America/Bogota')->subDay()->toDateString();
+
         return DB::table('whatsapp_report_jobs')
             ->whereDate('created_at', now('America/Bogota')->toDateString())
-            ->where('payload->first_import_full_package', true)
+            ->where(function ($query) use ($closedDayReportDate) {
+                $query->where('payload->first_import_full_package', true)
+                    ->orWhere(function ($query) use ($closedDayReportDate) {
+                        $query->where('type', 'daily')
+                            ->whereDate('report_date', $closedDayReportDate);
+                    });
+            })
             ->exists();
     }
 
@@ -1903,8 +2039,27 @@ protected function parseDate($value, string $context = 'sale'): ?string
         ]);
 
         if ($done) {
-            $publication = $this->publishSalesImportBatch($batchId);
-            Storage::delete($data['path']);
+            try {
+                $publication = $this->publishSalesImportBatch($batchId);
+                Storage::delete($data['path']);
+            } catch (Throwable $e) {
+                DB::connection('budget')->table('import_batches')->where('id', $batchId)->update([
+                    'status' => 'failed',
+                    'note' => $this->formatImportFailureNote($e),
+                    'updated_at' => now(),
+                ]);
+                $this->deleteStagedSalesForBatch($batchId);
+                Storage::delete($data['path']);
+
+                Log::error('IMPORT SALES PUBLISH FAILED', [
+                    'batch_id' => $batchId,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+
             $totalRows = max(0, $absoluteHighestRow - 1);
             $whatsappReports = $this->trySendWhatsappReportsForImportBatch($batchId, $totalRows, $result);
             $rolesRectification = $this->tryRectifyRolesForImportBatch($batchId);

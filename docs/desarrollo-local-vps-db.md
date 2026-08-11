@@ -1,11 +1,12 @@
 # Desarrollo local con base de datos en VPS
 
-Este proyecto puede ejecutarse completo en la maquina local mientras MySQL sigue viviendo en el VPS por tunel SSH. La idea es:
+Este proyecto puede ejecutarse completo en la maquina local usando una base local o, cuando lo necesites, la base del VPS por tunel SSH. La idea es:
 
 - Laravel corre local en `http://127.0.0.1:8000`.
 - React/Vite corre local en `http://127.0.0.1:5173/panel/`.
 - Vite redirige `/api/*` al Laravel local.
-- Laravel se conecta a `127.0.0.1:3307`; ese puerto local se tunela al MySQL del VPS.
+- Laravel usa `DB_DATABASE_PROFILE=local` o `DB_DATABASE_PROFILE=vps`.
+- En modo VPS, Laravel se conecta a `127.0.0.1:3307`; ese puerto local se tunela al MySQL del VPS.
 - Sesiones, cache y colas de desarrollo quedan locales para no ensuciar tablas operativas del VPS.
 
 ## 1. Preparar variables locales
@@ -39,23 +40,43 @@ powershell.exe -ExecutionPolicy Bypass -File tools\configure-vps-tunnel-env.ps1 
 Si lo haces manualmente, edita `Backend\.env` y llena:
 
 ```dotenv
+DB_DATABASE_PROFILE=local
+
 DB_HOST=127.0.0.1
-DB_PORT=3307
+DB_PORT=3306
 DB_DATABASE=
 DB_USERNAME=
 DB_PASSWORD=
 
 DB_SECOND_HOST=127.0.0.1
-DB_SECOND_PORT=3307
+DB_SECOND_PORT=3306
 DB_SECOND_DATABASE=
 DB_SECOND_USERNAME=
 DB_SECOND_PASSWORD=
 
 DB_BUDGET_HOST=127.0.0.1
-DB_BUDGET_PORT=3307
+DB_BUDGET_PORT=3306
 DB_BUDGET_DATABASE=
 DB_BUDGET_USERNAME=
 DB_BUDGET_PASSWORD=
+
+DB_VPS_HOST=127.0.0.1
+DB_VPS_PORT=3307
+DB_VPS_DATABASE=
+DB_VPS_USERNAME=
+DB_VPS_PASSWORD=
+
+DB_SECOND_VPS_HOST=127.0.0.1
+DB_SECOND_VPS_PORT=3307
+DB_SECOND_VPS_DATABASE=
+DB_SECOND_VPS_USERNAME=
+DB_SECOND_VPS_PASSWORD=
+
+DB_BUDGET_VPS_HOST=127.0.0.1
+DB_BUDGET_VPS_PORT=3307
+DB_BUDGET_VPS_DATABASE=
+DB_BUDGET_VPS_USERNAME=
+DB_BUDGET_VPS_PASSWORD=
 
 VPS_SSH_HOST=IP_O_HOST_DEL_VPS
 VPS_SSH_USER=usuario_ssh
@@ -79,7 +100,28 @@ cd ..\Front-React
 npm install
 ```
 
-## 3. Abrir tunel y probar conexion a la base del VPS
+## 3. Cambiar entre base local y VPS
+
+Para usar tu base local:
+
+```dotenv
+DB_DATABASE_PROFILE=local
+```
+
+Para volver a usar la base del VPS:
+
+```dotenv
+DB_DATABASE_PROFILE=vps
+```
+
+Despues de cambiar esa linea, limpia cache de configuracion:
+
+```powershell
+cd Backend
+php artisan config:clear
+```
+
+## 4. Abrir tunel y probar conexion a la base del VPS
 
 Abre el tunel:
 
@@ -113,7 +155,7 @@ Para ver el detalle del error:
 
 Debe mostrar `OK` para `mysql`, `budget` y `mysql_personal`.
 
-## 4. Levantar desarrollo local
+## 5. Levantar desarrollo local
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File tools\dev-local.ps1 -WithTunnel
@@ -137,15 +179,15 @@ Abre:
 http://127.0.0.1:5173/panel/
 ```
 
-## 5. Reglas importantes
+## 6. Reglas importantes
 
 - No ejecutes migraciones contra el VPS sin revisar antes el impacto.
 - No uses `php artisan migrate:fresh`, `db:wipe`, `db:seed` ni comandos destructivos apuntando al VPS.
-- Mantén el tunel abierto mientras desarrollas; si se cierra, Laravel perdera conexion a MySQL.
+- Mantén el tunel abierto mientras desarrollas con `DB_DATABASE_PROFILE=vps`; si se cierra, Laravel perdera conexion a MySQL.
 - Para desarrollo normal, `SESSION_DRIVER=file`, `CACHE_STORE=file` y `QUEUE_CONNECTION=sync` evitan escribir datos temporales en la base remota.
 - Si cambias valores de `Backend\.env`, corre `php artisan config:clear`.
 
-## 6. Como queda el frontend
+## 7. Como queda el frontend
 
 `Front-React\.env.local` usa:
 

@@ -48,27 +48,27 @@ class AdvisorSalesWhatsappImageService
         $tableBottom = $totalTop + 58;
         $this->roundedRect($image, 34, $tableTop, 1246, $tableBottom, 16, $this->colors['white']);
         imagerectangle($image, 34, $tableTop, 1246, $tableBottom, $this->colors['line']);
-        $this->text($image, 'Ventas por asesor', 58, 74, 26, $this->colors['ink'], true);
-        $this->text($image, 'Cierre diario - ' . $this->dateLabel($date), 58, 99, 13, $this->colors['muted'], false);
+        $this->text($image, 'Advisor Sales', 58, 74, 26, $this->colors['ink'], true);
+        $this->text($image, 'Daily close - ' . $this->dateLabel($date), 58, 99, 13, $this->colors['muted'], false);
         $this->textAligned($image, $this->usd((float) ($totals['total_usd'] ?? 0)), 1216, 74, 24, $this->colors['primary'], true, 'right');
-        $this->textAligned($image, $this->int((float) ($totals['advisors_count'] ?? 0)) . ' asesores con venta', 1216, 99, 12, $this->colors['muted'], true, 'right');
+        $this->textAligned($image, $this->int((float) ($totals['advisors_count'] ?? 0)) . ' advisors with sales', 1216, 99, 12, $this->colors['muted'], true, 'right');
         imageline($image, 58, $titleBottom, 1222, $titleBottom, $this->colors['line']);
 
         imagefilledrectangle($image, 34, $headTop, 1246, $headBottom, $this->colors['dark']);
-        $this->text($image, 'ASESOR', 58, 143, 12, $this->colors['white'], true);
-        $this->textAligned($image, 'VENTA', 720, 143, 12, $this->colors['white'], true, 'right');
+        $this->text($image, 'ADVISOR', 58, 143, 12, $this->colors['white'], true);
+        $this->textAligned($image, 'SALES', 720, 143, 12, $this->colors['white'], true, 'right');
         $this->textAligned($image, 'TRX', 875, 143, 12, $this->colors['white'], true, 'right');
         $this->textAligned($image, 'TKT', 1030, 143, 12, $this->colors['white'], true, 'right');
-        $this->textAligned($image, 'UND/TKT', 1216, 143, 12, $this->colors['white'], true, 'right');
+        $this->textAligned($image, 'UNITS/TKT', 1216, 143, 12, $this->colors['white'], true, 'right');
 
         $y = $firstRowY;
         if (!$rows) {
-            $this->text($image, 'Sin ventas por asesor para esta fecha.', 58, $y, 18, $this->colors['muted'], false);
+            $this->text($image, 'No advisor sales for this date.', 58, $y, 18, $this->colors['muted'], false);
         }
 
         foreach ($rows as $row) {
             imageline($image, 58, $y + 12, 1222, $y + 12, $this->colors['line']);
-            $this->text($image, $this->truncate((string) ($row['advisor'] ?? 'Asesor'), 40), 58, $y - 3, 15, $this->colors['ink'], true);
+            $this->text($image, $this->truncate((string) ($row['advisor'] ?? 'Advisor'), 40), 58, $y - 3, 15, $this->colors['ink'], true);
             $code = (string) ($row['seller_code'] ?? '');
             if ($code !== '') {
                 $this->text($image, $code, 58, $y + 15, 9, $this->colors['muted'], true);
@@ -81,7 +81,7 @@ class AdvisorSalesWhatsappImageService
         }
 
         imagefilledrectangle($image, 34, $totalTop, 1246, $tableBottom, $this->colors['primary']);
-        $this->text($image, 'Total asesores', 58, $totalTop + 36, 20, $this->colors['white'], true);
+        $this->text($image, 'Total advisors', 58, $totalTop + 36, 20, $this->colors['white'], true);
         $this->textAligned($image, $this->number((float) ($totals['total_usd'] ?? 0)), 720, $totalTop + 36, 19, $this->colors['white'], true, 'right');
         $this->textAligned($image, $this->number((float) ($totals['trx'] ?? 0)), 875, $totalTop + 36, 18, $this->colors['white'], true, 'right');
         $this->textAligned($image, $this->number((float) ($totals['tkt_usd'] ?? 0)), 1030, $totalTop + 36, 18, $this->colors['white'], true, 'right');
