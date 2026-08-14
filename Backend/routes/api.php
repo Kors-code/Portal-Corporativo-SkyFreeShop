@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\Api\WhatsappAutomationController;
 use App\Http\Controllers\Api\WhatsappWebhookController;
+use App\Http\Controllers\Api\AdvisorInfoController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
@@ -72,6 +73,13 @@ Route::get('/v1/ping', function () {
     });
 
     Route::middleware('auth:sanctum')->group(function () {
+
+    Route::middleware('permission:advisor-info.view')->group(function () {
+        Route::get('advisor-info', [AdvisorInfoController::class, 'index']);
+        Route::get('advisor-info/providers/{providerId}', [AdvisorInfoController::class, 'provider']);
+        Route::get('advisor-info/files/{itemId}', [AdvisorInfoController::class, 'file']);
+        Route::get('advisor-info/files/{itemId}/content', [AdvisorInfoController::class, 'content']);
+    });
 
     Route::middleware('permission:inventarios.importes')->group(function () {
         Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);
@@ -187,6 +195,10 @@ Route::middleware('permission:inventarios.importes')->group(function () {
     Route::post('/inventory/import', [InventoryImportController::class, 'import']);
     Route::get('/inventory/stores', [InventoryImportController::class, 'stores']);
     Route::delete('/inventory/batches/{batchId}', [InventoryImportController::class, 'deleteBatch']);
+});
+
+Route::middleware('permission:inventarios.cobertura')->group(function () {
+    Route::get('/inventory/export', [\App\Http\Controllers\ApiInventarios\InventoryController::class, 'export']);
 });
     
 Route::patch(

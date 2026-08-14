@@ -91,6 +91,8 @@ Route::prefix('api/v1')->middleware(['auth', 'throttle:api'])->group(function ()
         ->middleware('permission:inventarios.importes');
     Route::get('/inventory', [InventoryController::class, 'index'])
         ->middleware('permission:inventarios.cobertura');
+    Route::get('/inventory/export', [InventoryController::class, 'export'])
+        ->middleware('permission:inventarios.cobertura');
     Route::post('/import-sales/start', [ImportSalesController::class, 'startChunked'])
         ->middleware('permission:imports.create');
     Route::post('/import-sales/chunk', [ImportSalesController::class, 'chunk'])
@@ -419,6 +421,9 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:visualizations.view');
 
         Route::get('visualizaciones/ventas-asesores', [VisualizationController::class, 'advisorSalesSummary'])
+            ->middleware('permission:visualizations.view');
+
+        Route::get('visualizaciones/asesores-analytics', [VisualizationController::class, 'advisorAnalytics'])
             ->middleware('permission:visualizations.view');
 
         Route::get('visualizaciones/ventas-asesores/whatsapp/preview', [VisualizationController::class, 'advisorSalesWhatsappPreview'])
@@ -782,6 +787,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/panel/commissions/DualCommissionAdmin', fn () => view('panel'))
         ->middleware(['permission:budget.commissions.manage']);
 
+    Route::get('/panel/commissions/CommissionLeadersPage', fn () => view('panel'))
+        ->middleware(['permission:budget.leader.view']);
+
     Route::get('/panel/inventarios/cobertura', fn () => view('panel'))
         ->middleware(['permission:inventarios.cobertura']);
 
@@ -806,6 +814,9 @@ Route::middleware('auth')->group(function () {
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/visualizaciones/ventas-asesores', fn () => view('panel'))
+        ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/visualizaciones/asesores-analytics', fn () => view('panel'))
         ->middleware(['permission:visualizations.view']);
 
     Route::get('/panel/entregas/{any?}', fn () => view('panel'))

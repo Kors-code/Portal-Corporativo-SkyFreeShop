@@ -1,26 +1,38 @@
-import  { useState } from 'react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { hasPermission } from '../../../auth/auth';
 import useBudgets from '../../../hooks/useBudgets';
 import BudgetForm from '../components/BudgetForm';
 import BudgetList from '../components/BudgetList';
 import type { Budget } from '../types';
-import { useNavigate } from 'react-router-dom';
 
 export default function BudgetsPage() {
-const {
-  items: budgets,
-  loading,
-  saving,
-  activeInfo,
-  create,
-  update,
-  remove,
-  closeBudget
-} = useBudgets();  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<Budget | null>(null);
+  const {
+    items: budgets,
+    loading,
+    saving,
+    activeInfo,
+    create,
+    update,
+    remove,
+    closeBudget,
+  } = useBudgets();
 
-  const openCreate = () => { setEditing(null); setShowForm(true); };
-  const openEdit = (b: Budget) => { setEditing(b); setShowForm(true); };
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Budget | null>(null);
   const navigate = useNavigate();
+  const canManageBudgets = hasPermission('budget.admin.view');
+  const canManageCategories = hasPermission('budget.commissions.manage');
+
+  const openCreate = () => {
+    setEditing(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (budget: Budget) => {
+    setEditing(budget);
+    setShowForm(true);
+  };
 
   const handleSubmit = async (payload: Partial<Budget>) => {
     try {
@@ -38,7 +50,7 @@ const {
 
   const handleDelete = async (id?: number) => {
     if (!id) return;
-    if (!confirm('¿Seguro que deseas eliminar este presupuesto?')) return;
+    if (!confirm('Seguro que deseas eliminar este presupuesto?')) return;
     try {
       await remove(id);
     } catch (err: any) {
@@ -46,46 +58,58 @@ const {
       alert('Error eliminando');
     }
   };
+
   const handleClose = async (id?: number) => {
-  if (!id) return;
+    if (!id) return;
+    if (!confirm('Seguro que deseas cerrar este presupuesto? Esta accion es irreversible.')) return;
 
-  if (!confirm('¿Seguro que deseas cerrar este presupuesto? Esta acción es irreversible.')) {
-    return;
-  }
-
-  try {
-    await closeBudget(id);
-  } catch (err: any) {
-    alert(err.message || 'Error cerrando presupuesto');
-  }
-};
+    try {
+      await closeBudget(id);
+    } catch (err: any) {
+      alert(err.message || 'Error cerrando presupuesto');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <header className="bg-primary text-white px-6 py-6 rounded-lg shadow mb-6">
-        <h1 className="text-3xl font-bold">Gestión de Presupuestos</h1>
+        <h1 className="text-3xl font-bold">Gestion de Presupuestos</h1>
       </header>
 
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <button onClick={openCreate} className="bg-primary text-white px-4 py-2 rounded-xl">+ Nuevo Presupuesto</button>
-          <button
-            onClick={() => navigate('/commissions/categories')}
-            className="bg-primary text-white px-4 py-2 rounded-xl"
-          >
-            Modificar Participación categorias
-          </button>          {activeInfo && activeInfo.budget && (
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {canManageBudgets && (
+              <button onClick={openCreate} className="bg-primary text-white px-4 py-2 rounded-xl">
+                + Nuevo Presupuesto
+              </button>
+            )}
+            {canManageCategories && (
+              <button
+                onClick={() => navigate('/commissions/categories')}
+                className="bg-primary text-white px-4 py-2 rounded-xl"
+              >
+                Modificar Participacion categorias
+              </button>
+            )}
+          </div>
+          {activeInfo && activeInfo.budget && (
             <div className="text-sm text-gray-700">
-              Activo: <strong>{activeInfo.budget.name}</strong> — {activeInfo.sales_total ?? 0} ({activeInfo.compliance_pct ?? 0}%)
+              Activo: <strong>{activeInfo.budget.name}</strong> - {activeInfo.sales_total ?? 0} ({activeInfo.compliance_pct ?? 0}%)
             </div>
           )}
         </div>
 
         <div className="bg-white rounded-2xl shadow p-6 mb-6">
           <h2 className="text-2xl font-bold mb-4">Lista de Presupuestos</h2>
-          
-          <BudgetList budgets={budgets} loading={loading} onEdit={openEdit} onDelete={handleDelete} onClose={handleClose}  />
-          
+          <BudgetList
+            budgets={budgets}
+            loading={loading}
+            onEdit={openEdit}
+            onDelete={handleDelete}
+            onClose={handleClose}
+            canManage={canManageBudgets}
+          />
         </div>
 
         {showForm && (

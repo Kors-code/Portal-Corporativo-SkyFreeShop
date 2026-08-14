@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\ApiInventarios;
 
+use App\Exports\InventoryStoreExport;
 use App\Http\Controllers\Controller;
 use App\Services\Inventario\InventoryReportService;
 use Illuminate\Http\Request;
+use Maatwebsite\Excel\Facades\Excel;
 
 class InventoryController extends Controller
 {
@@ -17,6 +19,28 @@ class InventoryController extends Controller
 
         return response()->json(
             $service->getReport($search, $storeIds, $asOfDate, $maxMonths)
+        );
+    }
+
+    public function export(Request $request, InventoryReportService $service)
+    {
+        $search = $request->get('search');
+        $storeIds = $this->resolveStoreIds($request);
+        $asOfDate = $request->input('as_of_date');
+        $maxMonths = $this->resolveMaxMonths($request);
+        $rows = $service->getReport($search, $storeIds, $asOfDate, $maxMonths);
+
+        $storeSlug = 'todas-tiendas';
+        if (count($storeIds) === 1) {
+            $store = collect($service->getStores())->firstWhere('id', $storeIds[0]);
+            $storeSlug = $this->slug((string) ($store->code ?? $store->name ?? 'tienda'));
+        }
+
+        $dateSlug = now()->format('Y-m-d');
+
+        return Excel::download(
+            new InventoryStoreExport($rows),
+            "inventario-{$storeSlug}-{$dateSlug}.xlsx"
         );
     }
 
@@ -47,5 +71,13 @@ class InventoryController extends Controller
         ]);
 
         return min($value ?: 12, 20);
+    }
+
+    private function slug(string $value): string
+    {
+        $slug = strtolower(preg_replace('/[^A-Za-z0-9]+/', '-', trim($value)) ?? '');
+        $slug = trim($slug, '-');
+
+        return $slug !== '' ? $slug : 'tienda';
     }
 }

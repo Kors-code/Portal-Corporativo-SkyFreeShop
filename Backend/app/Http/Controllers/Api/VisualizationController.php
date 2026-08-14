@@ -469,6 +469,300 @@ class VisualizationController extends Controller
         return response()->json($this->advisorSalesReportData($request));
     }
 
+    public function advisorAnalytics(Request $request)
+    {
+        $budgetIds = $this->normalizeIds($request->query('budget_ids', $request->input('budget_ids', [])));
+
+        $budgetsQuery = $this->budgetDB()->table('budgets')
+            ->select('id', 'name', 'target_amount', 'start_date', 'end_date')
+            ->orderByDesc('start_date');
+
+        $allBudgets = (clone $budgetsQuery)
+            ->get()
+            ->map(fn ($row) => [
+                'id' => (int) $row->id,
+                'name' => $row->name,
+                'target_amount' => round((float) $row->target_amount, 2),
+                'start_date' => (new \DateTimeImmutable((string) $row->start_date))->format('Y-m-d'),
+                'end_date' => (new \DateTimeImmutable((string) $row->end_date))->format('Y-m-d'),
+            ])
+            ->values();
+
+        if (empty($budgetIds)) {
+            $budgetIds = $allBudgets->take(3)->pluck('id')->all();
+        }
+
+        $selectedBudgets = $allBudgets
+            ->filter(fn ($budget) => in_array((int) $budget['id'], $budgetIds, true))
+            ->sortBy('start_date')
+            ->values();
+
+        if ($selectedBudgets->isEmpty()) {
+            return response()->json([
+                'budgets' => $allBudgets,
+                'filters' => ['budget_ids' => [], 'user_id' => null],
+                'advisors' => [],
+                'selected_advisor' => null,
+                'totals' => $this->emptyAdvisorAnalyticsTotals(),
+                'monthly' => [],
+                'daily' => [],
+                'categories' => [],
+                'kpi_mix' => [],
+            ]);
+        }
+
+        $ranges = $selectedBudgets
+            ->map(fn ($budget) => ['start' => $budget['start_date'], 'end' => $budget['end_date']])
+            ->all();
+
+        $advisorsBase = $this->budgetDB()->table('sales as s')
+            ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
+            ->whereNotNull('s.seller_id')
+            ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) NOT IN ('VENTAS MOSTRADOR', 'USUARIO PREDETERMINADO')");
+        $this->applyDateRanges($advisorsBase, $ranges);
+        $this->excludeGpwCategory($advisorsBase);
+
+        $advisors = (clone $advisorsBase)
+            ->selectRaw("
+                s.seller_id as user_id,
+                COALESCE(NULLIF(TRIM(u.name), ''), CONCAT('Advisor ', s.seller_id)) as advisor,
+                u.codigo_vendedor as seller_code,
+                COALESCE(SUM(s.value_usd), 0) as total_usd,
+                COALESCE(SUM(s.quantity), 0) as units,
+                COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as trx
+            ")
+            ->groupBy('s.seller_id', 'u.name', 'u.codigo_vendedor')
+            ->havingRaw('COALESCE(SUM(s.value_usd), 0) <> 0')
+            ->orderByDesc('total_usd')
+            ->get()
+            ->map(function ($row) {
+                $sales = (float) ($row->total_usd ?? 0);
+                $trx = (int) ($row->trx ?? 0);
+                $units = (float) ($row->units ?? 0);
+
+                return [
+                    'user_id' => (int) $row->user_id,
+                    'advisor' => $row->advisor,
+                    'seller_code' => $row->seller_code,
+                    'total_usd' => round($sales, 2),
+                    'trx' => $trx,
+                    'tkt_usd' => $trx > 0 ? round($sales / $trx, 2) : 0,
+                    'units' => round($units, 2),
+                    'units_per_ticket' => $trx > 0 ? round($units / $trx, 2) : 0,
+                ];
+            })
+            ->values();
+
+        $requestedUserId = (int) $request->query('user_id', $request->input('user_id', 0));
+        $selectedAdvisor = $advisors->firstWhere('user_id', $requestedUserId) ?: $advisors->first();
+        $userId = (int) ($selectedAdvisor['user_id'] ?? 0);
+
+        if (!$userId) {
+            return response()->json([
+                'budgets' => $allBudgets,
+                'filters' => ['budget_ids' => $selectedBudgets->pluck('id')->all(), 'user_id' => null],
+                'advisors' => $advisors,
+                'selected_advisor' => null,
+                'totals' => $this->emptyAdvisorAnalyticsTotals(),
+                'monthly' => [],
+                'daily' => [],
+                'categories' => [],
+                'kpi_mix' => [],
+            ]);
+        }
+
+        $rangeStart = $selectedBudgets->min('start_date');
+        $rangeEnd = $selectedBudgets->max('end_date');
+        $budgetByDate = $this->budgetDailyByDate($rangeStart, $rangeEnd);
+        $activeByDay = (clone $advisorsBase)
+            ->selectRaw("DATE(s.sale_date) as day_date, COUNT(DISTINCT s.seller_id) as advisors_count")
+            ->groupBy('day_date')
+            ->pluck('advisors_count', 'day_date')
+            ->all();
+
+        $selectedBase = $this->budgetDB()->table('sales as s')
+            ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
+            ->where('s.seller_id', $userId);
+        $this->applyDateRanges($selectedBase, $ranges);
+        $this->excludeGpwCategory($selectedBase);
+
+        $dailyRaw = (clone $selectedBase)
+            ->selectRaw("
+                DATE(s.sale_date) as day_date,
+                COALESCE(SUM(s.value_usd), 0) as sales_usd,
+                COALESCE(SUM(s.quantity), 0) as units,
+                COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as trx
+            ")
+            ->groupBy('day_date')
+            ->get()
+            ->keyBy('day_date');
+
+        $rawDaily = [];
+        $targetPoolByMonth = [];
+        foreach ($selectedBudgets as $budget) {
+            $cursor = new \DateTimeImmutable($budget['start_date']);
+            $end = new \DateTimeImmutable($budget['end_date']);
+
+            while ($cursor <= $end) {
+                $dayDate = $cursor->format('Y-m-d');
+                $row = $dailyRaw->get($dayDate);
+                $sales = (float) ($row->sales_usd ?? 0);
+                $trx = (int) ($row->trx ?? 0);
+                $units = (float) ($row->units ?? 0);
+                $activeCount = (int) ($activeByDay[$dayDate] ?? $advisors->count());
+                $activeAdvisors = max(1, $activeCount);
+                $estimatedTarget = round(((float) ($budgetByDate[$dayDate] ?? 0)) / $activeAdvisors, 2);
+                $monthKey = $cursor->format('Y-m');
+                $targetPoolByMonth[$monthKey] = ($targetPoolByMonth[$monthKey] ?? 0) + $estimatedTarget;
+
+                if ($sales > 0) {
+                    $rawDaily[] = [
+                        'date' => $dayDate,
+                        'day' => (int) $cursor->format('j'),
+                        'month_key' => $monthKey,
+                        'label' => $cursor->format('d/m'),
+                        'sales_usd' => round($sales, 2),
+                        'target_usd' => 0,
+                        'compliance_pct' => 0,
+                        'trx' => $trx,
+                        'tkt_usd' => 0,
+                        'units' => round($units, 2),
+                        'units_per_ticket' => 0,
+                        'rolled_days' => 1,
+                    ];
+                }
+
+                $cursor = $cursor->modify('+1 day');
+            }
+        }
+
+        $nonZeroSales = array_values(array_filter(array_column($rawDaily, 'sales_usd'), fn ($value) => (float) $value > 0));
+        sort($nonZeroSales);
+        $middle = (int) floor(count($nonZeroSales) / 2);
+        $medianSales = count($nonZeroSales) === 0
+            ? 0
+            : (count($nonZeroSales) % 2 === 0
+                ? (((float) $nonZeroSales[$middle - 1] + (float) $nonZeroSales[$middle]) / 2)
+                : (float) $nonZeroSales[$middle]);
+        $minimumWorkedSales = max(100, $medianSales * 0.2);
+
+        $daily = [];
+        foreach ($rawDaily as $row) {
+            $isTinyDay = $medianSales > 0 && $row['sales_usd'] < $minimumWorkedSales;
+            $lastIndex = count($daily) - 1;
+
+            if ($isTinyDay && $lastIndex >= 0) {
+                $daily[$lastIndex]['sales_usd'] = round($daily[$lastIndex]['sales_usd'] + $row['sales_usd'], 2);
+                $daily[$lastIndex]['trx'] += $row['trx'];
+                $daily[$lastIndex]['units'] = round($daily[$lastIndex]['units'] + $row['units'], 2);
+                $daily[$lastIndex]['rolled_days'] = ($daily[$lastIndex]['rolled_days'] ?? 1) + 1;
+                continue;
+            }
+
+            $daily[] = $row;
+        }
+
+        $workedDaysByMonth = [];
+        foreach ($daily as $row) {
+            $workedDaysByMonth[$row['month_key']] = ($workedDaysByMonth[$row['month_key']] ?? 0) + 1;
+        }
+
+        foreach ($daily as $index => $row) {
+            $workedDays = max(1, (int) ($workedDaysByMonth[$row['month_key']] ?? 1));
+            $target = round(((float) ($targetPoolByMonth[$row['month_key']] ?? 0)) / $workedDays, 2);
+            $sales = (float) $row['sales_usd'];
+            $trx = (int) $row['trx'];
+            $units = (float) $row['units'];
+
+            $daily[$index]['target_usd'] = $target;
+            $daily[$index]['compliance_pct'] = $target > 0 ? round(($sales / $target) * 100, 1) : 0;
+            $daily[$index]['tkt_usd'] = $trx > 0 ? round($sales / $trx, 2) : 0;
+            $daily[$index]['units_per_ticket'] = $trx > 0 ? round($units / $trx, 2) : 0;
+        }
+
+        $monthly = $selectedBudgets->map(function ($budget) use ($daily) {
+            $monthRows = array_values(array_filter($daily, fn ($row) => $row['date'] >= $budget['start_date'] && $row['date'] <= $budget['end_date']));
+            $sales = array_sum(array_column($monthRows, 'sales_usd'));
+            $target = array_sum(array_column($monthRows, 'target_usd'));
+            $trx = array_sum(array_column($monthRows, 'trx'));
+            $units = array_sum(array_column($monthRows, 'units'));
+
+            return [
+                'budget_id' => (int) $budget['id'],
+                'month' => substr($budget['start_date'], 0, 7),
+                'name' => $budget['name'],
+                'sales_usd' => round($sales, 2),
+                'target_usd' => round($target, 2),
+                'compliance_pct' => $target > 0 ? round(($sales / $target) * 100, 1) : 0,
+                'trx' => (int) $trx,
+                'tkt_usd' => $trx > 0 ? round($sales / $trx, 2) : 0,
+                'units' => round($units, 2),
+                'units_per_ticket' => $trx > 0 ? round($units / $trx, 2) : 0,
+            ];
+        })->values();
+
+        $totalSales = array_sum(array_column($daily, 'sales_usd'));
+        $totalTarget = array_sum(array_column($daily, 'target_usd'));
+        $totalTrx = array_sum(array_column($daily, 'trx'));
+        $totalUnits = array_sum(array_column($daily, 'units'));
+
+        $categories = (clone $selectedBase)
+            ->leftJoin('products as p', 'p.id', '=', 's.product_id')
+            ->selectRaw("
+                COALESCE(NULLIF(TRIM(p.classification_desc), ''), NULLIF(TRIM(p.classification), ''), 'Sin categoria') as category,
+                COALESCE(SUM(s.value_usd), 0) as sales_usd,
+                COALESCE(SUM(s.quantity), 0) as units,
+                COUNT(DISTINCT COALESCE(NULLIF(s.folio, ''), CONCAT('row-', s.id))) as trx
+            ")
+            ->groupBy('category')
+            ->orderByDesc('sales_usd')
+            ->limit(12)
+            ->get()
+            ->map(function ($row) use ($totalSales, $totalTrx) {
+                $sales = (float) ($row->sales_usd ?? 0);
+                $trx = (int) ($row->trx ?? 0);
+                $units = (float) ($row->units ?? 0);
+
+                return [
+                    'category' => $row->category,
+                    'sales_usd' => round($sales, 2),
+                    'pct' => $totalSales > 0 ? round(($sales / $totalSales) * 100, 1) : 0,
+                    'trx' => $trx,
+                    'trx_pct' => $totalTrx > 0 ? round(($trx / $totalTrx) * 100, 1) : 0,
+                    'tkt_usd' => $trx > 0 ? round($sales / $trx, 2) : 0,
+                    'units' => round($units, 2),
+                    'units_per_ticket' => $trx > 0 ? round($units / $trx, 2) : 0,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'budgets' => $allBudgets,
+            'filters' => ['budget_ids' => $selectedBudgets->pluck('id')->all(), 'user_id' => $userId],
+            'advisors' => $advisors,
+            'selected_advisor' => $selectedAdvisor,
+            'totals' => [
+                'sales_usd' => round($totalSales, 2),
+                'target_usd' => round($totalTarget, 2),
+                'compliance_pct' => $totalTarget > 0 ? round(($totalSales / $totalTarget) * 100, 1) : 0,
+                'trx' => (int) $totalTrx,
+                'tkt_usd' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0,
+                'units' => round($totalUnits, 2),
+                'units_per_ticket' => $totalTrx > 0 ? round($totalUnits / $totalTrx, 2) : 0,
+                'days_with_sales' => count(array_filter($daily, fn ($row) => $row['sales_usd'] > 0)),
+            ],
+            'monthly' => $monthly,
+            'daily' => $daily,
+            'categories' => $categories,
+            'kpi_mix' => [
+                ['label' => 'Venta', 'value' => round($totalSales, 2), 'pct' => 100],
+                ['label' => 'Meta estimada', 'value' => round($totalTarget, 2), 'pct' => $totalSales > 0 ? round(($totalTarget / $totalSales) * 100, 1) : 0],
+                ['label' => 'Tickets', 'value' => (int) $totalTrx, 'pct' => 0],
+                ['label' => 'Ticket promedio', 'value' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0, 'pct' => 0],
+            ],
+        ]);
+    }
+
     public function advisorSalesWhatsappPreview(Request $request, AdvisorSalesWhatsappImageService $imageService)
     {
         $report = $this->advisorSalesReportData($request);
@@ -788,6 +1082,47 @@ class VisualizationController extends Controller
             ->unique()
             ->values()
             ->all();
+    }
+
+    protected function normalizeIds($raw): array
+    {
+        if (is_string($raw)) {
+            $raw = explode(',', $raw);
+        }
+
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        return collect($raw)
+            ->map(fn ($item) => (int) $item)
+            ->filter(fn ($item) => $item > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    protected function applyDateRanges($query, array $ranges): void
+    {
+        $query->where(function ($q) use ($ranges) {
+            foreach ($ranges as $range) {
+                $q->orWhereBetween('s.sale_date', [$range['start'], $range['end']]);
+            }
+        });
+    }
+
+    protected function emptyAdvisorAnalyticsTotals(): array
+    {
+        return [
+            'sales_usd' => 0,
+            'target_usd' => 0,
+            'compliance_pct' => 0,
+            'trx' => 0,
+            'tkt_usd' => 0,
+            'units' => 0,
+            'units_per_ticket' => 0,
+            'days_with_sales' => 0,
+        ];
     }
 
     protected function excludeGpwCategory($query): void

@@ -7,12 +7,15 @@
     @php
         $authUser = auth()->user();
         $authEmpleado = null;
+        $authPermissions = [];
         if ($authUser) {
             $authEmpleado = \App\Http\Controllers\EntregaController::resolverEmpleadoParaUsuario($authUser);
+            $authPermissions = $authUser->getAllPermissions()->pluck('name')->values();
         }
     @endphp
     <meta name="laravel-user" content='@json($authUser)'>
     <meta name="laravel-empleado" content='@json($authEmpleado)'>
+    <meta name="laravel-permissions" content='@json($authPermissions)'>
 
     @php
         $manifestPath = public_path('react/manifest.json');

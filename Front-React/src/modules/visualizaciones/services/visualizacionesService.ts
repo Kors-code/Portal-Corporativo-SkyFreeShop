@@ -148,6 +148,80 @@ export type AdvisorSalesResponse = {
   };
 };
 
+export type AdvisorAnalyticsBudget = {
+  id: number;
+  name: string;
+  target_amount: number;
+  start_date: string;
+  end_date: string;
+};
+
+export type AdvisorAnalyticsAdvisor = AdvisorSalesRow;
+
+export type AdvisorAnalyticsDaily = {
+  date: string;
+  day: number;
+  month_key: string;
+  label: string;
+  sales_usd: number;
+  target_usd: number;
+  compliance_pct: number;
+  trx: number;
+  tkt_usd: number;
+  units: number;
+  units_per_ticket: number;
+};
+
+export type AdvisorAnalyticsCategory = {
+  category: string;
+  sales_usd: number;
+  pct: number;
+  trx: number;
+  trx_pct: number;
+  tkt_usd: number;
+  units: number;
+  units_per_ticket: number;
+};
+
+export type AdvisorAnalyticsResponse = {
+  budgets: AdvisorAnalyticsBudget[];
+  filters: {
+    budget_ids: number[];
+    user_id: number | null;
+  };
+  advisors: AdvisorAnalyticsAdvisor[];
+  selected_advisor: AdvisorAnalyticsAdvisor | null;
+  totals: {
+    sales_usd: number;
+    target_usd: number;
+    compliance_pct: number;
+    trx: number;
+    tkt_usd: number;
+    units: number;
+    units_per_ticket: number;
+    days_with_sales: number;
+  };
+  monthly: Array<{
+    budget_id: number;
+    month: string;
+    name: string;
+    sales_usd: number;
+    target_usd: number;
+    compliance_pct: number;
+    trx: number;
+    tkt_usd: number;
+    units: number;
+    units_per_ticket: number;
+  }>;
+  daily: AdvisorAnalyticsDaily[];
+  categories: AdvisorAnalyticsCategory[];
+  kpi_mix: Array<{
+    label: string;
+    value: number;
+    pct: number;
+  }>;
+};
+
 export async function getCashRegisterClosure(params: {
   date?: string;
   start_date?: string;
@@ -216,6 +290,18 @@ export async function sendAdvisorSalesWhatsappReport(params: {
   const response = await api.post<{ ok: boolean; message: string }>(
     "/visualizaciones/ventas-asesores/whatsapp/send",
     {},
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function getAdvisorAnalytics(params: {
+  budget_ids?: number[];
+  user_id?: number;
+}): Promise<AdvisorAnalyticsResponse> {
+  const response = await api.get<AdvisorAnalyticsResponse>(
+    "/visualizaciones/asesores-analytics",
     { params }
   );
 

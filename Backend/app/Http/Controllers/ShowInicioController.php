@@ -21,7 +21,7 @@ class ShowInicioController extends Controller
                 'title' => 'Portal Corporativo Sky Free Shop',
                 'subtitle' => 'Centro de acceso para operaciones, ventas, inventario, talento, analitica y administracion.',
                 'eyebrow' => 'Suite corporativa',
-                'area_order' => ['Comercial', 'Minuta de entrega', 'Personal', 'Contabilidad', 'Inventario', 'Analitica', 'Administracion'],
+                'area_order' => ['Comercial', 'Informacional', 'Minuta de entrega', 'Personal', 'Contabilidad', 'Inventario', 'Analitica', 'Administracion'],
                 'buttons' => [],
                 'showcase_groups' => [
                     [
@@ -58,11 +58,23 @@ class ShowInicioController extends Controller
                                 'icon' => 'fa-solid fa-inbox',
                                 'permissions' => ['entregas.view'],
                             ],
-                                                        [
+                            [
                                 'title' => 'Wish List',
                                 'route' => '/panel/CatalogMatchPage',
                                 'icon' => 'fa-solid fa-star',
                                 'permissions' => ['wishlist.view'],
+                            ],
+                        ],
+                    ],
+                    [
+                        'title' => 'Informacional',
+                        'icon' => 'fa-solid fa-book-open',
+                        'items' => [
+                            [
+                                'title' => 'Info asesores',
+                                'route' => '/panel/info-asesores',
+                                'icon' => 'fa-solid fa-book-open',
+                                'permissions' => ['advisor-info.view'],
                             ],
                         ],
                     ],
@@ -91,19 +103,19 @@ class ShowInicioController extends Controller
                                 'title' => 'Importar bancos',
                                 'route' => '/panel/davibank-converter',
                                 'icon' => 'fa-solid fa-file-import',
-                                'permissions' => ['accounting.bank-imports.create', 'imports.create'],
+                                'permissions' => ['accounting.bank-imports.create'],
                             ],
                             [
                                 'title' => 'Bancos',
                                 'route' => '/panel/BankImportsManagerPage',
                                 'icon' => 'fa-solid fa-building-columns',
-                                'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                                'permissions' => ['accounting.bank-imports.view'],
                             ],
                             [
                                 'title' => 'Movimientos bancarios',
                                 'route' => '/panel/BankMovementsPage',
                                 'icon' => 'fa-solid fa-receipt',
-                                'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                                'permissions' => ['accounting.bank-imports.view'],
                             ],
                         ],
                     ],
@@ -221,6 +233,15 @@ class ShowInicioController extends Controller
                         'permissions' => ['wishlist.view'],
                     ],
                     [
+                        'icon' => 'fa-solid fa-book-open',
+                        'title' => 'Info Asesores',
+                        'text' => 'Material informativo por proveedor sincronizado desde OneDrive.',
+                        'area' => 'Informacional',
+                        'route' => '/panel/info-asesores',
+                        'permissions' => ['advisor-info.view'],
+                        'featured' => true,
+                    ],
+                    [
                         'icon' => 'fa-solid fa-clipboard-check',
                         'title' => 'Minuta Entrega',
                         'text' => 'Actas de entrega, recepcion y responsabilidades activas.',
@@ -315,7 +336,7 @@ class ShowInicioController extends Controller
                         'text' => 'Historial de importaciones bancarias y movimientos normalizados.',
                         'area' => 'Contabilidad',
                         'route' => '/panel/BankImportsManagerPage',
-                        'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                        'permissions' => ['accounting.bank-imports.view'],
                     ],
                     [
                         'icon' => 'fa-solid fa-receipt',
@@ -323,7 +344,7 @@ class ShowInicioController extends Controller
                         'text' => 'Consulta UID, filtros por banco, dias y descarga CSV.',
                         'area' => 'Contabilidad',
                         'route' => '/panel/BankMovementsPage',
-                        'permissions' => ['accounting.bank-imports.view', 'imports.create'],
+                        'permissions' => ['accounting.bank-imports.view'],
                     ],
                     [
                         'icon' => 'fa-solid fa-users-gear',

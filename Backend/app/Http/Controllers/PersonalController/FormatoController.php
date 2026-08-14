@@ -7,12 +7,24 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request; 
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Mail\Message;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Personal\LlamadoAtencion;
 use App\Models\Personal\Empleado;
 
 class FormatoController extends Controller
 {
+    private const DISCIPLINAS_TEST_RECIPIENTS = [
+        'sebastian.cruz@dutyfreepartners.com',
+    ];
+
+    private const DISCIPLINAS_PRODUCTION_RECIPIENTS = [
+        'Luisa.Grajales@dutyfreepartners.com',
+        'Liliana.Otalvaro@dutyfreepartners.com',
+        'Maria.Giraldo@dutyfreepartners.com',
+    ];
+
     protected $connection = 'mysql_personal';
     public function generarPDF(Request $request)
     {
@@ -106,6 +118,7 @@ class FormatoController extends Controller
         // Lógica: si existe session('llamado_actual_id') -> actualizar ese registro
         // si no existe -> crear nuevo y guardar su id en sesión.
         $llamadoId = session('llamado_actual_id');
+        $llamado = null;
 
         if ($llamadoId) {
             $llamado = LlamadoAtencion::find($llamadoId);
@@ -130,7 +143,7 @@ class FormatoController extends Controller
                 ]);
             } else {
                 // Si por alguna razón el ID guardado no existe, creamos uno nuevo
-                $nuevo = LlamadoAtencion::create([
+                $llamado = LlamadoAtencion::create([
                     'empleado_id' => $empleado->id,
                     'fecha' => $validated['fecha'],
                     'nombre' => $validated['nombre'],
@@ -147,11 +160,11 @@ class FormatoController extends Controller
                     'ruta_pdf' => $fileName,
                     'grupo' => $codigo,
                 ]);
-                session(['llamado_actual_id' => $nuevo->id]);
+                session(['llamado_actual_id' => $llamado->id]);
             }
         } else {
             // Crear nuevo y guardar su id en sesión
-            $nuevo = LlamadoAtencion::create([
+            $llamado = LlamadoAtencion::create([
                 'empleado_id' => $empleado->id,
                 'fecha' => $validated['fecha'],
                 'nombre' => $validated['nombre'],
@@ -168,7 +181,11 @@ class FormatoController extends Controller
                 'ruta_pdf' => $fileName,
                 'grupo' => $codigo,
             ]);
-            session(['llamado_actual_id' => $nuevo->id]);
+            session(['llamado_actual_id' => $llamado->id]);
+        }
+
+        if ($llamado) {
+            $this->notificarDisciplinaPositiva($llamado, $empleado, $fileName);
         }
 
         // Preparar respuesta (descarga o volver con success)
@@ -364,7 +381,101 @@ private function generarPDFDesdeModelo(LlamadoAtencion $llamado, Empleado $emple
     // Guardar ruta en BD
     $llamado->update(['ruta_pdf' => $fileName]);
 
+    $this->notificarDisciplinaPositiva($llamado->fresh(), $empleado, $fileName);
+
     return $fileName;
+}
+
+private function notificarDisciplinaPositiva(?LlamadoAtencion $llamado, Empleado $empleado, string $fileName): bool
+{
+    if (!$llamado || !Storage::disk('local')->exists($fileName)) {
+        return false;
+    }
+
+    $recipients = $this->disciplinasRecipients();
+    if (empty($recipients)) {
+        Log::warning('No hay destinatarios configurados para disciplina positiva', [
+            'llamado_id' => $llamado->id,
+        ]);
+        return false;
+    }
+
+    $pdfContent = Storage::disk('local')->get($fileName);
+    $pdfName = basename($fileName);
+    $isTest = $this->disciplinasMailTestMode();
+    $subjectPrefix = $isTest ? '[PRUEBA] ' : '';
+
+    try {
+        Mail::mailer('smtp')->send([], [], function (Message $message) use ($recipients, $llamado, $empleado, $pdfContent, $pdfName, $subjectPrefix, $isTest) {
+            $message
+                ->from(config('mail.from.address'), 'Sky Free Shop - Disciplinas')
+                ->replyTo(config('mail.from.address'), 'No Reply')
+                ->to($recipients)
+                ->subject($subjectPrefix . 'Disciplina positiva aplicada - ' . ($llamado->nombre ?? $empleado->colaborador ?? $empleado->cedula))
+                ->html($this->disciplinaEmailHtml($llamado, $empleado, $isTest))
+                ->attachData($pdfContent, $pdfName, ['mime' => 'application/pdf']);
+        });
+
+        Log::info('Correo de disciplina positiva enviado', [
+            'llamado_id' => $llamado->id,
+            'recipients' => $recipients,
+            'test' => $isTest,
+        ]);
+
+        return true;
+    } catch (\Throwable $e) {
+        Log::error('Error enviando correo de disciplina positiva', [
+            'llamado_id' => $llamado->id,
+            'recipients' => $recipients,
+            'error' => $e->getMessage(),
+        ]);
+
+        return false;
+    }
+}
+
+private function disciplinasRecipients(): array
+{
+    $recipients = $this->disciplinasMailTestMode()
+        ? self::DISCIPLINAS_TEST_RECIPIENTS
+        : self::DISCIPLINAS_PRODUCTION_RECIPIENTS;
+
+    return array_values(array_filter($recipients, fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL)));
+}
+
+private function disciplinasMailTestMode(): bool
+{
+    return filter_var(env('DISCIPLINAS_POSITIVAS_MAIL_TEST', true), FILTER_VALIDATE_BOOL);
+}
+
+private function disciplinaEmailHtml(LlamadoAtencion $llamado, Empleado $empleado, bool $isTest): string
+{
+    $badge = $isTest
+        ? "<p style='margin:0 0 18px;padding:10px 12px;background:#fef3c7;border-radius:8px;color:#92400e;font-weight:700;'>Correo de prueba: por ahora solo se envia a Sebastian Cruz.</p>"
+        : '';
+
+    $nombre = e($llamado->nombre ?? $empleado->colaborador ?? '');
+    $cedula = e($llamado->cedula ?? $empleado->cedula ?? '');
+    $fase = e((string) ($llamado->fase ?? ''));
+    $fecha = e((string) ($llamado->fecha ?? now()->format('Y-m-d')));
+    $jefe = e((string) ($llamado->jefe ?? ''));
+    $orientacion = e((string) ($llamado->orientacion ?? ''));
+
+    return "
+        <div style='font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;'>
+            {$badge}
+            <p>Hola,</p>
+            <p>Se aplico una disciplina positiva y el PDF generado va adjunto para su revision y archivo.</p>
+            <table role='presentation' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin:18px 0;width:100%;max-width:620px;'>
+                <tr><td style='padding:8px 10px;background:#f9fafb;font-weight:700;'>Colaborador</td><td style='padding:8px 10px;background:#f9fafb;'>{$nombre}</td></tr>
+                <tr><td style='padding:8px 10px;font-weight:700;'>Cedula</td><td style='padding:8px 10px;'>{$cedula}</td></tr>
+                <tr><td style='padding:8px 10px;background:#f9fafb;font-weight:700;'>Fase</td><td style='padding:8px 10px;background:#f9fafb;'>{$fase}</td></tr>
+                <tr><td style='padding:8px 10px;font-weight:700;'>Fecha</td><td style='padding:8px 10px;'>{$fecha}</td></tr>
+                <tr><td style='padding:8px 10px;background:#f9fafb;font-weight:700;'>Jefe</td><td style='padding:8px 10px;background:#f9fafb;'>{$jefe}</td></tr>
+                <tr><td style='padding:8px 10px;font-weight:700;'>Orientacion</td><td style='padding:8px 10px;'>{$orientacion}</td></tr>
+            </table>
+            <p style='color:#6b7280;font-size:13px;'>Mensaje automatico del sistema de disciplinas positivas.</p>
+        </div>";
 }
 
 }

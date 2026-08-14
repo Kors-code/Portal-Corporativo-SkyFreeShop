@@ -13,11 +13,13 @@ class RolePermissionPresetService
             'portal.view',
             'panel.view',
             'entregas.view',
+            'advisor-info.view',
         ],
         'admin' => [
             'portal.view',
             'panel.view',
             'entregas.view',
+            'advisor-info.view',
         ],
         'lider' => [
             'panel.view',
@@ -25,6 +27,7 @@ class RolePermissionPresetService
             'disciplines.view',
             'imports.create',
             'wishlist.view',
+            'advisor-info.view',
             'entregas.view',
             'entregas.manage',
             'visualizations.view',
@@ -35,6 +38,7 @@ class RolePermissionPresetService
             'budget.view',
             'commissions.user.view',
             'wishlist.view',
+            'advisor-info.view',
         ],
         'especializado' => [
             'portal.view',
@@ -42,6 +46,7 @@ class RolePermissionPresetService
             'budget.view',
             'budget.specialists.view',
             'commissions.asesorSpecialist.view',
+            'advisor-info.view',
         ],
         'cashier' => [
             'portal.view',
@@ -50,6 +55,7 @@ class RolePermissionPresetService
             'budget.cashier.view',
             'candidates.view',
             'wishlist.view',
+            'advisor-info.view',
         ],
         'adminpresupuesto' => [
             'portal.view',
@@ -61,6 +67,7 @@ class RolePermissionPresetService
             'budget.advisors.view',
             'budget.specialists.view',
             'commissions.asesorSpecialist.view',
+            'advisor-info.view',
         ],
     ];
 

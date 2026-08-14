@@ -54,8 +54,17 @@ return [
         'menu_template_language' => env('WHATSAPP_MENU_TEMPLATE_LANGUAGE'),
         'menu_template_language_fallbacks' => env('WHATSAPP_MENU_TEMPLATE_LANGUAGE_FALLBACKS', 'es_ES,es,es_CO'),
         'daily_report_template_body_params' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAMS', 2),
-        'daily_report_template_body_param_names' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAM_NAMES', 'texto,fecha'),
+        'daily_report_template_body_param_names' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAM_NAMES', 'nombre,fecha'),
         'menu_template_body_param_names' => env('WHATSAPP_MENU_TEMPLATE_BODY_PARAM_NAMES', 'nombre'),
+    ],
+
+    'onedrive_advisor_info' => [
+        'tenant_id' => env('ONEDRIVE_TENANT_ID', env('TENANT_ID')),
+        'client_id' => env('ONEDRIVE_CLIENT_ID', env('CLIENT_ID')),
+        'client_secret' => env('ONEDRIVE_CLIENT_SECRET', env('CLIENT_SECRET')),
+        'user_id' => env('ONEDRIVE_INFO_USER_ID', env('ONEDRIVE_USER_ID')),
+        'root_folder' => env('ONEDRIVE_INFO_FOLDER', 'Info Asesores'),
+        'ca_bundle' => env('ONEDRIVE_CA_BUNDLE'),
     ],
 
 ];

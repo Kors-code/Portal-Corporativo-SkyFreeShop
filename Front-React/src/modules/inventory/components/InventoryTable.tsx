@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getInventory } from "../services/inventoryService";
+import { downloadInventory, getInventory } from "../services/inventoryService";
 import type { InventoryItem, Store } from "../services/inventoryService";
 
 interface InventoryTableProps {
@@ -10,6 +10,7 @@ interface InventoryTableProps {
 const InventoryTable = ({ refreshKey = 0, stores }: InventoryTableProps) => {
   const [data, setData] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [downloading, setDownloading] = useState<boolean>(false);
   const [search, setSearch] = useState<string>("");
   const [selectedStoreId, setSelectedStoreId] = useState<number | "">("");
 
@@ -30,6 +31,33 @@ const InventoryTable = ({ refreshKey = 0, stores }: InventoryTableProps) => {
       console.error("Error cargando inventario:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+      const blob = await downloadInventory(
+        selectedStoreId ? Number(selectedStoreId) : undefined,
+        search,
+        undefined
+      );
+      const selectedStore = stores.find((store) => store.id === selectedStoreId);
+      const storeName = selectedStore?.code || selectedStore?.name || "todas-tiendas";
+      const filename = `inventario-${slugify(storeName)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error descargando inventario:", error);
+      alert("No se pudo descargar el inventario.");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -105,6 +133,22 @@ const InventoryTable = ({ refreshKey = 0, stores }: InventoryTableProps) => {
           }}
         >
           Filtrar
+        </button>
+
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          style={{
+            padding: "10px 16px",
+            background: downloading ? "#94a3b8" : "#047857",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            cursor: downloading ? "not-allowed" : "pointer",
+            fontWeight: 600,
+          }}
+        >
+          {downloading ? "Descargando..." : selectedStoreId ? "Descargar tienda" : "Descargar todas"}
         </button>
       </div>
 
@@ -198,6 +242,13 @@ const formatMoney = (value: number | null | undefined): string => {
     maximumFractionDigits: 2,
   }).format(Number(value));
 };
+
+const slugify = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "inventario";
 
 const th: React.CSSProperties = {
   padding: "12px 10px",

@@ -40,6 +40,8 @@ class WhatsappWebhookController extends Controller
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
+        $this->logStatusSummaries($request->all());
+
         Log::info('WHATSAPP WEBHOOK RECEIVED', [
             'payload' => $request->all(),
         ]);
@@ -47,6 +49,50 @@ class WhatsappWebhookController extends Controller
         $conversation->handle($request->all());
 
         return response()->json(['ok' => true]);
+    }
+
+    private function logStatusSummaries(array $payload): void
+    {
+        foreach (($payload['entry'] ?? []) as $entry) {
+            foreach (($entry['changes'] ?? []) as $change) {
+                $value = $change['value'] ?? [];
+
+                foreach (($value['statuses'] ?? []) as $status) {
+                    $errors = collect($status['errors'] ?? [])
+                        ->map(fn ($error) => [
+                            'code' => $error['code'] ?? null,
+                            'title' => $error['title'] ?? null,
+                            'message' => $error['message'] ?? null,
+                            'details' => $error['error_data']['details'] ?? null,
+                        ])
+                        ->values()
+                        ->all();
+
+                    $level = $errors === [] ? 'info' : 'warning';
+
+                    Log::{$level}('WHATSAPP STATUS SUMMARY', [
+                        'message_id' => $status['id'] ?? null,
+                        'status' => $status['status'] ?? null,
+                        'timestamp' => $status['timestamp'] ?? null,
+                        'recipient' => $this->maskPhone((string) ($status['recipient_id'] ?? '')),
+                        'conversation_id' => $status['conversation']['id'] ?? null,
+                        'pricing_category' => $status['pricing']['category'] ?? null,
+                        'errors' => $errors,
+                    ]);
+                }
+            }
+        }
+    }
+
+    private function maskPhone(string $number): ?string
+    {
+        $digits = preg_replace('/\D+/', '', $number) ?? '';
+
+        if ($digits === '') {
+            return null;
+        }
+
+        return substr($digits, 0, 4) . '***' . substr($digits, -2);
     }
 
     private function hasValidSignature(Request $request): bool

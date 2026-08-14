@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, ChevronRight, LockKeyhole, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, ChevronRight, LockKeyhole, TrendingUp, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const dashboards = [
@@ -8,6 +8,7 @@ const dashboards = [
     to: "/visualizaciones/daily-sales",
     icon: BarChart3,
     status: "Available",
+    type: "Daily",
   },
   {
     title: "Store Sales",
@@ -15,6 +16,7 @@ const dashboards = [
     to: "/visualizaciones/ventas-tiendas",
     icon: TrendingUp,
     status: "Available",
+    type: "Daily",
   },
   {
     title: "Advisor Sales",
@@ -22,6 +24,23 @@ const dashboards = [
     to: "/visualizaciones/ventas-asesores",
     icon: CalendarDays,
     status: "Available",
+    type: "Daily",
+  },
+  {
+    title: "Advisor Analytics",
+    description: "Visual advisor gallery with multi-month compliance, category mix, average ticket, tickets, and KPIs.",
+    to: "/visualizaciones/asesores-analytics",
+    icon: Users,
+    status: "New",
+    type: "Analytics",
+  },
+  {
+    title: "Info asesores",
+    description: "Biblioteca informativa por proveedor conectada a OneDrive para consultar PDFs y material comercial.",
+    to: "/info-asesores",
+    icon: BookOpen,
+    status: "Info",
+    type: "Informacional",
   },
 ];
 
@@ -76,7 +95,7 @@ export default function VisualizacionesHub() {
                 <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-400">
                     <CalendarDays size={14} />
-                    Daily
+                    {dashboard.type}
                   </div>
                   <div className="inline-flex items-center gap-2 text-sm font-bold text-primary">
                     Open

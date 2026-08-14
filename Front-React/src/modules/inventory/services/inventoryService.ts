@@ -121,6 +121,25 @@ export const getInventory = async (
   return response.data;
 };
 
+export const downloadInventory = async (
+  storeId?: number,
+  search?: string,
+  storeIds?: number[]
+): Promise<Blob> => {
+  const params: Record<string, string | number | number[]> = {};
+
+  if (storeId) params.store_id = storeId;
+  if (search && search.trim()) params.search = search.trim();
+  if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
+
+  const response = await api.get("inventory/export", {
+    params,
+    responseType: "blob",
+  });
+
+  return response.data;
+};
+
 export const getInventoryMetrics = async (
   storeId?: number,
   search?: string,

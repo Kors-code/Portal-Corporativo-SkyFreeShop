@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import type { ReactNode } from "react";
 import MainLayout from "../layout/MainLayout";
 import HomePage from "../pages/HomePage";
 import WelcomePage from "../pages/WelcomePage";
@@ -38,8 +39,18 @@ import VisualizacionesHub from "../modules/visualizaciones/pages/Visualizaciones
 import CashClosureDashboard from "../modules/visualizaciones/pages/CashClosureDashboard";
 import StoreSalesDashboard from "../modules/visualizaciones/pages/StoreSalesDashboard";
 import AdvisorSalesDashboard from "../modules/visualizaciones/pages/AdvisorSalesDashboard";
+import AdvisorAnalyticsDashboard from "../modules/visualizaciones/pages/AdvisorAnalyticsDashboard";
+import AdvisorInfoPage from "../modules/advisorInfo/pages/AdvisorInfoPage";
+import { hasPermission } from "../auth/auth";
 
 
+function PermissionGate({ permission, children }: { permission: string; children: ReactNode }) {
+  if (!hasPermission(permission)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 
 export default function AppRouter() {
@@ -51,7 +62,7 @@ export default function AppRouter() {
             
 
       <Routes>
-          <Route path="/davibank-converter" element={<DavibankConverterPage />} />
+          <Route path="/davibank-converter" element={<PermissionGate permission="accounting.bank-imports.create"><DavibankConverterPage /></PermissionGate>} />
           <Route path="/WelcomePage" element={
             
                     <WelcomePage />
@@ -71,7 +82,7 @@ export default function AppRouter() {
           <Route path="/ImportsManagerPage" element={<ImportsManagerPage />} />
           <Route path="/importCatalog" element={<ImportCatalog />} />
 
-          <Route path="/budget" element={<BudgetPage />} />
+          <Route path="/budget" element={<PermissionGate permission="budget.admin.view"><BudgetPage /></PermissionGate>} />
           <Route path="/InventoryDashboard" element={<InventoryDashboard />} />
           <Route path="/InventoryDashboardPro" element={<InventoryDashboardPro />} />
           <Route path="/InventoryMetricsRunner" element={<InventoryMetricsRunner />} />
@@ -82,6 +93,8 @@ export default function AppRouter() {
           <Route path="/visualizaciones/cierre-caja" element={<VisualizacionesGuard><CashClosureDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/ventas-tiendas" element={<VisualizacionesGuard><StoreSalesDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/ventas-asesores" element={<VisualizacionesGuard><AdvisorSalesDashboard /></VisualizacionesGuard>} />
+          <Route path="/visualizaciones/asesores-analytics" element={<VisualizacionesGuard><AdvisorAnalyticsDashboard /></VisualizacionesGuard>} />
+          <Route path="/info-asesores" element={<PermissionGate permission="advisor-info.view"><AdvisorInfoPage /></PermissionGate>} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
           <Route path="/entregas" element={<EntregasDashboardPage />} />
@@ -99,13 +112,20 @@ export default function AppRouter() {
           
 
           <Route path="/InventoryImportsManagerPage" element={<InventoryImportsManagerPage />} />
-          <Route path="/BankImportsManagerPage" element={<BankImportsManagerPage />} />
-          <Route path="/BankMovementsPage" element={<BankImportsManagerPage initialView="movements" />} />
+          <Route path="/BankImportsManagerPage" element={<PermissionGate permission="accounting.bank-imports.view"><BankImportsManagerPage /></PermissionGate>} />
+          <Route path="/BankMovementsPage" element={<PermissionGate permission="accounting.bank-imports.view"><BankImportsManagerPage initialView="movements" /></PermissionGate>} />
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
-          <Route path="/commissions/categories" element={<CategoryCommissionsPage />} />
+          <Route path="/commissions/categories" element={<PermissionGate permission="budget.commissions.manage"><CategoryCommissionsPage /></PermissionGate>} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
-          <Route path="/commissions/CommissionLeadersPage" element={<CommissionLeadersPage />} />
+          <Route
+            path="/commissions/CommissionLeadersPage"
+            element={
+              <PermissionGate permission="budget.leader.view">
+                <CommissionLeadersPage />
+              </PermissionGate>
+            }
+          />
           <Route
   path="/commissions/DualCommissionAdmin"
   element={

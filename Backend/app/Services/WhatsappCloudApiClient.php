@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class WhatsappCloudApiClient
 {
@@ -194,6 +195,25 @@ class WhatsappCloudApiClient
                 'components' => $components,
             ],
         ];
+
+        Log::info('WHATSAPP TEMPLATE SEND REQUEST', [
+            'to' => $this->maskPhone((string) $payload['to']),
+            'template' => $payload['template']['name'],
+            'language' => $payload['template']['language']['code'],
+            'components' => collect($components)
+                ->map(fn ($component) => [
+                    'type' => $component['type'] ?? null,
+                    'parameter_types' => collect($component['parameters'] ?? [])
+                        ->map(fn ($parameter) => [
+                            'type' => $parameter['type'] ?? null,
+                            'parameter_name' => $parameter['parameter_name'] ?? null,
+                        ])
+                        ->values()
+                        ->all(),
+                ])
+                ->values()
+                ->all(),
+        ]);
 
         $response = Http::timeout(45)
             ->withToken($this->accessToken())
@@ -434,5 +454,16 @@ class WhatsappCloudApiClient
         }
 
         return $digits;
+    }
+
+    private function maskPhone(string $number): ?string
+    {
+        $digits = preg_replace('/\D+/', '', $number) ?? '';
+
+        if ($digits === '') {
+            return null;
+        }
+
+        return substr($digits, 0, 4) . '***' . substr($digits, -2);
     }
 }

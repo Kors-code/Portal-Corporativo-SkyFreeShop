@@ -21,6 +21,7 @@ import {
 
 import InventoryCoverageTable from "../components/InventoryCoverageTable";
 import {
+  downloadInventory,
   getInventoryMetrics,
   getLatestInventoryRows,
   getStores,
@@ -40,6 +41,11 @@ type RunResponse = {
 };
 
 type ViewMode = "all" | "critical" | "attention" | "healthy";
+type MetricsQuery = {
+  storeIds: number[];
+  asOfDate: string;
+  search: string;
+};
 
 export default function InventoryCoveragePage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -59,22 +65,19 @@ export default function InventoryCoveragePage() {
   const [loading, setLoading] = useState(false);
   const [loadingStores, setLoadingStores] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [downloadingInventory, setDownloadingInventory] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [data, setData] = useState<RunResponse | null>(null);
+  const [appliedQuery, setAppliedQuery] = useState<MetricsQuery>({
+    storeIds: [],
+    asOfDate: "",
+    search: "",
+  });
 
   useEffect(() => {
     void loadStores();
   }, []);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void loadMetrics();
-    }, 650);
-
-    return () => window.clearTimeout(timeoutId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreIds, asOfDate, search]);
 
   const loadStores = async () => {
     try {
@@ -106,6 +109,11 @@ export default function InventoryCoveragePage() {
         processed_products: rows.length,
         rows,
       });
+      setAppliedQuery({
+        storeIds: selectedStoreIds,
+        asOfDate,
+        search: search.trim(),
+      });
     } catch (err: any) {
       console.error(err);
       setError(err?.response?.data?.message || err?.message || "No se pudo cargar la cobertura.");
@@ -129,6 +137,11 @@ export default function InventoryCoveragePage() {
       );
 
       setData(response);
+      setAppliedQuery({
+        storeIds: selectedStoreIds,
+        asOfDate,
+        search: search.trim(),
+      });
       setMessage(response?.message || "Cobertura recalculada correctamente.");
     } catch (err: any) {
       console.error(err);
@@ -174,11 +187,50 @@ export default function InventoryCoveragePage() {
         processed_products: rows.length,
         rows,
       });
+      setAppliedQuery({
+        storeIds: nextStoreIds,
+        asOfDate,
+        search: search.trim(),
+      });
     } catch (err: any) {
       console.error(err);
       setError(err?.response?.data?.message || err?.message || "No se pudo importar el inventario.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDownloadSelectedInventory = async () => {
+    if (selectedStoreIds.length === 0) {
+      setError("Selecciona al menos una tienda para descargar el inventario.");
+      return;
+    }
+
+    try {
+      setDownloadingInventory(true);
+      setError("");
+      setMessage("");
+
+      const exportStoreIds = resolveExportInventoryStoreIds(stores, selectedStoreIds);
+      const blob = await downloadInventory(undefined, search, exportStoreIds);
+      const storeCodes = selectedStores.map((store) => store.code).join("-");
+      const filename = `inventario-${slugify(storeCodes || "tiendas-seleccionadas")}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage("Inventario descargado correctamente.");
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.response?.data?.message || err?.message || "No se pudo descargar el inventario.");
+    } finally {
+      setDownloadingInventory(false);
     }
   };
 
@@ -314,6 +366,16 @@ export default function InventoryCoveragePage() {
     [stores, selectedStoreIds]
   );
 
+  const hasPendingMetricsFilters =
+    !sameNumberSet(selectedStoreIds, appliedQuery.storeIds) ||
+    asOfDate !== appliedQuery.asOfDate ||
+    search.trim() !== appliedQuery.search;
+  const metricsActionText = !data
+    ? "Presiona Actualizar vista para cargar la tabla con los filtros seleccionados."
+    : hasPendingMetricsFilters
+    ? "Hay cambios sin aplicar. Actualiza la vista cuando termines de escoger filtros."
+    : "La tabla esta usando los filtros aplicados.";
+
   const activeFilters = [
     search.trim() ? { key: "search", label: `Texto: ${search.trim()}`, clear: () => setSearch("") } : null,
     selectedBrand ? { key: "brand", label: `Marca: ${selectedBrand}`, clear: () => setSelectedBrand("") } : null,
@@ -355,27 +417,9 @@ export default function InventoryCoveragePage() {
                       className="h-12 w-28 rounded-xl border border-white/20 bg-white px-4 text-base font-semibold text-slate-900 outline-none transition focus:border-white"
                     />
                     <div className="min-w-0 text-xs leading-5 text-slate-300">
-                      Se aplica cuando presionas Recalcular.
+                      Se aplica cuando presionas Recalcular metricas.
                     </div>
                   </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <button
-                    onClick={loadMetrics}
-                    disabled={loading || loadingStores}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                    Actualizar vista
-                  </button>
-                  <button
-                    onClick={handleRun}
-                    disabled={loading}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                    {loading ? "Procesando..." : "Recalcular"}
-                  </button>
                 </div>
               </div>
             </div>
@@ -515,15 +559,55 @@ export default function InventoryCoveragePage() {
                   disabled={selectedStoreIds.length < 2}
                   onClick={() => setJoinSelectedStores((current) => !current)}
                 />
-                <button
-                  type="button"
-                  onClick={handleExportAnalysis}
-                  disabled={loading || loadingStores}
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download className="h-4 w-4" />
-                  Exportar analisis
-                </button>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Acciones de la vista</div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    {metricsActionText}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={loadMetrics}
+                    disabled={loading || loadingStores}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    {loading ? "Cargando..." : "Actualizar vista"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRun}
+                    disabled={loading}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                    {loading ? "Procesando..." : "Recalcular metricas"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSelectedInventory}
+                    disabled={downloadingInventory || loadingStores || selectedStoreIds.length === 0}
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download className="h-4 w-4" />
+                    {downloadingInventory ? "Descargando..." : "Descargar inventario tiendas"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportAnalysis}
+                    disabled={loading || loadingStores}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-200 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download className="h-4 w-4" />
+                    Exportar analisis
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1751,6 +1835,26 @@ function sumNumbers<T extends InventoryItem>(rows: T[], picker: (row: T) => numb
 
 function uniqueText(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => (value ?? "").trim()).filter(Boolean)));
+}
+
+function sameNumberSet(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightSet = new Set(right);
+
+  return left.every((value) => rightSet.has(value));
+}
+
+function slugify(value: string): string {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "inventario"
+  );
 }
 
 function latestTextDate(values: Array<string | null | undefined>): string | null {
