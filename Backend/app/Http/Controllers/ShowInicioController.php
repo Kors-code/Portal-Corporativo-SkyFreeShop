@@ -76,6 +76,12 @@ class ShowInicioController extends Controller
                                 'icon' => 'fa-solid fa-book-open',
                                 'permissions' => ['advisor-info.view'],
                             ],
+                            [
+                                'title' => 'Passenger Intelligence',
+                                'route' => '/panel/passenger-intelligence',
+                                'icon' => 'fa-solid fa-plane-departure',
+                                'permissions' => ['passenger-intelligence.view'],
+                            ],
                         ],
                     ],
                     [
@@ -298,6 +304,15 @@ class ShowInicioController extends Controller
                         'area' => 'Analitica',
                         'route' => '/panel/visualizaciones',
                         'roles' => ['super_admin', 'lider'],
+                        'featured' => true,
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-plane-departure',
+                        'title' => 'Passenger Intelligence',
+                        'text' => 'Flujo internacional MDE y composicion colombiano/extranjero trazable.',
+                        'area' => 'Analitica',
+                        'route' => '/panel/passenger-intelligence',
+                        'permissions' => ['passenger-intelligence.view'],
                         'featured' => true,
                     ],
                     [

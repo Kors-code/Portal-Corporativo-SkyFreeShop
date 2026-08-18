@@ -47,6 +47,43 @@ class CommissionReportController extends Controller
     // -------------------------
     // Helpers / Normalization
     // -------------------------
+    private function authenticatedBudgetUserId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        if (!$user || empty($user->seller_code)) {
+            return null;
+        }
+
+        $budgetUserId = DB::connection('budget')
+            ->table('users')
+            ->where('codigo_vendedor', $user->seller_code)
+            ->value('id');
+
+        return $budgetUserId ? (int) $budgetUserId : null;
+    }
+
+    private function canViewSellerDetail(Request $request, int $targetUserId): bool
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return false;
+        }
+
+        if ($this->authenticatedBudgetUserId($request) === $targetUserId) {
+            return true;
+        }
+
+        $role = strtolower((string) ($user->role ?? ''));
+        if (in_array($role, ['super_admin', 'admin', 'adminpresupuesto'], true)) {
+            return true;
+        }
+
+        return $user->hasPermission('budget.commissions.view')
+            || $user->hasPermission('budget.commissions.manage');
+    }
+
     private function applySellerRoleForSaleDate($query, string $userColumn, string $saleDateColumn)
     {
         return $query
@@ -1039,6 +1076,9 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
      */
     public function bySellerDetail(Request $request, $userId)
     {
+        $userId = (int) $userId;
+        abort_unless($this->canViewSellerDetail($request, $userId), 403, 'No tienes permiso para ver este reporte');
+
         // Accept either budget_ids[] (array) or budget_id (single)
         $budgetIds = $request->query('budget_ids');
         if (!$budgetIds) {

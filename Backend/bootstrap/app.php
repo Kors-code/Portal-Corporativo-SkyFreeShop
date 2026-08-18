@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'ensure.role' => \App\Http\Middleware\EnsureRole::class,
             'permission' => \App\Http\Middleware\CheckPermission::class,
+            'automation.token' => \App\Http\Middleware\VerifyAutomationToken::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

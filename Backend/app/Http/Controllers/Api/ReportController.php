@@ -19,6 +19,42 @@ class ReportController extends Controller
         return DB::connection('budget');
     }
 
+    protected function authenticatedBudgetUserId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        if (!$user || empty($user->seller_code)) {
+            return null;
+        }
+
+        $budgetUserId = $this->budgetDB()
+            ->table('users')
+            ->where('codigo_vendedor', $user->seller_code)
+            ->value('id');
+
+        return $budgetUserId ? (int) $budgetUserId : null;
+    }
+
+    protected function canViewCashierCategories(Request $request, int $targetUserId): bool
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return false;
+        }
+
+        if ($this->authenticatedBudgetUserId($request) === $targetUserId) {
+            return true;
+        }
+
+        $role = strtolower((string) ($user->role ?? ''));
+        if (in_array($role, ['super_admin', 'admin', 'adminpresupuesto'], true)) {
+            return true;
+        }
+
+        return $user->hasPermission('budget.cashier.manage');
+    }
+
     /**
      * Devuelve el premio activado en función del cumplimiento.
      */
@@ -189,6 +225,9 @@ class ReportController extends Controller
      */
     public function cashierCategories(Request $request, $userId)
     {
+        $userId = (int) $userId;
+        abort_unless($this->canViewCashierCategories($request, $userId), 403, 'No tienes permiso para ver este reporte');
+
         $year     = (int) $request->query('year', 2025);
         $month    = (int) $request->query('month', 10);
         $budgetId = $request->query('budget_id', null);

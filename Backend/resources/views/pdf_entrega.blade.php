@@ -296,12 +296,8 @@
                     <div class="firma-titulo">Líder que entrega</div>
                     <div class="firma-imagen">
                         @if($entrega->firmaEntrega)
-                            @if(str_starts_with($entrega->firmaEntrega->firma_data, 'data:image'))
+                            @if(str_starts_with($entrega->firmaEntrega->firma_data, 'data:image/png;base64,') || str_starts_with($entrega->firmaEntrega->firma_data, 'data:image/jpeg;base64,'))
                                 <img src="{{ $entrega->firmaEntrega->firma_data }}" alt="Firma">
-                            @elseif(str_starts_with(trim($entrega->firmaEntrega->firma_data), '<svg') || str_starts_with(trim($entrega->firmaEntrega->firma_data), '<'.'?xml'))
-                                {!! $entrega->firmaEntrega->firma_data !!}
-                            @else
-                                <img src="data:image/png;base64,{{ $entrega->firmaEntrega->firma_data }}" alt="Firma">
                             @endif
                         @else
                             <span style="color:#9ca3af;">Pendiente de firma</span>
@@ -320,12 +316,8 @@
                     <div class="firma-titulo">Líder que recibe</div>
                     <div class="firma-imagen">
                         @if($entrega->firmaRecepcion)
-                            @if(str_starts_with($entrega->firmaRecepcion->firma_data, 'data:image'))
+                            @if(str_starts_with($entrega->firmaRecepcion->firma_data, 'data:image/png;base64,') || str_starts_with($entrega->firmaRecepcion->firma_data, 'data:image/jpeg;base64,'))
                                 <img src="{{ $entrega->firmaRecepcion->firma_data }}" alt="Firma">
-                            @elseif(str_starts_with(trim($entrega->firmaRecepcion->firma_data), '<svg') || str_starts_with(trim($entrega->firmaRecepcion->firma_data), '<'.'?xml'))
-                                {!! $entrega->firmaRecepcion->firma_data !!}
-                            @else
-                                <img src="data:image/png;base64,{{ $entrega->firmaRecepcion->firma_data }}" alt="Firma">
                             @endif
                         @else
                             <span style="color:#9ca3af;">Pendiente de firma</span>

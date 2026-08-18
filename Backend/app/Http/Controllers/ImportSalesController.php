@@ -2261,7 +2261,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
     private function validateSalesImportInput(Request $request, bool $requireStore)
     {
         $rules = [
-            'file' => ['required', 'file'],
+            'file' => ['required', 'file', 'max:20480'],
             'replace_existing' => ['nullable', 'boolean'],
         ];
 
@@ -2344,7 +2344,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
     }
     public function importAutomation(Request $request)
     {
-        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $expectedToken = (string) config('services.automation.token', '');
         $token = (string) $request->header('X-Automation-Token');
 
         if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {
@@ -2385,7 +2385,7 @@ protected function parseDate($value, string $context = 'sale'): ?string
 
     public function importAutomationChunk(Request $request)
     {
-        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $expectedToken = (string) config('services.automation.token', '');
         $token = (string) $request->header('X-Automation-Token');
 
         if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {

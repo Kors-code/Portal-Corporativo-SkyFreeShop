@@ -41,6 +41,7 @@ import StoreSalesDashboard from "../modules/visualizaciones/pages/StoreSalesDash
 import AdvisorSalesDashboard from "../modules/visualizaciones/pages/AdvisorSalesDashboard";
 import AdvisorAnalyticsDashboard from "../modules/visualizaciones/pages/AdvisorAnalyticsDashboard";
 import AdvisorInfoPage from "../modules/advisorInfo/pages/AdvisorInfoPage";
+import PassengerIntelligencePage from "../modules/passengerIntelligence/pages/PassengerIntelligencePage";
 import { hasPermission } from "../auth/auth";
 
 
@@ -95,6 +96,7 @@ export default function AppRouter() {
           <Route path="/visualizaciones/ventas-asesores" element={<VisualizacionesGuard><AdvisorSalesDashboard /></VisualizacionesGuard>} />
           <Route path="/visualizaciones/asesores-analytics" element={<VisualizacionesGuard><AdvisorAnalyticsDashboard /></VisualizacionesGuard>} />
           <Route path="/info-asesores" element={<PermissionGate permission="advisor-info.view"><AdvisorInfoPage /></PermissionGate>} />
+          <Route path="/passenger-intelligence" element={<PermissionGate permission="passenger-intelligence.view"><PassengerIntelligencePage /></PermissionGate>} />
           <Route path="/CatalogImportCard" element={<CatalogImportCard />} />
 
           <Route path="/entregas" element={<EntregasDashboardPage />} />

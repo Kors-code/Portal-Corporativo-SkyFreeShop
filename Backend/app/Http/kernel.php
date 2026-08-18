@@ -53,9 +53,11 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'ensure.role' => \App\Http\Middleware\EnsureRole::class,
         'permission' => \App\Http\Middleware\CheckPermission::class,
+        'automation.token' => \App\Http\Middleware\VerifyAutomationToken::class,
     ];
 
     protected $middlewareAliases = [
     'permission' => \App\Http\Middleware\CheckPermission::class,
+    'automation.token' => \App\Http\Middleware\VerifyAutomationToken::class,
 ];
 }

@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\Api\WhatsappAutomationController;
 use App\Http\Controllers\Api\WhatsappWebhookController;
 use App\Http\Controllers\Api\AdvisorInfoController;
+use App\Http\Controllers\Api\PassengerIntelligenceController;
 use App\Http\Controllers\importAutomation;
 use App\Http\Controllers\ApiInventarios\InventoryImportController;
 use App\Http\Controllers\ApiInventarios\InventoryImportBatchController;
@@ -33,22 +34,24 @@ Route::get('/test-api', function () {
     ]);
 })->middleware('auth:sanctum');
 
-Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk'])->middleware('throttle:automation');
-Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
-Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
-Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation'])->middleware('throttle:automation');
-Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware('throttle:automation');
-Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware('throttle:automation');
-Route::post('/v1/inventory/import-automation', [InventoryImportController::class, 'importAutomation'])->middleware('throttle:automation');
+$automationMiddleware = ['throttle:automation', 'automation.token'];
+
+Route::post('/automation/import-sales', [ImportSalesController::class, 'importAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-sales/chunk', [ImportSalesController::class, 'importAutomationChunk'])->middleware($automationMiddleware);
+Route::post('/automation/import-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware($automationMiddleware);
+Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation'])->middleware($automationMiddleware);
+Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware($automationMiddleware);
+Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware($automationMiddleware);
+Route::post('/v1/inventory/import-automation', [InventoryImportController::class, 'importAutomation'])->middleware($automationMiddleware);
 Route::get('/webhooks/whatsapp', [WhatsappWebhookController::class, 'verify'])->middleware('throttle:automation');
 Route::post('/webhooks/whatsapp', [WhatsappWebhookController::class, 'receive'])->middleware('throttle:automation');
-Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next'])->middleware('throttle:automation');
-Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete'])->middleware('throttle:automation');
+Route::get('/automation/whatsapp/jobs/next', [WhatsappAutomationController::class, 'next'])->middleware($automationMiddleware);
+Route::post('/automation/whatsapp/jobs/{job}/complete', [WhatsappAutomationController::class, 'complete'])->middleware($automationMiddleware);
 Route::get('/v1/ping', function () {
     return response()->json([
         'status' => 'ok',
@@ -79,6 +82,21 @@ Route::get('/v1/ping', function () {
         Route::get('advisor-info/providers/{providerId}', [AdvisorInfoController::class, 'provider']);
         Route::get('advisor-info/files/{itemId}', [AdvisorInfoController::class, 'file']);
         Route::get('advisor-info/files/{itemId}/content', [AdvisorInfoController::class, 'content']);
+    });
+
+    Route::middleware('permission:passenger-intelligence.view')->group(function () {
+        Route::get('passenger-intelligence/summary', [PassengerIntelligenceController::class, 'summary']);
+        Route::get('passenger-intelligence/batches', [PassengerIntelligenceController::class, 'batches']);
+        Route::get('passenger-intelligence/profiles', [PassengerIntelligenceController::class, 'profiles']);
+    });
+
+    Route::middleware('permission:passenger-intelligence.import')->group(function () {
+        Route::post('passenger-intelligence/import', [PassengerIntelligenceController::class, 'import']);
+    });
+
+    Route::middleware('permission:passenger-intelligence.manage')->group(function () {
+        Route::post('passenger-intelligence/profiles', [PassengerIntelligenceController::class, 'storeProfile']);
+        Route::post('passenger-intelligence/sync-official-sources', [PassengerIntelligenceController::class, 'syncOfficialSources']);
     });
 
     Route::middleware('permission:inventarios.importes')->group(function () {
@@ -117,24 +135,36 @@ Route::get('/v1/ping', function () {
     });
             
     // TURNOS (poner primero para evitar conflicto con imports/{id})
-    Route::post('import-turns', [TurnsImportController::class, 'import']);
-    Route::get('imports/turns', [TurnsImportController::class, 'index']);
-    Route::get('imports/turns/{id}', [TurnsImportController::class, 'show']);
-    Route::delete('imports/turns/{id}', [TurnsImportController::class, 'deleteBatch']);
-    Route::delete('imports/turns', [TurnsImportController::class, 'bulkDelete']);
+    Route::middleware('permission:imports.create')->group(function () {
+        Route::post('import-turns', [TurnsImportController::class, 'import']);
+        Route::get('imports/turns', [TurnsImportController::class, 'index']);
+        Route::get('imports/turns/{id}', [TurnsImportController::class, 'show']);
+    });
+
+    Route::middleware('permission:imports.manage')->group(function () {
+        Route::delete('imports/turns/{id}', [TurnsImportController::class, 'deleteBatch']);
+        Route::delete('imports/turns', [TurnsImportController::class, 'bulkDelete']);
+    });
 
             
             // USERS & ROLES
-    Route::get('users', [UserController::class, 'index']);
-    Route::post('users/{id}/assign-role', [UserController::class, 'assignRole']);
-    Route::get('roles', [RoleController::class, 'index']);
+    Route::middleware('permission:users.manage')->group(function () {
+        Route::get('users', [UserController::class, 'index']);
+        Route::post('users/{id}/assign-role', [UserController::class, 'assignRole']);
+        Route::get('roles', [RoleController::class, 'index']);
+    });
     
     // IMPORTS (EXCEL)
-    Route::post('import-sales', [ImportSalesController::class, 'import']);
-    Route::get('imports', [ImportBatchController::class, 'index']);
-    Route::get('imports/{id}', [ImportBatchController::class, 'show']);
-    Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
-    Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
+    Route::middleware('permission:imports.create')->group(function () {
+        Route::post('import-sales', [ImportSalesController::class, 'import']);
+        Route::get('imports', [ImportBatchController::class, 'index']);
+        Route::get('imports/{id}', [ImportBatchController::class, 'show']);
+    });
+
+    Route::middleware('permission:imports.manage')->group(function () {
+        Route::delete('imports/{id}', [ImportBatchController::class, 'destroy']);
+        Route::post('imports/bulk-delete', [ImportBatchController::class, 'bulkDestroy']);
+    });
 
     Route::get('bank-imports', [BankImportBatchController::class, 'index'])
         ->middleware('permission:accounting.bank-imports.view,imports.create');
@@ -163,32 +193,47 @@ Route::get('/v1/ping', function () {
     Route::get('sales/by-user', [SalesByUserController::class, 'getSalesByUser']);
     
     // COMMISSIONS – LOGIC
-    Route::post('commissions/recalc-sale/{id}', [CommissionController::class,'recalcSale']);
-    Route::post('commissions/recalc-user/{userId}/{month}', [CommissionController::class,'recalcUserMonth']);
-    Route::get('commissions/summary', [CommissionController::class,'userSummary']);
-    Route::post('commissions/finalize', [CommissionController::class,'finalize']);
+    Route::get('commissions/summary', [CommissionController::class,'userSummary'])
+        ->middleware('permission:budget.commissions.view');
+    Route::middleware('permission:budget.commissions.manage')->group(function () {
+        Route::post('commissions/recalc-sale/{id}', [CommissionController::class,'recalcSale']);
+        Route::post('commissions/recalc-user/{userId}/{month}', [CommissionController::class,'recalcUserMonth']);
+        Route::post('commissions/finalize', [CommissionController::class,'finalize']);
+    });
     
     // COMMISSIONS – REPORTS (👈 TU CONTROLADOR)
     
-    Route::get('/commissions/by-seller', [CommissionReportController::class, 'bySeller']);
-    Route::get('/commissions/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail']);
-    Route::put('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
-    Route::post('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
+    Route::get('/commissions/by-seller', [CommissionReportController::class, 'bySeller'])
+        ->middleware('permission:budget.commissions.view');
+    Route::get('/commissions/by-seller/{userId}', [CommissionReportController::class, 'bySellerDetail'])
+        ->middleware('permission:budget.commissions.view,commissions.user.view');
+    Route::middleware('permission:budget.commissions.manage')->group(function () {
+        Route::put('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
+        Route::post('commissions/assign-turns/{userId}/{budget_id}', [CommissionReportController::class, 'assignTurns']);
+    });
     
 
     // REPORTS Cajeros
-    Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards']);
-    Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories']);    
-    Route::post('/cashier-adjustments', [ReportController::class,'storeCashierAdjustment']);
+    Route::get('reports/cashier-awards', [ReportController::class, 'cashierAwards'])
+        ->middleware('permission:budget.cashier.view');
+    Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories'])
+        ->middleware('permission:budget.cashier.view');
+    Route::post('/cashier-adjustments', [ReportController::class,'storeCashierAdjustment'])
+        ->middleware('permission:budget.cashier.manage');
 
     // COMMISSION CONFIG
-    Route::get('commissions/categories', [CategoryCommissionController::class, 'index']);
-    Route::post('commissions/categories', [CategoryCommissionController::class, 'upsert']);
-    Route::delete('commissions/categories/{id}', [CategoryCommissionController::class, 'destroy']);
-    Route::post('commissions/categories/bulk', [CategoryCommissionController::class, 'bulkUpdate']);
+    Route::get('commissions/categories', [CategoryCommissionController::class, 'index'])
+        ->middleware('permission:budget.commissions.view');
+    Route::middleware('permission:budget.commissions.manage')->group(function () {
+        Route::post('commissions/categories', [CategoryCommissionController::class, 'upsert']);
+        Route::delete('commissions/categories/{id}', [CategoryCommissionController::class, 'destroy']);
+        Route::post('commissions/categories/bulk', [CategoryCommissionController::class, 'bulkUpdate']);
+    });
     
-    Route::post('/commissions/generate', [CommissionController::class, 'generate']);
-    Route::post('/commissions/rectify-sales-roles', [CommissionController::class, 'rectifySalesRoles']);
+    Route::middleware('permission:budget.commissions.manage')->group(function () {
+        Route::post('/commissions/generate', [CommissionController::class, 'generate']);
+        Route::post('/commissions/rectify-sales-roles', [CommissionController::class, 'rectifySalesRoles']);
+    });
 
     // INVENTORY IMPORT 
 Route::middleware('permission:inventarios.importes')->group(function () {
@@ -204,16 +249,21 @@ Route::middleware('permission:inventarios.cobertura')->group(function () {
 Route::patch(
     '/budgets/{id}/cashier-prizes',
     [BudgetController::class, 'updateCashierPrizes']
-);
+)->middleware('permission:budget.cashier.manage');
 
     // Budget 
         
-    Route::get('/budgets', [BudgetController::class, 'index']);
-    Route::post('/budgets', [BudgetController::class, 'store']);
-    Route::get('/budgets/active', [BudgetController::class, 'active']);
-    Route::put('/budgets/{id}', [BudgetController::class, 'update']);
-    Route::delete('/budgets/{id}', [BudgetController::class, 'destroy']);
-    Route::patch('/budgets/{id}/cashier-prize', [BudgetController::class, 'updateCashierPrize']);
+    Route::get('/budgets', [BudgetController::class, 'index'])
+        ->middleware('permission:budget.view');
+    Route::get('/budgets/active', [BudgetController::class, 'active'])
+        ->middleware('permission:budget.view');
+    Route::middleware('permission:budget.manage')->group(function () {
+        Route::post('/budgets', [BudgetController::class, 'store']);
+        Route::put('/budgets/{id}', [BudgetController::class, 'update']);
+        Route::delete('/budgets/{id}', [BudgetController::class, 'destroy']);
+    });
+    Route::patch('/budgets/{id}/cashier-prize', [BudgetController::class, 'updateCashierPrize'])
+        ->middleware('permission:budget.cashier.manage');
 
 
     // EXCEL EXPORT ROUTE
@@ -222,19 +272,19 @@ Route::patch(
     Route::get(
         '/commissions/export',
         [CommissionReportController::class, 'exportExcel']
-    );
+    )->middleware('permission:budget.commissions.view');
 
     // Exportar premios de cajeros
     Route::get(
     '/reports/cashier-awards/export',
     [ReportController::class, 'cashierAwardsExport']
-);
+)->middleware('permission:budget.cashier.view');
 
     // Exportar detalle de comisiones por vendedor
     Route::get(
     '/commissions/by-seller/{userId}/export',
     [CommissionReportController::class, 'exportSellerDetail']
-);
+)->middleware('permission:budget.commissions.view');
 
     });
 });

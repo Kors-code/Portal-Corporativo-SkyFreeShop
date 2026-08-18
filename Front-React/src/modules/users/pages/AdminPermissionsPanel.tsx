@@ -99,6 +99,18 @@ const MODULES: ModuleDef[] = [
     match: (name) => name.toLowerCase().startsWith('wishlist.') || name.toLowerCase().startsWith('wish-items.'),
   },
   {
+    key: 'informational',
+    label: 'Informacional',
+    description: 'Biblioteca de asesores y material por proveedor',
+    match: (name) => name.toLowerCase().startsWith('advisor-info.'),
+  },
+  {
+    key: 'passenger-intelligence',
+    label: 'Passenger Intelligence',
+    description: 'Flujo internacional MDE y composición colombiano/extranjero',
+    match: (name) => name.toLowerCase().startsWith('passenger-intelligence.'),
+  },
+  {
     key: 'entregas',
     label: 'Minuta Entrega',
     description: 'Actas de entrega, firmas, recepción y novedades',
@@ -127,6 +139,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
     label: 'Administrativo (solo portal)',
     match: [
       'portal.view',
+      'advisor-info.view',
     ],
   },
   lider: {
@@ -137,6 +150,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
       'disciplines.view',
       'imports.create',
       'wishlist.view',
+      'advisor-info.view',
       'entregas.view',
       'entregas.manage',
       'visualizations.view',
@@ -149,6 +163,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
       'budget.view',
       'commissions.user.view',
       'wishlist.view',
+      'advisor-info.view',
     ],
   },
   cashier: {
@@ -160,6 +175,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
       'budget.cashier.view',
       'candidates.view',
       'wishlist.view',
+      'advisor-info.view',
     ],
   },
   adminpresupuesto: {
@@ -174,6 +190,7 @@ const ROLE_PRESETS: Record<string, { label: string; match: string[] }> = {
       'budget.advisors.view',
       'budget.specialists.view',
       'commissions.asesorSpecialist.view',
+      'advisor-info.view',
     ],
   },
   contabilidad: {
@@ -279,6 +296,18 @@ function getSubgroupLabel(moduleKey: string, permissionName: string) {
 
   if (moduleKey === 'visualizations') {
     if (n.includes('view')) return 'Acceso';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'informational') {
+    if (n.includes('view')) return 'Acceso';
+    return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
+  }
+
+  if (moduleKey === 'passenger-intelligence') {
+    if (n.includes('view')) return 'Acceso';
+    if (n.includes('import')) return 'Importación';
+    if (n.includes('manage')) return 'Gestión';
     return second ? second.charAt(0).toUpperCase() + second.slice(1) : 'General';
   }
 

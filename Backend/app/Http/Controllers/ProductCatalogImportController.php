@@ -229,7 +229,7 @@ class ProductCatalogImportController extends Controller
 
     private function authorized(Request $request): bool
     {
-        $token = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $token = (string) config('services.automation.token', '');
 
         return $token !== '' && hash_equals($token, (string) $request->header('X-Automation-Token'));
     }
@@ -249,6 +249,7 @@ class ProductCatalogImportController extends Controller
         return [
             'required',
             'file',
+            'max:20480',
             function (string $attribute, $value, \Closure $fail): void {
                 $extension = strtolower($value->getClientOriginalExtension() ?: '');
 

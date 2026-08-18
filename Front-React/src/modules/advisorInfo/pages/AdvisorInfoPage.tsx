@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BookOpen,
+  Download,
   ExternalLink,
   File,
   FileText,
@@ -57,12 +58,10 @@ export default function AdvisorInfoPage() {
   const [selectedProvider, setSelectedProvider] = useState<AdvisorInfoFolder | null>(null);
   const [files, setFiles] = useState<AdvisorInfoFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<AdvisorInfoFile | null>(null);
+  const [previewObjectUrl, setPreviewObjectUrl] = useState("");
+  const [previewStatus, setPreviewStatus] = useState<LoadState>("idle");
 
   const visibleFiles = selectedProvider ? files : rootFiles;
-  const previewUrl = useMemo(
-    () => (selectedFile?.previewable ? getAdvisorInfoContentUrl(selectedFile.id) : ""),
-    [selectedFile],
-  );
 
   async function loadIndex(selectFirst = true) {
     setStatus("loading");
@@ -108,6 +107,80 @@ export default function AdvisorInfoPage() {
   useEffect(() => {
     loadIndex();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+
+    setPreviewObjectUrl("");
+    setPreviewStatus("idle");
+
+    if (!selectedFile?.previewable) {
+      return;
+    }
+
+    setPreviewStatus("loading");
+
+    fetch(getAdvisorInfoContentUrl(selectedFile.id), {
+      credentials: "include",
+      headers: { Accept: selectedFile.mimeType || "application/octet-stream" },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`No se pudo cargar el archivo (${response.status})`);
+        }
+
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setPreviewObjectUrl(objectUrl);
+          setPreviewStatus("idle");
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) {
+          setPreviewStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [selectedFile]);
+
+  async function downloadSelectedFile() {
+    if (!selectedFile) return;
+
+    try {
+      const response = await fetch(getAdvisorInfoContentUrl(selectedFile.id), {
+        credentials: "include",
+        headers: { Accept: selectedFile.mimeType || "application/octet-stream" },
+      });
+
+      if (!response.ok) {
+        throw new Error(`No se pudo descargar el archivo (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = selectedFile.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo descargar el archivo desde el portal.");
+    }
+  }
 
   return (
     <div className="space-y-6 pb-12">
@@ -234,23 +307,40 @@ export default function AdvisorInfoPage() {
                     <h2 className="break-words text-base font-black text-slate-950">{selectedFile.name}</h2>
                     <p className="mt-1 text-xs text-slate-500">{selectedFile.mimeType || selectedFile.extension || "archivo"}</p>
                   </div>
-                  {selectedFile.webUrl && (
-                    <a
-                      href={selectedFile.webUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadSelectedFile}
                       className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
                     >
-                      <ExternalLink className="h-4 w-4" />
-                      Abrir
-                    </a>
-                  )}
+                      <Download className="h-4 w-4" />
+                      Descargar
+                    </button>
+                    {selectedFile.webUrl && (
+                      <a
+                        href={selectedFile.webUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        OneDrive
+                      </a>
+                    )}
+                  </div>
                 </div>
 
-                {previewUrl ? (
+                {previewStatus === "loading" ? (
+                  <div className="grid min-h-[570px] place-items-center p-6 text-center">
+                    <div>
+                      <Loader2 className="mx-auto h-10 w-10 animate-spin text-primary" />
+                      <p className="mt-3 text-sm font-semibold text-slate-600">Cargando vista previa...</p>
+                    </div>
+                  </div>
+                ) : previewObjectUrl ? (
                   <iframe
                     title={selectedFile.name}
-                    src={previewUrl}
+                    src={previewObjectUrl}
                     className="h-full min-h-[570px] w-full rounded-b-lg"
                   />
                 ) : (

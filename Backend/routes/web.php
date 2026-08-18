@@ -355,7 +355,7 @@ Route::middleware('auth')->group(function () {
 
         // Lista de roles usada por el frontend
         Route::get('/roles', [RoleController::class, 'index'])
-            ->middleware('permission:budget.manage');
+            ->middleware('permission:users.manage');
 
         // Si necesitas exponer el catálogo de permisos, no lo mezcles con /roles
         Route::get('/permissions/roles', [PermissionController::class, 'roles'])
@@ -372,7 +372,7 @@ Route::middleware('auth')->group(function () {
 
         /* ------------------------------- Users ----------------------------- */
         Route::get('users', [ApiUserController::class, 'index'])
-            ->middleware('permission:users.view');
+            ->middleware('permission:users.manage');
 
         Route::get('manage/users', [ApiUserController::class, 'indexForManagedRoles'])
             ->middleware('permission:users.view');
@@ -400,7 +400,7 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:reports.view');
 
         Route::get('reports/cashier/{userId}/categories', [ReportController::class, 'cashierCategories'])
-            ->middleware('permission:reports.view');
+            ->middleware('permission:budget.cashier.view');
 
         Route::get('reports/advisors-split', [CommissionReportController::class, 'advisorsSplit'])
             ->middleware('permission:reports.view');
@@ -818,6 +818,12 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/panel/visualizaciones/asesores-analytics', fn () => view('panel'))
         ->middleware(['permission:visualizations.view']);
+
+    Route::get('/panel/info-asesores', fn () => view('panel'))
+        ->middleware(['permission:advisor-info.view']);
+
+    Route::get('/panel/passenger-intelligence', fn () => view('panel'))
+        ->middleware(['permission:passenger-intelligence.view']);
 
     Route::get('/panel/entregas/{any?}', fn () => view('panel'))
         ->where('any', '.*')

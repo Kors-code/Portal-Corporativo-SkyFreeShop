@@ -55,6 +55,7 @@ class SecureHeaders
                 "font-src 'self' data:",
                 "img-src 'self' data: https:",
                 "connect-src 'self'",
+                "frame-src 'self' blob:",
                 "media-src 'self'",
                 "manifest-src 'self'",
             ]);
@@ -65,6 +66,7 @@ class SecureHeaders
                 "font-src 'self' data:",
                 "img-src 'self' data: https: blob:",
                 "connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:5173 http://localhost:5173 ws: wss:",
+                "frame-src 'self' blob:",
                 "media-src 'self'",
                 "manifest-src 'self'",
             ]);

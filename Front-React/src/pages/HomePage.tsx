@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   HeartHandshake,
   Import,
+  Plane,
   PackageSearch,
   ShieldCheck,
   Target,
@@ -62,6 +63,7 @@ export default function HomePage() {
         { title: "Permisos", to: "/AdminPermissionsPanel", description: "Roles, modulos y autorizaciones del portal.", Icon: ShieldCheck, permissions: ["permissions.view"] },
         { title: "Wish List", to: "/CatalogMatchPage", description: "Solicitudes y catalogo de productos.", Icon: HeartHandshake, permissions: ["wishlist.view"] },
         { title: "Info asesores", to: "/info-asesores", description: "Material informativo por proveedor desde OneDrive.", Icon: BookOpen, permissions: ["advisor-info.view"] },
+        { title: "Passenger Intelligence", to: "/passenger-intelligence", description: "Flujo internacional MDE y composicion estimada.", Icon: Plane, permissions: ["passenger-intelligence.view"] },
       ],
     },
     {

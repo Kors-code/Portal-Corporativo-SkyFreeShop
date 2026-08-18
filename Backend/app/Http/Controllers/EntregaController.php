@@ -255,25 +255,6 @@ class EntregaController extends Controller
     {
         $user = $request->user() ?: auth()->user();
 
-        if (!$user && $request->filled('portal_user_id')) {
-            try {
-                $user = DB::connection('mysql')
-                    ->table('users')
-                    ->select('id', 'name', 'email', 'username', 'role', 'role_id')
-                    ->where('id', $request->get('portal_user_id'))
-                    ->first();
-            } catch (Throwable $e) {
-                Log::warning('No fue posible consultar usuario portal por id', [
-                    'portal_user_id' => $request->get('portal_user_id'),
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        if (!$user && $request->filled('portal_user')) {
-            $user = (object) $request->get('portal_user');
-        }
-
         $empleado = self::resolverEmpleadoParaUsuario($user);
 
         return response()->json([
@@ -290,17 +271,7 @@ class EntregaController extends Controller
 
     private function empleadoAutenticado(Request $request): ?Empleado
     {
-        $empleado = self::resolverEmpleadoParaUsuario($request->user() ?: auth()->user());
-
-        if ($empleado) {
-            return $empleado;
-        }
-
-        if ($request->filled('empleado_id')) {
-            return Empleado::find($request->get('empleado_id'));
-        }
-
-        return null;
+        return self::resolverEmpleadoParaUsuario($request->user() ?: auth()->user());
     }
 
     private function abortarSiNoParticipa(Entrega $entrega, ?Empleado $empleado)
@@ -319,19 +290,23 @@ class EntregaController extends Controller
     private function puedeVerListadoGlobal(Request $request): bool
     {
         $user = $request->user() ?: auth()->user();
-        $role = strtolower(trim((string) ($user?->role ?? '')));
 
-        if (in_array($role, ['lider'], true) || self::usuarioPuedeAuditarEntregas($user)) {
-            return true;
-        }
+        return self::usuarioPuedeGestionarEntregas($user);
+    }
 
-        if (!$request->filled('empleado_id')) {
+    private static function usuarioPuedeGestionarEntregas($user): bool
+    {
+        if (!$user) {
             return false;
         }
 
-        $empleado = Empleado::find($request->get('empleado_id'));
+        $role = strtolower(trim((string) ($user?->role ?? '')));
 
-        return $empleado && in_array(strtolower((string) $empleado->estado), ['activo', 'activa'], true);
+        if (in_array($role, ['admin', 'administrativo', 'super_admin'], true)) {
+            return true;
+        }
+
+        return method_exists($user, 'hasPermission') && $user->hasPermission('entregas.manage');
     }
 
     private function aplicarFiltrosListado($query, Request $request, bool $vistaGlobal, ?int $liderId = null)
@@ -616,11 +591,11 @@ class EntregaController extends Controller
     public function dashboard(Request $request)
     {
         $empleadoActual = $this->empleadoAutenticado($request);
-        $empleadoId = $empleadoActual?->id ?: $request->get('empleado_id');
+        $empleadoId = $empleadoActual?->id;
 
         if (!$empleadoId) {
             if (!$this->puedeVerListadoGlobal($request)) {
-                return response()->json(['error' => 'empleado_id requerido'], 422);
+                return response()->json(['error' => 'No se encontro empleado asociado al usuario actual'], 403);
             }
 
             $stats = [
@@ -683,6 +658,12 @@ class EntregaController extends Controller
             'novedades.*.prioridad' => 'nullable|in:baja,media,alta,urgente',
             'novedades.*.requiere_seguimiento' => 'nullable|boolean',
         ]);
+
+        $empleadoActual = $this->empleadoAutenticado($request);
+
+        if (!$this->puedeVerListadoGlobal($request) && (!$empleadoActual || $empleadoActual->id !== (int) $validated['lider_entrega_id'])) {
+            return response()->json(['error' => 'Solo el lider autenticado puede crear actas a su nombre'], 403);
+        }
 
         DB::connection('mysql_personal')->beginTransaction();
         try {
@@ -753,9 +734,14 @@ class EntregaController extends Controller
         ]);
 
         $entrega = Entrega::findOrFail($id);
+        $empleadoActual = $this->empleadoAutenticado($request);
+
+        if (!$this->puedeVerListadoGlobal($request) && (!$empleadoActual || $entrega->lider_entrega_id !== $empleadoActual->id)) {
+            return response()->json(['error' => 'Solo el lider que entrega puede editar el acta'], 403);
+        }
 
         if ($entrega->lider_entrega_id !== (int) $validated['lider_entrega_id']) {
-            return response()->json(['error' => 'Solo el lider que entrega puede editar el acta'], 403);
+            return response()->json(['error' => 'No se puede cambiar el lider que entrega en un acta existente'], 422);
         }
 
         if ($entrega->estado !== 'abierta') {
@@ -839,15 +825,20 @@ class EntregaController extends Controller
     public function firmar(Request $request, $id)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'tipo_firma' => 'required|in:entrega,recepcion',
-            'firma_data' => 'required|string',
-            'formato' => 'nullable|in:svg,png,base64',
+            'firma_data' => 'required|string|max:200000',
+            'formato' => 'nullable|in:png,jpeg,base64',
             'usar_firma_guardada' => 'nullable|boolean',
         ]);
 
         $entrega = Entrega::findOrFail($id);
-        $empleadoId = (int) $validated['empleado_id'];
+        $empleado = $this->empleadoAutenticado($request);
+
+        if (!$empleado) {
+            return response()->json(['error' => 'No se encontro empleado asociado al usuario actual'], 403);
+        }
+
+        $empleadoId = (int) $empleado->id;
         $tipoFirma = $validated['tipo_firma'];
 
         // Validar autorización
@@ -863,24 +854,22 @@ class EntregaController extends Controller
             ], 403);
         }
 
+        $firmaData = !empty($validated['usar_firma_guardada']) && $empleado->firma_personal
+            ? $empleado->firma_personal
+            : $this->normalizarFirmaData($validated['firma_data']);
+
+        if (!$firmaData) {
+            return response()->json(['error' => 'La firma debe ser una imagen PNG o JPEG valida.'], 422);
+        }
+
         DB::connection('mysql_personal')->beginTransaction();
         try {
-            $firmaData = $validated['firma_data'];
-
-            // Si quiere usar firma guardada, traerla del empleado
-            if (!empty($validated['usar_firma_guardada'])) {
-                $empleado = Empleado::find($empleadoId);
-                if ($empleado && $empleado->firma_personal) {
-                    $firmaData = $empleado->firma_personal;
-                }
-            }
-
             $firma = FirmaDigital::create([
                 'entrega_id' => $entrega->id,
                 'empleado_id' => $empleadoId,
                 'tipo_firma' => $tipoFirma,
                 'firma_data' => $firmaData,
-                'formato' => $validated['formato'] ?? 'base64',
+                'formato' => str_starts_with($firmaData, 'data:image/jpeg') ? 'jpeg' : 'png',
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'fecha_firma' => now(),
@@ -938,12 +927,14 @@ class EntregaController extends Controller
 
     public function cerrarActa(Request $request, $id)
     {
-        $validated = $request->validate([
-            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
-        ]);
-
         $entrega = Entrega::findOrFail($id);
-        $empleadoId = (int) $validated['empleado_id'];
+        $empleado = $this->empleadoAutenticado($request);
+
+        if (!$empleado) {
+            return response()->json(['error' => 'No se encontro empleado asociado al usuario actual'], 403);
+        }
+
+        $empleadoId = (int) $empleado->id;
 
         if ($entrega->lider_recibe_id !== $empleadoId) {
             return response()->json(['error' => 'Solo el lider que recibe puede cerrar el acta'], 403);
@@ -993,13 +984,17 @@ class EntregaController extends Controller
     public function rechazar(Request $request, $id)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'razon_rechazo' => 'required|string|max:500',
         ]);
 
         $entrega = Entrega::findOrFail($id);
+        $empleado = $this->empleadoAutenticado($request);
 
-        if ($entrega->lider_recibe_id !== (int) $validated['empleado_id']) {
+        if (!$empleado) {
+            return response()->json(['error' => 'No se encontro empleado asociado al usuario actual'], 403);
+        }
+
+        if ($entrega->lider_recibe_id !== (int) $empleado->id) {
             return response()->json(['error' => 'No autorizado para rechazar'], 403);
         }
 
@@ -1010,7 +1005,7 @@ class EntregaController extends Controller
 
         EntregaLog::create([
             'entrega_id' => $entrega->id,
-            'empleado_id' => $validated['empleado_id'],
+            'empleado_id' => $empleado->id,
             'accion' => 'rejected',
             'detalles' => $validated['razon_rechazo'],
             'ip_address' => $request->ip(),
@@ -1035,6 +1030,12 @@ class EntregaController extends Controller
         ]);
 
         $entrega = Entrega::findOrFail($id);
+        $empleado = $this->empleadoAutenticado($request);
+
+        if (!$empleado || $entrega->lider_recibe_id !== (int) $empleado->id) {
+            return response()->json(['error' => 'Solo el lider que recibe puede agregar observaciones'], 403);
+        }
+
         $novedad = Novedad::where('entrega_id', $entrega->id)
                           ->where('id', $novedadId)
                           ->firstOrFail();
@@ -1052,14 +1053,14 @@ class EntregaController extends Controller
     public function actualizarNovedad(Request $request, $id, $novedadId)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'titulo' => 'nullable|string|max:255',
             'descripcion' => 'required|string|max:2000',
         ]);
 
         $entrega = Entrega::findOrFail($id);
+        $empleado = $this->empleadoAutenticado($request);
 
-        if ($entrega->lider_entrega_id !== (int) $validated['empleado_id']) {
+        if (!$empleado || $entrega->lider_entrega_id !== (int) $empleado->id) {
             return response()->json(['error' => 'Solo el lider que entrega puede editar novedades'], 403);
         }
 
@@ -1078,7 +1079,7 @@ class EntregaController extends Controller
 
         EntregaLog::create([
             'entrega_id' => $entrega->id,
-            'empleado_id' => $validated['empleado_id'],
+            'empleado_id' => $empleado->id,
             'accion' => 'novedad_updated',
             'detalles' => "Novedad {$novedad->id} actualizada antes de entrega",
             'ip_address' => $request->ip(),
@@ -1098,14 +1099,14 @@ class EntregaController extends Controller
     public function actualizarEstadoNovedad(Request $request, $id, $novedadId)
     {
         $validated = $request->validate([
-            'empleado_id' => 'required|exists:mysql_personal.empleados,id',
             'resuelto' => 'required|boolean',
             'observaciones_receptor' => 'nullable|string|max:1000',
         ]);
 
         $entrega = Entrega::findOrFail($id);
+        $empleado = $this->empleadoAutenticado($request);
 
-        if ($entrega->lider_recibe_id !== (int) $validated['empleado_id']) {
+        if (!$empleado || $entrega->lider_recibe_id !== (int) $empleado->id) {
             return response()->json(['error' => 'Solo el lider que recibe puede marcar novedades'], 403);
         }
 
@@ -1126,7 +1127,7 @@ class EntregaController extends Controller
 
         EntregaLog::create([
             'entrega_id' => $entrega->id,
-            'empleado_id' => $validated['empleado_id'],
+            'empleado_id' => $empleado->id,
             'accion' => $validated['resuelto'] ? 'novedad_completed' : 'novedad_pending',
             'detalles' => "Novedad {$novedad->id}. Pendientes: {$pendientes}",
             'ip_address' => $request->ip(),
@@ -1194,9 +1195,14 @@ class EntregaController extends Controller
      * GET /api/empleados/{id}/firma
      * Obtener firma guardada de un empleado
      */
-    public function obtenerFirmaEmpleado($id)
+    public function obtenerFirmaEmpleado(Request $request, $id)
     {
         $empleado = Empleado::findOrFail($id);
+        $empleadoActual = $this->empleadoAutenticado($request);
+
+        if (!$empleadoActual || ($empleadoActual->id !== (int) $empleado->id && !$this->puedeVerListadoGlobal($request))) {
+            return response()->json(['error' => 'No autorizado para consultar esta firma'], 403);
+        }
 
         return response()->json([
             'tiene_firma' => !empty($empleado->firma_personal),
@@ -1211,15 +1217,64 @@ class EntregaController extends Controller
     public function guardarFirmaEmpleado(Request $request, $id)
     {
         $validated = $request->validate([
-            'firma_data' => 'required|string',
+            'firma_data' => 'required|string|max:200000',
         ]);
 
         $empleado = Empleado::findOrFail($id);
-        $empleado->update(['firma_personal' => $validated['firma_data']]);
+        $empleadoActual = $this->empleadoAutenticado($request);
+
+        if (!$empleadoActual || ($empleadoActual->id !== (int) $empleado->id && !$this->puedeVerListadoGlobal($request))) {
+            return response()->json(['error' => 'No autorizado para guardar esta firma'], 403);
+        }
+
+        $firmaData = $this->normalizarFirmaData($validated['firma_data']);
+
+        if (!$firmaData) {
+            return response()->json(['error' => 'La firma debe ser una imagen PNG o JPEG valida.'], 422);
+        }
+
+        $empleado->update(['firma_personal' => $firmaData]);
 
         return response()->json([
             'message' => 'Firma personal guardada',
         ]);
+    }
+
+    private function normalizarFirmaData(string $firmaData): ?string
+    {
+        $firmaData = trim($firmaData);
+
+        if ($firmaData === '' || strlen($firmaData) > 200000) {
+            return null;
+        }
+
+        if (str_contains($firmaData, '<') || str_starts_with(strtolower($firmaData), 'http')) {
+            return null;
+        }
+
+        $mime = 'image/png';
+        $payload = $firmaData;
+
+        if (preg_match('/^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+\/=\r\n]+)$/', $firmaData, $matches)) {
+            $mime = $matches[1];
+            $payload = $matches[2];
+        }
+
+        $binary = base64_decode(preg_replace('/\s+/', '', $payload), true);
+
+        if ($binary === false || strlen($binary) < 8 || strlen($binary) > 150000) {
+            return null;
+        }
+
+        if (str_starts_with($binary, "\x89PNG\r\n\x1a\n")) {
+            $mime = 'image/png';
+        } elseif (str_starts_with($binary, "\xff\xd8\xff")) {
+            $mime = 'image/jpeg';
+        } else {
+            return null;
+        }
+
+        return 'data:' . $mime . ';base64,' . base64_encode($binary);
     }
 
     private function generarCodigoActa(): string
@@ -1244,9 +1299,14 @@ class EntregaController extends Controller
      * DELETE /api/entregas/{id}
      * Eliminar acta (solo si está abierta)
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $entrega = Entrega::findOrFail($id);
+        $empleado = $this->empleadoAutenticado($request);
+
+        if (!$this->puedeVerListadoGlobal($request) && (!$empleado || $entrega->lider_entrega_id !== (int) $empleado->id)) {
+            return response()->json(['error' => 'Solo el lider que entrega puede eliminar esta acta'], 403);
+        }
 
         if ($entrega->estado === 'completada') {
             return response()->json(['error' => 'No se puede eliminar un acta completada'], 422);

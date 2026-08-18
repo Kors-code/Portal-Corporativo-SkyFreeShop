@@ -39,6 +39,10 @@ return [
         'api_key' => env('MAILERSEND_API_KEY'),
     ],
 
+    'automation' => [
+        'token' => env('AUTOMATION_TOKEN', env('IMPORT_AUTOMATION_TOKEN')),
+    ],
+
     'whatsapp_cloud' => [
         'api_version' => env('WHATSAPP_CLOUD_API_VERSION', 'v23.0'),
         'access_token' => env('WHATSAPP_CLOUD_ACCESS_TOKEN'),
@@ -65,6 +69,10 @@ return [
         'user_id' => env('ONEDRIVE_INFO_USER_ID', env('ONEDRIVE_USER_ID')),
         'root_folder' => env('ONEDRIVE_INFO_FOLDER', 'Info Asesores'),
         'ca_bundle' => env('ONEDRIVE_CA_BUNDLE'),
+    ],
+
+    'datos_gov' => [
+        'verify_ssl' => env('DATOS_GOV_VERIFY_SSL', false),
     ],
 
 ];

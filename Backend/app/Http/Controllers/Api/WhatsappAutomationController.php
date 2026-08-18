@@ -175,7 +175,7 @@ class WhatsappAutomationController extends Controller
 
     private function authorized(Request $request): bool
     {
-        $token = (string) env('WHATSAPP_AUTOMATION_TOKEN', env('IMPORT_AUTOMATION_TOKEN'));
+        $token = (string) config('services.automation.token', env('WHATSAPP_AUTOMATION_TOKEN', ''));
 
         return $token !== '' && hash_equals($token, (string) $request->header('X-Automation-Token'));
     }

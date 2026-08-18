@@ -16,7 +16,7 @@ class InventoryImportController extends Controller
 {
     public function importAutomation(Request $request): JsonResponse
     {
-        $expectedToken = (string) env('IMPORT_AUTOMATION_TOKEN');
+        $expectedToken = (string) config('services.automation.token', '');
         $token = (string) $request->header('X-Automation-Token');
 
         if ($expectedToken === '' || ! hash_equals($expectedToken, $token)) {
@@ -179,6 +179,7 @@ class InventoryImportController extends Controller
         return [
             'required',
             'file',
+            'max:20480',
             function (string $attribute, $value, \Closure $fail): void {
                 $extension = strtolower($value->getClientOriginalExtension() ?: '');
 
