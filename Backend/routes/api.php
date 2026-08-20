@@ -224,6 +224,10 @@ Route::get('/v1/ping', function () {
     // COMMISSION CONFIG
     Route::get('commissions/categories', [CategoryCommissionController::class, 'index'])
         ->middleware('permission:budget.commissions.view');
+    Route::get('commissions/category-commissions/overrides', [AdvisorController::class, 'getCommissionOverrides'])
+        ->middleware('permission:budget.commissions.view');
+    Route::post('commissions/category-commissions/overrides', [AdvisorController::class, 'saveCommissionOverrides'])
+        ->middleware('permission:budget.commissions.manage');
     Route::middleware('permission:budget.commissions.manage')->group(function () {
         Route::post('commissions/categories', [CategoryCommissionController::class, 'upsert']);
         Route::delete('commissions/categories/{id}', [CategoryCommissionController::class, 'destroy']);

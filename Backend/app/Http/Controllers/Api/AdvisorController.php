@@ -725,6 +725,7 @@ class AdvisorController extends Controller
         // Detalle real de ventas para el front
         $commissionController = new CommissionReportController();
         $detailRequest = Request::create('/', 'GET', ['budget_id' => $budgetId]);
+        $detailRequest->setUserResolver(fn () => $request->user());
         $detailResponse = $commissionController->bySellerDetail($detailRequest, $userId);
         $detailData = $detailResponse->getData(true);
 

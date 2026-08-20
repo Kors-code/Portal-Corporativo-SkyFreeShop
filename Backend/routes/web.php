@@ -564,6 +564,12 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [CategoryCommissionController::class, 'index'])
                 ->middleware('permission:budget.commissions.view');
 
+            Route::get('/overrides', [AdvisorController::class, 'getCommissionOverrides'])
+                ->middleware('permission:budget.commissions.view');
+
+            Route::post('/overrides', [AdvisorController::class, 'saveCommissionOverrides'])
+                ->middleware('permission:budget.commissions.manage');
+
             Route::post('/', [CategoryCommissionController::class, 'upsert'])
                 ->middleware('permission:budget.commissions.manage');
 
@@ -573,6 +579,12 @@ Route::middleware('auth')->group(function () {
             Route::post('/bulk', [CategoryCommissionController::class, 'bulkUpdate'])
                 ->middleware('permission:budget.commissions.manage');
         });
+
+        Route::get('commissions/category-commissions/overrides', [AdvisorController::class, 'getCommissionOverrides'])
+            ->middleware('permission:budget.commissions.view');
+
+        Route::post('commissions/category-commissions/overrides', [AdvisorController::class, 'saveCommissionOverrides'])
+            ->middleware('permission:budget.commissions.manage');
 
         Route::prefix('commission-leaders')->group(function () {
             Route::get('/', [CommissionLideres::class, 'index'])
