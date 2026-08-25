@@ -187,7 +187,7 @@ class ProcessWhatsappReportJobs extends Command
 
     private function dailyReportTemplateGreeting(): string
     {
-        return 'equipo Sky Reporte de ventas';
+        return 'Reporte de ventas';
     }
 
     private function dailyReportTemplateUpdatedAt(WhatsappReportJob $job): string

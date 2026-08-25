@@ -90,12 +90,12 @@ class VisualizationController extends Controller
         $dayBase = $this->budgetDB()->table('sales as s')
             ->whereDate('s.sale_date', $date)
             ->when(!empty($pdvsFilter), fn ($q) => $q->whereIn('s.pdv', $pdvsFilter));
-        $this->excludeGpwCategory($dayBase);
+
 
         $periodBase = $this->budgetDB()->table('sales as s')
             ->whereBetween('s.sale_date', [$rangeStart, $rangeEnd])
             ->when(!empty($pdvsFilter), fn ($q) => $q->whereIn('s.pdv', $pdvsFilter));
-        $this->excludeGpwCategory($periodBase);
+
 
         $summary = (clone $dayBase)
             ->selectRaw("
@@ -343,13 +343,13 @@ class VisualizationController extends Controller
         if (count($images) === 1) {
             $result = [$sender->sendDailyTemplateImage(
                 (string) $images[0]['bytes'],
-                'equipo Sky Reporte de ventas',
+                'Reporte de ventas',
                 $this->whatsappDailyTemplateUpdatedAt($report)
             )];
         } else {
             $result = $sender->sendDailyTemplateImages(
                 $images,
-                'equipo Sky Reporte de ventas',
+                'Reporte de ventas',
                 $this->whatsappDailyTemplateUpdatedAt($report)
             );
         }
@@ -371,7 +371,7 @@ class VisualizationController extends Controller
         $images = $imageService->makeImages($report);
         $result = $sender->sendDailyTemplateImages(
             $images,
-            'equipo Sky Reporte de ventas',
+            'Reporte de ventas',
             $this->whatsappDailyTemplateUpdatedAt($report)
         );
 
@@ -520,7 +520,7 @@ class VisualizationController extends Controller
             ->whereNotNull('s.seller_id')
             ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) NOT IN ('VENTAS MOSTRADOR', 'USUARIO PREDETERMINADO')");
         $this->applyDateRanges($advisorsBase, $ranges);
-        $this->excludeGpwCategory($advisorsBase);
+
 
         $advisors = (clone $advisorsBase)
             ->selectRaw("
@@ -584,7 +584,7 @@ class VisualizationController extends Controller
             ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
             ->where('s.seller_id', $userId);
         $this->applyDateRanges($selectedBase, $ranges);
-        $this->excludeGpwCategory($selectedBase);
+
 
         $dailyRaw = (clone $selectedBase)
             ->selectRaw("
@@ -885,8 +885,7 @@ class VisualizationController extends Controller
             $base->where('s.import_batch_id', (int) $importBatchId);
         }
 
-        $this->excludeGpwCategory($base);
-
+        
         $rows = (clone $base)
             ->selectRaw("
                 s.pdv,
@@ -955,7 +954,7 @@ class VisualizationController extends Controller
             ->whereDate('s.sale_date', $date)
             ->whereNotNull('s.seller_id')
             ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) NOT IN ('VENTAS MOSTRADOR', 'USUARIO PREDETERMINADO')");
-        $this->excludeGpwCategory($base);
+
 
         $advisors = (clone $base)
             ->selectRaw("
@@ -1015,7 +1014,7 @@ class VisualizationController extends Controller
             ->whereDate('s.sale_date', $date)
             ->when(!empty($pdvs), fn ($q) => $q->whereIn('s.pdv', $pdvs));
 
-        $this->excludeGpwCategory($query);
+
 
         return $this->salesDataUpdatedAtFromQuery($query);
     }

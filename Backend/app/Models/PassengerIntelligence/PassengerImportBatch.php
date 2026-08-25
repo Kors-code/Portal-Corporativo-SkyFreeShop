@@ -10,9 +10,13 @@ class PassengerImportBatch extends Model
     protected $table = 'passenger_intelligence_import_batches';
 
     protected $fillable = [
+        'source_file_id',
         'filename',
         'checksum',
         'source_type',
+        'observed_scope',
+        'source_path',
+        'source_url',
         'status',
         'period_start',
         'period_end',
@@ -33,5 +37,10 @@ class PassengerImportBatch extends Model
     public function flights()
     {
         return $this->hasMany(PassengerFlight::class, 'batch_id');
+    }
+
+    public function sourceFile()
+    {
+        return $this->belongsTo(PassengerSourceFile::class, 'source_file_id');
     }
 }

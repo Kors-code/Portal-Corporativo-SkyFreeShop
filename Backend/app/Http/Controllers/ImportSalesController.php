@@ -522,6 +522,28 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
             ];
         }
 
+        if ($cooldown = $this->recentImportWhatsappReportCooldown()) {
+            Log::info('IMPORT SALES WHATSAPP REPORTS SKIPPED BY COOLDOWN', [
+                'batch_id' => $batchId,
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+                'quality' => $quality,
+                'cooldown' => $cooldown,
+            ]);
+
+            return [
+                'ok' => true,
+                'queued' => false,
+                'processed' => false,
+                'type' => 'store_sales',
+                'reason' => sprintf(
+                    'Reportes WhatsApp omitidos: ya hubo un envio automatico hace menos de %d minutos.',
+                    $cooldown['minutes']
+                ),
+                'sales_data_updated_at' => $salesDataUpdatedAt,
+                'cooldown' => $cooldown,
+            ];
+        }
+
         if (!$this->claimWhatsappReportsForImportBatch($batchId)) {
             Log::info('IMPORT SALES WHATSAPP REPORTS SKIPPED ALREADY CLAIMED', [
                 'batch_id' => $batchId,
@@ -729,6 +751,39 @@ private function deletePreviousBatch($file, ?int $excludeBatchId = null)
                     });
             })
             ->exists();
+    }
+
+    private function recentImportWhatsappReportCooldown(): ?array
+    {
+        $minutes = max(0, (int) config('services.whatsapp_cloud.import_report_cooldown_minutes', 50));
+
+        if ($minutes <= 0) {
+            return null;
+        }
+
+        $recent = DB::table('whatsapp_report_jobs')
+            ->select('id', 'type', 'report_date', 'sent_at', 'created_at', 'payload')
+            ->where('status', 'sent')
+            ->whereNotNull('sent_at')
+            ->where('sent_at', '>=', now()->subMinutes($minutes))
+            ->whereNotNull('payload->import_batch_id')
+            ->orderByDesc('sent_at')
+            ->first();
+
+        if (!$recent) {
+            return null;
+        }
+
+        $payload = json_decode((string) ($recent->payload ?? '{}'), true) ?: [];
+
+        return [
+            'minutes' => $minutes,
+            'last_job_id' => (int) $recent->id,
+            'last_job_type' => $recent->type,
+            'last_report_date' => $recent->report_date ? (string) $recent->report_date : null,
+            'last_sent_at' => (string) $recent->sent_at,
+            'last_import_batch_id' => $payload['import_batch_id'] ?? null,
+        ];
     }
 
     private function whatsappEligibleStoreRowsForImportBatch(int $batchId): int

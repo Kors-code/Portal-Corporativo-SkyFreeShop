@@ -60,6 +60,7 @@ return [
         'daily_report_template_body_params' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAMS', 2),
         'daily_report_template_body_param_names' => env('WHATSAPP_DAILY_REPORT_TEMPLATE_BODY_PARAM_NAMES', 'nombre,fecha'),
         'menu_template_body_param_names' => env('WHATSAPP_MENU_TEMPLATE_BODY_PARAM_NAMES', 'nombre'),
+        'import_report_cooldown_minutes' => env('WHATSAPP_IMPORT_REPORT_COOLDOWN_MINUTES', 50),
     ],
 
     'onedrive_advisor_info' => [
@@ -68,6 +69,15 @@ return [
         'client_secret' => env('ONEDRIVE_CLIENT_SECRET', env('CLIENT_SECRET')),
         'user_id' => env('ONEDRIVE_INFO_USER_ID', env('ONEDRIVE_USER_ID')),
         'root_folder' => env('ONEDRIVE_INFO_FOLDER', 'Info Asesores'),
+        'ca_bundle' => env('ONEDRIVE_CA_BUNDLE'),
+    ],
+
+    'onedrive_passenger_pax' => [
+        'tenant_id' => env('ONEDRIVE_PAX_TENANT_ID', env('ONEDRIVE_TENANT_ID', env('TENANT_ID'))),
+        'client_id' => env('ONEDRIVE_PAX_CLIENT_ID', env('ONEDRIVE_CLIENT_ID', env('CLIENT_ID'))),
+        'client_secret' => env('ONEDRIVE_PAX_CLIENT_SECRET', env('ONEDRIVE_CLIENT_SECRET', env('CLIENT_SECRET'))),
+        'user_id' => env('ONEDRIVE_PAX_USER_ID', env('ONEDRIVE_USER_ID', env('ONEDRIVE_INFO_USER_ID'))),
+        'root_folder' => env('ONEDRIVE_PAX_FOLDER', 'Power Bussines Inteligence Sky Free Shop/Power BI Sky Free Shop DATA/POWER BI Commercial/PAX/PAX Col'),
         'ca_bundle' => env('ONEDRIVE_CA_BUNDLE'),
     ],
 

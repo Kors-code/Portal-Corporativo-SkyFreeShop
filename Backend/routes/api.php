@@ -88,15 +88,24 @@ Route::get('/v1/ping', function () {
         Route::get('passenger-intelligence/summary', [PassengerIntelligenceController::class, 'summary']);
         Route::get('passenger-intelligence/batches', [PassengerIntelligenceController::class, 'batches']);
         Route::get('passenger-intelligence/profiles', [PassengerIntelligenceController::class, 'profiles']);
+        Route::get('passenger-intelligence/source-files', [PassengerIntelligenceController::class, 'sourceFiles']);
+        Route::get('passenger-intelligence/monthly-facts', [PassengerIntelligenceController::class, 'monthlyFacts']);
+        Route::get('passenger-intelligence/flight-estimates', [PassengerIntelligenceController::class, 'flightEstimates']);
+        Route::get('passenger-intelligence/monthly-estimates', [PassengerIntelligenceController::class, 'monthlyEstimateAnalytics']);
     });
 
     Route::middleware('permission:passenger-intelligence.import')->group(function () {
         Route::post('passenger-intelligence/import', [PassengerIntelligenceController::class, 'import']);
+        Route::post('passenger-intelligence/onedrive/import', [PassengerIntelligenceController::class, 'importOneDriveFile']);
     });
 
     Route::middleware('permission:passenger-intelligence.manage')->group(function () {
         Route::post('passenger-intelligence/profiles', [PassengerIntelligenceController::class, 'storeProfile']);
         Route::post('passenger-intelligence/sync-official-sources', [PassengerIntelligenceController::class, 'syncOfficialSources']);
+        Route::post('passenger-intelligence/onedrive/sync-files', [PassengerIntelligenceController::class, 'syncOneDriveFiles']);
+        Route::post('passenger-intelligence/recalculate-all', [PassengerIntelligenceController::class, 'recalculateAll']);
+        Route::post('passenger-intelligence/exposure/recalculate', [PassengerIntelligenceController::class, 'recalculateExposure']);
+        Route::post('passenger-intelligence/flight-estimates/recalculate', [PassengerIntelligenceController::class, 'recalculateFlightEstimates']);
     });
 
     Route::middleware('permission:inventarios.importes')->group(function () {

@@ -6,14 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\PassengerIntelligence\PassengerCompositionProfile;
 use App\Models\PassengerIntelligence\PassengerFlight;
 use App\Models\PassengerIntelligence\PassengerImportBatch;
+use App\Models\PassengerIntelligence\PassengerSourceFile;
+use App\Services\PassengerIntelligence\PassengerCommercialExposureService;
+use App\Services\PassengerIntelligence\PassengerExcelImportService;
+use App\Services\PassengerIntelligence\PassengerFlightEstimationService;
+use App\Services\PassengerIntelligence\PassengerOneDrivePaxService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Maatwebsite\Excel\Facades\Excel;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class PassengerIntelligenceController extends Controller
 {
@@ -22,12 +24,14 @@ class PassengerIntelligenceController extends Controller
     private const MIGRATION_COLOMBIAN_EXITS_DATASET = 'efw5-jiej';
     private const AEROCIVIL_TRAFFIC_DATASET = 'gb6w-ynu4';
 
-    public function summary(Request $request)
+    public function summary(Request $request, PassengerCommercialExposureService $exposureService)
     {
         $filters = $this->validatedFilters($request);
         $query = $this->flightQuery($filters);
 
         $totalPax = (float) (clone $query)->sum('pax');
+        $observedPax = (float) (clone $query)->where('data_type', 'observed')->sum('pax');
+        $estimatedPax = (float) (clone $query)->where('data_type', 'estimated')->sum('pax');
         $totalFlights = (clone $query)->count();
         $dateCount = (clone $query)->distinct('flight_date')->count('flight_date');
         $composition = $this->resolveComposition($filters);
@@ -127,6 +131,8 @@ class PassengerIntelligenceController extends Controller
             'filters' => $filters,
             'summary' => [
                 'total_pax' => round($totalPax, 2),
+                'observed_pax' => round($observedPax, 2),
+                'estimated_pax' => round($estimatedPax, 2),
                 'total_flights' => $totalFlights,
                 'days' => $dateCount,
                 'avg_pax_per_day' => $dateCount > 0 ? round($totalPax / $dateCount, 2) : 0,
@@ -138,13 +144,14 @@ class PassengerIntelligenceController extends Controller
             ],
             'composition' => $composition ? $this->profilePayload($composition) : null,
             'quality' => [
-                'flow_data_type' => 'estimated',
-                'flow_source' => 'Excel PAX operativo',
+                'flow_data_type' => $observedPax > 0 ? 'observed_internal' : 'estimated',
+                'flow_source' => $observedPax > 0 ? 'OneDrive/Excel Sky Free PAX observado' : 'Excel PAX operativo',
                 'composition_status' => $composition ? 'estimated_from_profile' : 'missing_official_profile',
                 'veracity_note' => $composition
-                    ? 'El flujo viene del Excel importado; colombiano/extranjero se estima con el perfil de composicion seleccionado y queda trazable.'
+                    ? 'El flujo viene de archivos PAX internos; colombiano/extranjero se estima con el perfil de composicion seleccionado y queda trazable.'
                     : 'El flujo viene del Excel importado. No se muestra porcentaje colombiano/extranjero porque el Excel no contiene nacionalidad.',
             ],
+            'commercial_exposure' => $this->exposureForFilters($filters, $exposureService),
             'by_direction' => $byDirection,
             'hourly' => $hourly,
             'daily' => $daily,
@@ -162,6 +169,10 @@ class PassengerIntelligenceController extends Controller
             ->map(fn ($batch) => [
                 'id' => $batch->id,
                 'filename' => $batch->filename,
+                'source_type' => $batch->source_type,
+                'observed_scope' => $batch->observed_scope,
+                'source_path' => $batch->source_path,
+                'source_url' => $batch->source_url,
                 'status' => $batch->status,
                 'period_start' => $batch->period_start?->toDateString(),
                 'period_end' => $batch->period_end?->toDateString(),
@@ -175,180 +186,246 @@ class PassengerIntelligenceController extends Controller
         return response()->json($batches);
     }
 
-    public function import(Request $request)
+    public function import(
+        Request $request,
+        PassengerExcelImportService $importer,
+        PassengerCommercialExposureService $exposureService
+    )
     {
         $request->validate([
             'file' => 'required|file|mimes:xlsx,xls|max:20480',
         ]);
 
         $file = $request->file('file');
-        $checksum = hash_file('sha256', $file->getRealPath());
-
-        $existing = PassengerImportBatch::where('checksum', $checksum)->first();
-        if ($existing) {
-            return response()->json([
-                'message' => 'Este archivo ya fue importado previamente.',
-                'batch_id' => $existing->id,
-            ], 409);
-        }
-
-        $stored = $file->storeAs(
-            'imports/passenger-intelligence',
-            now()->format('YmdHis') . '_' . $file->getClientOriginalName()
-        );
-
-        DB::connection('budget')->beginTransaction();
 
         try {
-            $batch = PassengerImportBatch::create([
-                'filename' => $file->getClientOriginalName(),
-                'checksum' => $checksum,
-                'source_type' => 'excel',
-                'status' => 'processing',
-                'imported_by' => optional($request->user())->id,
-                'notes' => [],
-            ]);
-
-            $workbook = Excel::toArray(null, $file);
-            $sheetNames = $this->sheetNames($file->getRealPath());
-            $rowsImported = 0;
-            $rowsSkipped = 0;
-            $errors = [];
-            $dates = [];
-            $totalPax = 0.0;
-
-            foreach ($workbook as $sheetIndex => $sheet) {
-                $sheetName = $sheetNames[$sheetIndex] ?? ('Sheet ' . ($sheetIndex + 1));
-                $direction = $this->directionFromSheet($sheetName);
-
-                if (!$direction) {
-                    $rowsSkipped += max(count($sheet) - 1, 0);
-                    continue;
-                }
-
-                if (empty($sheet)) {
-                    continue;
-                }
-
-                $headers = array_map(fn ($h) => $this->normalizeHeader((string) $h), $sheet[0]);
-
-                for ($i = 1; $i < count($sheet); $i++) {
-                    $line = $sheet[$i];
-                    if (!$this->hasUsefulData($line)) {
-                        continue;
-                    }
-
-                    $row = $this->assocRow($headers, $line);
-                    $sourceRow = $i + 1;
-
-                    try {
-                        $flightDate = $this->parseDate($row['date'] ?? null);
-                        $time = $this->parseTime($row['time'] ?? null);
-                        $pax = $this->parseNumber($row['pax'] ?? null);
-                        $airline = $this->nullableString($row['aer'] ?? null);
-                        $flightCode = $this->nullableString($row['code'] ?? null);
-                        $destination = $this->normalizeIata($row['destino'] ?? null);
-                        $store = $this->nullableString($row['store'] ?? null);
-
-                        if (!$flightDate || $pax === null || !$airline || !$flightCode) {
-                            $rowsSkipped++;
-                            $errors[] = [
-                                'sheet' => $sheetName,
-                                'row' => $sourceRow,
-                                'error' => 'Fila sin fecha, PAX, aerolinea o codigo de vuelo valido.',
-                            ];
-                            continue;
-                        }
-
-                        $origin = $direction === 'arrival' ? null : 'MDE';
-                        if ($direction === 'arrival') {
-                            $destination = 'MDE';
-                        }
-
-                        $scheduledAt = $time ? Carbon::parse($flightDate . ' ' . $time, 'America/Bogota') : null;
-                        $uid = sha1(implode('|', [
-                            $checksum,
-                            $sheetName,
-                            $flightDate,
-                            $time,
-                            $airline,
-                            $flightCode,
-                            $origin,
-                            $destination,
-                        ]));
-
-                        PassengerFlight::updateOrCreate(
-                            ['source_row_uid' => $uid],
-                            [
-                                'batch_id' => $batch->id,
-                                'flight_date' => $flightDate,
-                                'scheduled_time' => $time,
-                                'scheduled_at' => $scheduledAt,
-                                'direction' => $direction,
-                                'airline' => $airline,
-                                'flight_code' => $flightCode,
-                                'origin' => $origin,
-                                'destination' => $destination,
-                                'pax' => $pax,
-                                'store' => $store,
-                                'source_sheet' => $sheetName,
-                                'source_row' => $sourceRow,
-                                'data_type' => 'estimated',
-                                'source_name' => 'PAX Excel operativo',
-                                'retrieved_at' => now(),
-                            ]
-                        );
-
-                        $rowsImported++;
-                        $totalPax += $pax;
-                        $dates[] = $flightDate;
-                    } catch (\Throwable $e) {
-                        $rowsSkipped++;
-                        $errors[] = [
-                            'sheet' => $sheetName,
-                            'row' => $sourceRow,
-                            'error' => $e->getMessage(),
-                        ];
-                    }
-                }
-            }
-
-            $dates = array_values(array_filter($dates));
-
-            $batch->update([
-                'status' => empty($errors) ? 'completed' : 'completed_with_warnings',
-                'rows_imported' => $rowsImported,
-                'rows_skipped' => $rowsSkipped,
-                'total_pax' => $totalPax,
-                'period_start' => empty($dates) ? null : min($dates),
-                'period_end' => empty($dates) ? null : max($dates),
-                'notes' => [
-                    'warnings' => array_slice($errors, 0, 100),
-                    'ignored_sheets' => ['CARTAGENA', 'LDC MEDELLIN', 'LDC CALI'],
-                    'reason' => 'El MVP canonico importa DEPARTURES y ARRIVALS MDE. Las hojas LDC/otras plazas se conservan como referencia operativa, no como vuelos canonicos.',
-                ],
-            ]);
-
-            DB::connection('budget')->commit();
+            $result = $importer->importUploadedFile($file, optional($request->user())->id);
+            $this->refreshExposureFactsForBatch($result['batch'] ?? null, $exposureService);
 
             return response()->json([
                 'message' => 'Importacion de pasajeros completada',
-                'batch_id' => $batch->id,
-                'rows_imported' => $rowsImported,
-                'rows_skipped' => $rowsSkipped,
-                'total_pax' => round($totalPax, 2),
-                'path' => $stored,
+                'batch_id' => $result['batch_id'],
+                'rows_imported' => $result['rows_imported'],
+                'rows_skipped' => $result['rows_skipped'],
+                'total_pax' => $result['total_pax'],
+                'path' => $result['path'] ?? null,
             ]);
         } catch (\Throwable $e) {
-            DB::connection('budget')->rollBack();
-            Storage::delete($stored);
             Log::error('Passenger Intelligence import failed: ' . $e->getMessage());
+
+            $status = str_contains($e->getMessage(), 'ya fue importado') ? 409 : 500;
 
             return response()->json([
                 'message' => 'No se pudo importar el archivo de pasajeros',
                 'error' => $e->getMessage(),
-            ], 500);
+            ], $status);
         }
+    }
+
+    public function sourceFiles(PassengerOneDrivePaxService $oneDrive)
+    {
+        $files = PassengerSourceFile::where('provider', 'onedrive')
+            ->orderByDesc('source_last_modified_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (PassengerSourceFile $file) => $oneDrive->filePayload($file));
+
+        return response()->json($files);
+    }
+
+    public function syncOneDriveFiles(Request $request, PassengerOneDrivePaxService $oneDrive)
+    {
+        $data = $request->validate([
+            'recursive' => 'nullable|boolean',
+        ]);
+
+        try {
+            $files = $oneDrive->discoverFiles((bool) ($data['recursive'] ?? true));
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'No se pudo sincronizar la carpeta PAX Col de OneDrive.',
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Archivos PAX encontrados en OneDrive.',
+            'files' => $files,
+        ]);
+    }
+
+    public function importOneDriveFile(
+        Request $request,
+        PassengerOneDrivePaxService $oneDrive,
+        PassengerExcelImportService $importer,
+        PassengerCommercialExposureService $exposureService
+    ) {
+        $data = $request->validate([
+            'source_file_id' => 'nullable|integer',
+            'limit' => 'nullable|integer|min:1|max:20',
+        ]);
+
+        $files = isset($data['source_file_id'])
+            ? PassengerSourceFile::where('provider', 'onedrive')->whereKey($data['source_file_id'])->get()
+            : PassengerSourceFile::where('provider', 'onedrive')
+                ->whereIn('status', ['discovered', 'import_failed'])
+                ->orderByDesc('source_last_modified_at')
+                ->limit($data['limit'] ?? 5)
+                ->get();
+
+        if ($files->isEmpty()) {
+            return response()->json([
+                'message' => 'No hay archivos OneDrive pendientes para importar. Sincroniza la carpeta primero.',
+            ], 404);
+        }
+
+        $results = [];
+        $errors = [];
+
+        foreach ($files as $file) {
+            try {
+                $result = $oneDrive->importFile($file, $importer, optional($request->user())->id);
+                $this->refreshExposureFactsForBatch($result['batch'] ?? null, $exposureService);
+                $results[] = [
+                    'source_file' => $result['source_file'] ?? $oneDrive->filePayload($file->fresh()),
+                    'batch_id' => $result['batch_id'] ?? null,
+                    'duplicate' => (bool) ($result['duplicate'] ?? false),
+                    'rows_imported' => $result['rows_imported'] ?? 0,
+                    'total_pax' => $result['total_pax'] ?? 0,
+                ];
+            } catch (\Throwable $e) {
+                $errors[] = [
+                    'source_file_id' => $file->id,
+                    'filename' => $file->name,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'message' => empty($errors) ? 'Importacion OneDrive completada.' : 'Importacion OneDrive completada con advertencias.',
+            'results' => $results,
+            'errors' => $errors,
+        ], empty($results) ? 422 : 200);
+    }
+
+    public function monthlyFacts(Request $request, PassengerCommercialExposureService $exposureService)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'month' => 'nullable|integer|min:1|max:12',
+        ]);
+
+        return response()->json($exposureService->monthlyFacts($data['year'] ?? null, $data['month'] ?? null));
+    }
+
+    public function flightEstimates(Request $request, PassengerFlightEstimationService $estimator)
+    {
+        $data = $request->validate([
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'direction' => 'nullable|in:arrival,departure',
+            'limit' => 'nullable|integer|min:1|max:500',
+        ]);
+
+        return response()->json($estimator->latest($data, $data['limit'] ?? 50));
+    }
+
+    public function monthlyEstimateAnalytics(Request $request, PassengerFlightEstimationService $estimator)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'direction' => 'nullable|in:arrival,departure',
+        ]);
+
+        return response()->json($estimator->monthlyAnalytics($data));
+    }
+
+    public function recalculateFlightEstimates(Request $request, PassengerFlightEstimationService $estimator)
+    {
+        $data = $request->validate([
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'direction' => 'nullable|in:arrival,departure',
+            'batch_id' => 'nullable|integer',
+        ]);
+
+        $result = $estimator->recalculate($data);
+
+        return response()->json([
+            'message' => 'Estimaciones por vuelo recalculadas y guardadas.',
+            ...$result,
+        ]);
+    }
+
+    public function recalculateAll(
+        Request $request,
+        PassengerCommercialExposureService $exposureService,
+        PassengerFlightEstimationService $estimator
+    ) {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'direction' => 'nullable|in:arrival,departure',
+            'batch_id' => 'nullable|integer',
+        ]);
+
+        $estimateFilters = array_filter([
+            'date_from' => $data['date_from'] ?? null,
+            'date_to' => $data['date_to'] ?? null,
+            'direction' => $data['direction'] ?? null,
+            'batch_id' => $data['batch_id'] ?? null,
+        ], fn ($value) => $value !== null && $value !== '');
+
+        if (!isset($estimateFilters['date_from'], $estimateFilters['date_to']) && !empty($data['year'])) {
+            $estimateFilters['date_from'] = sprintf('%d-01-01', (int) $data['year']);
+            $estimateFilters['date_to'] = sprintf('%d-12-31', (int) $data['year']);
+        }
+
+        $exposure = $exposureService->calculateAvailablePeriods($data['year'] ?? null);
+        $estimates = $estimator->recalculate($estimateFilters);
+
+        return response()->json([
+            'message' => 'Exposicion comercial y estimaciones por vuelo recalculadas.',
+            'exposure' => $exposure,
+            'estimates' => $estimates,
+        ]);
+    }
+
+    public function recalculateExposure(Request $request, PassengerCommercialExposureService $exposureService)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'month' => 'nullable|integer|min:1|max:12',
+            'all' => 'nullable|boolean',
+        ]);
+
+        if ($data['all'] ?? false) {
+            return response()->json([
+                'message' => 'Exposicion comercial recalculada para todos los meses observados.',
+                ...$exposureService->calculateAvailablePeriods($data['year'] ?? null),
+            ]);
+        }
+
+        [$year, $month] = $this->periodForExposure($data['year'] ?? null, $data['month'] ?? null);
+
+        try {
+            $rates = $exposureService->calculateForPeriod($year, $month);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'No se pudo recalcular la exposicion comercial.',
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Exposicion comercial recalculada.',
+            'period' => ['year' => $year, 'month' => $month],
+            'rates' => $rates,
+        ]);
     }
 
     public function profiles()
@@ -540,6 +617,51 @@ class PassengerIntelligenceController extends Controller
             ],
             'profiles' => array_map(fn ($profile) => $this->profilePayload($profile), $profiles),
         ];
+    }
+
+    private function exposureForFilters(array $filters, PassengerCommercialExposureService $exposureService): array
+    {
+        [$year, $month] = $this->periodForExposure(
+            isset($filters['date_to']) && $filters['date_to'] ? (int) Carbon::parse($filters['date_to'])->year : null,
+            isset($filters['date_to']) && $filters['date_to'] ? (int) Carbon::parse($filters['date_to'])->month : null
+        );
+
+        return [
+            'period' => ['year' => $year, 'month' => $month],
+            'rates' => $exposureService->latestRates($year, $month),
+        ];
+    }
+
+    private function refreshExposureFactsForBatch(mixed $batch, PassengerCommercialExposureService $exposureService): void
+    {
+        if (!$batch instanceof PassengerImportBatch || !$batch->period_start || !$batch->period_end) {
+            return;
+        }
+
+        $cursor = $batch->period_start->copy()->startOfMonth();
+        $end = $batch->period_end->copy()->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $exposureService->refreshObservedFacts((int) $cursor->year, (int) $cursor->month);
+            $cursor->addMonth();
+        }
+    }
+
+    private function periodForExposure(?int $year, ?int $month): array
+    {
+        if ($year && $month) {
+            return [$year, $month];
+        }
+
+        $latestObserved = PassengerFlight::where('data_type', 'observed')
+            ->where('observed_scope', 'commercial_flow')
+            ->max('flight_date');
+
+        $date = $latestObserved
+            ? Carbon::parse($latestObserved, 'America/Bogota')
+            : Carbon::parse(PassengerFlight::max('flight_date') ?: now('America/Bogota'), 'America/Bogota');
+
+        return [(int) $date->year, (int) $date->month];
     }
 
     private function validatedFilters(Request $request): array
@@ -758,134 +880,4 @@ class PassengerIntelligenceController extends Controller
         ];
     }
 
-    private function directionFromSheet(string $sheetName): ?string
-    {
-        $name = strtoupper(trim($sheetName));
-
-        return match ($name) {
-            'DEPARTURES' => 'departure',
-            'ARRIVALS' => 'arrival',
-            default => null,
-        };
-    }
-
-    private function normalizeHeader(string $header): string
-    {
-        return strtolower(trim(str_replace([' ', '-'], '_', $header)));
-    }
-
-    private function assocRow(array $headers, array $line): array
-    {
-        $row = [];
-        foreach ($headers as $idx => $key) {
-            if ($key === '') {
-                continue;
-            }
-            $row[$key] = $line[$idx] ?? null;
-        }
-
-        return $row;
-    }
-
-    private function hasUsefulData(array $line): bool
-    {
-        foreach ($line as $value) {
-            if ($value !== null && trim((string) $value) !== '') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function parseDate(mixed $value): ?string
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return Carbon::instance($value)->toDateString();
-        }
-
-        if (is_numeric($value)) {
-            return Carbon::instance(ExcelDate::excelToDateTimeObject((float) $value))->toDateString();
-        }
-
-        return Carbon::parse((string) $value, 'America/Bogota')->toDateString();
-    }
-
-    private function parseTime(mixed $value): ?string
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return Carbon::instance($value)->format('H:i:s');
-        }
-
-        if (is_numeric($value)) {
-            $seconds = (int) round(((float) $value) * 86400);
-            $hours = intdiv($seconds, 3600) % 24;
-            $minutes = intdiv($seconds % 3600, 60);
-            $secs = $seconds % 60;
-            return sprintf('%02d:%02d:%02d', $hours, $minutes, $secs);
-        }
-
-        $raw = trim((string) $value);
-        foreach (['H:i:s', 'H:i'] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $raw);
-            if ($parsed instanceof \DateTimeImmutable) {
-                return $parsed->format('H:i:s');
-            }
-        }
-
-        return Carbon::parse($raw, 'America/Bogota')->format('H:i:s');
-    }
-
-    private function parseNumber(mixed $value): ?float
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if (is_numeric($value)) {
-            return round((float) $value, 2);
-        }
-
-        $normalized = str_replace(',', '.', trim((string) $value));
-        return is_numeric($normalized) ? round((float) $normalized, 2) : null;
-    }
-
-    private function nullableString(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $string = trim((string) $value);
-        if ($string === '' || strtolower($string) === 'null') {
-            return null;
-        }
-
-        return $string;
-    }
-
-    private function normalizeIata(mixed $value): ?string
-    {
-        $string = $this->nullableString($value);
-        return $string ? strtoupper(substr($string, 0, 8)) : null;
-    }
-
-    private function sheetNames(string $path): array
-    {
-        try {
-            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($path);
-            $reader->setReadDataOnly(true);
-            return $reader->listWorksheetNames($path);
-        } catch (\Throwable) {
-            return [];
-        }
-    }
 }
