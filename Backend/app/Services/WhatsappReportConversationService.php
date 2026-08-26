@@ -62,6 +62,11 @@ class WhatsappReportConversationService
             return;
         }
 
+        if ($command === 'advisor_month') {
+            $this->sendAdvisorReportMonth($from);
+            return;
+        }
+
         if ($command === 'daily_executive') {
             $this->sendDailyExecutiveReport($from, now('America/Bogota')->subDay()->toDateString());
             return;
@@ -136,6 +141,25 @@ class WhatsappReportConversationService
         );
     }
 
+    
+    private function sendAdvisorReportMonth(string $to): void
+    {
+        $endDate = now('America/Bogota')->subDay();
+        $startDate = $endDate->copy()->startOfMonth();
+
+        $request = Request::create('/', 'GET', [
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+        ]);
+        $report = $this->visualizations->advisorSalesReportData($request);
+
+        $this->sender->sendImageToNumbers(
+            $this->advisorImages->make($report),
+            sprintf('Advisor Sales - %s', $report['date_label'] ?? $report['date']),
+            [$to]
+        );
+    }
+
     private function sendStoreReport(string $to, string $date, ?string $endDate = null): void
     {
         $payload = $endDate !== null
@@ -195,6 +219,7 @@ class WhatsappReportConversationService
         return match ($command) {
             'ventas de hoy', 'ventas hoy', 'daily today', 'ventas daily', 'store today', 'store sales' => 'store_today',
             'ventas de asesores', 'ventas asesores', 'asesores', 'asesores hoy', 'advisor today' => 'advisor_today',
+            'asesores mes', 'ventas asesores mes', 'advisor month' => 'advisor_month',
             'ventas acumuladas mes', 'ventas acumuladas', 'acumuladas mes', 'daily', 'reporte diario', 'daily executive' => 'daily_executive',
             'desglose de ventas', 'desglose ventas', 'detalle diario', 'daily breakdown' => 'daily_breakdown',
             'ventas por tienda', 'ventas tienda', 'tiendas' => 'store_today',

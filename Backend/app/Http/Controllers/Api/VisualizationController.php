@@ -947,14 +947,31 @@ class VisualizationController extends Controller
     public function advisorSalesReportData(Request $request): array
     {
         $date = $request->query('date', $request->input('date', $this->defaultVisualizationDate()));
-        $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+        $startDate = $request->query('start_date', $request->input('start_date'));
+        $endDate = $request->query('end_date', $request->input('end_date'));
 
         $base = $this->budgetDB()->table('sales as s')
             ->leftJoin('users as u', 'u.id', '=', 's.seller_id')
-            ->whereDate('s.sale_date', $date)
             ->whereNotNull('s.seller_id')
             ->whereRaw("UPPER(TRIM(COALESCE(u.name, ''))) NOT IN ('VENTAS MOSTRADOR', 'USUARIO PREDETERMINADO')");
 
+        if ($startDate !== null && $startDate !== '' && $endDate !== null && $endDate !== '') {
+            $startDate = (new \DateTimeImmutable((string) $startDate))->format('Y-m-d');
+            $endDate = (new \DateTimeImmutable((string) $endDate))->format('Y-m-d');
+
+            if ($startDate > $endDate) {
+                [$startDate, $endDate] = [$endDate, $startDate];
+            }
+
+            $base->whereBetween('s.sale_date', [$startDate, $endDate]);
+            $date = $endDate;
+        } else {
+            $date = (new \DateTimeImmutable((string) $date))->format('Y-m-d');
+            $startDate = $date;
+            $endDate = $date;
+
+            $base->whereDate('s.sale_date', $date);
+        }
 
         $advisors = (clone $base)
             ->selectRaw("
@@ -994,6 +1011,11 @@ class VisualizationController extends Controller
 
         return [
             'date' => $date,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'date_label' => $startDate === $endDate
+                ? $this->dateLabel($endDate)
+                : $this->dateLabel($startDate) . ' hasta ' . $this->dateLabel($endDate),
             'advisors' => $advisors,
             'totals' => [
                 'label' => 'Total advisors',

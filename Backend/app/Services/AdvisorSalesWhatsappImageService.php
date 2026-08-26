@@ -24,10 +24,10 @@ class AdvisorSalesWhatsappImageService
         $this->bootColors($image);
         imagefilledrectangle($image, 0, 0, $width, $height, $this->colors['bg']);
 
-        $date = (string) ($report['date'] ?? now('America/Bogota')->toDateString());
+        $dateLabel = (string) ($report['date_label'] ?? $report['date'] ?? now('America/Bogota')->toDateString());
         $totals = $report['totals'] ?? [];
 
-        $this->drawTable($image, $rows, $totals, $date, $height, $rowHeight, $this->updatedAtLabel($report));
+        $this->drawTable($image, $rows, $totals, $dateLabel, $height, $rowHeight, $this->updatedAtLabel($report));
 
         ob_start();
         imagepng($image, null, 9);
@@ -37,7 +37,7 @@ class AdvisorSalesWhatsappImageService
         return $png;
     }
 
-    private function drawTable($image, array $rows, array $totals, string $date, int $height, int $rowHeight, string $updatedAtLabel): void
+    private function drawTable($image, array $rows, array $totals, string $dateLabel, int $height, int $rowHeight, string $updatedAtLabel): void
     {
         $tableTop = 34;
         $titleBottom = 112;
@@ -49,7 +49,7 @@ class AdvisorSalesWhatsappImageService
         $this->roundedRect($image, 34, $tableTop, 1246, $tableBottom, 16, $this->colors['white']);
         imagerectangle($image, 34, $tableTop, 1246, $tableBottom, $this->colors['line']);
         $this->text($image, 'Advisor Sales', 58, 74, 26, $this->colors['ink'], true);
-        $this->text($image, 'Daily close - ' . $this->dateLabel($date), 58, 99, 13, $this->colors['muted'], false);
+        $this->text($image, 'Period - ' . $dateLabel, 58, 99, 13, $this->colors['muted'], false);
         $this->textAligned($image, $this->usd((float) ($totals['total_usd'] ?? 0)), 1216, 74, 24, $this->colors['primary'], true, 'right');
         $this->textAligned($image, $this->int((float) ($totals['advisors_count'] ?? 0)) . ' advisors with sales', 1216, 99, 12, $this->colors['muted'], true, 'right');
         imageline($image, 58, $titleBottom, 1222, $titleBottom, $this->colors['line']);

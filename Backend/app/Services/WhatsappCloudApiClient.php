@@ -78,7 +78,7 @@ class WhatsappCloudApiClient
         return $results;
     }
 
-    public function sendMenuTemplateToRecipients(string $recipientLabel = 'Equipo Sky', ?array $recipients = null): array
+    public function sendMenuTemplateToRecipients(string $recipientLabel = '', ?array $recipients = null): array
     {
         $numbers = $recipients ? $this->normalizePhoneNumbers($recipients) : $this->recipientNumbers();
 
@@ -238,7 +238,7 @@ class WhatsappCloudApiClient
                 'to' => $this->normalizePhoneNumber($to),
                 'type' => 'template',
                 'template' => [
-                    'name' => (string) config('services.whatsapp_cloud.menu_template', 'menu_reportes_sky'),
+                    'name' => (string) config('services.whatsapp_cloud.menu_template', 'menu_report_sky'),
                     'language' => [
                         'code' => $language,
                     ],
