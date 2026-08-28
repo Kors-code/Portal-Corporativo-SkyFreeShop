@@ -9,7 +9,10 @@ use App\Models\PassengerIntelligence\PassengerImportBatch;
 use App\Models\PassengerIntelligence\PassengerSourceFile;
 use App\Services\PassengerIntelligence\PassengerCommercialExposureService;
 use App\Services\PassengerIntelligence\PassengerExcelImportService;
+use App\Services\PassengerIntelligence\PassengerExternalSignalService;
 use App\Services\PassengerIntelligence\PassengerFlightEstimationService;
+use App\Services\PassengerIntelligence\PassengerForecastService;
+use App\Services\PassengerIntelligence\PassengerMigrationMicrodataService;
 use App\Services\PassengerIntelligence\PassengerOneDrivePaxService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -24,7 +27,11 @@ class PassengerIntelligenceController extends Controller
     private const MIGRATION_COLOMBIAN_EXITS_DATASET = 'efw5-jiej';
     private const AEROCIVIL_TRAFFIC_DATASET = 'gb6w-ynu4';
 
-    public function summary(Request $request, PassengerCommercialExposureService $exposureService)
+    public function summary(
+        Request $request,
+        PassengerCommercialExposureService $exposureService,
+        PassengerFlightEstimationService $estimator
+    )
     {
         $filters = $this->validatedFilters($request);
         $query = $this->flightQuery($filters);
@@ -47,6 +54,36 @@ class PassengerIntelligenceController extends Controller
                 Log::warning('No se pudo sincronizar automaticamente Passenger Intelligence: ' . $e->getMessage());
             }
         }
+
+        $estimateFilters = [
+            'date_from' => $filters['date_from'],
+            'date_to' => $filters['date_to'],
+            'direction' => $filters['direction'],
+        ];
+
+        if (($filters['data_type'] ?? null) && $filters['data_type'] !== 'all') {
+            $estimateFilters['data_type'] = $filters['data_type'];
+        }
+
+        $estimateRows = $estimator->monthlyAnalytics($estimateFilters);
+        $estimateCommercialPax = round(array_sum(array_column($estimateRows, 'commercial_exposed_pax')), 2);
+        $estimateColombianPax = round(array_sum(array_column($estimateRows, 'colombian_pax')), 2);
+        $estimateForeignPax = round(array_sum(array_column($estimateRows, 'foreign_pax')), 2);
+        $hasStoredCompositionEstimate = $estimateCommercialPax > 0 && ($estimateColombianPax > 0 || $estimateForeignPax > 0);
+
+        $summaryColombianPax = $hasStoredCompositionEstimate
+            ? $estimateColombianPax
+            : ($composition ? round($totalPax * ((float) $composition->colombian_pct / 100), 2) : null);
+        $summaryForeignPax = $hasStoredCompositionEstimate
+            ? $estimateForeignPax
+            : ($composition ? round($totalPax * ((float) $composition->foreign_pct / 100), 2) : null);
+        $summaryCompositionBasePax = $hasStoredCompositionEstimate ? $estimateCommercialPax : $totalPax;
+        $summaryColombianPct = $summaryCompositionBasePax > 0 && $summaryColombianPax !== null
+            ? round(($summaryColombianPax / $summaryCompositionBasePax) * 100, 3)
+            : ($composition ? round((float) $composition->colombian_pct, 3) : null);
+        $summaryForeignPct = $summaryCompositionBasePax > 0 && $summaryForeignPax !== null
+            ? round(($summaryForeignPax / $summaryCompositionBasePax) * 100, 3)
+            : ($composition ? round((float) $composition->foreign_pct, 3) : null);
 
         $byDirection = (clone $query)
             ->select('direction', DB::raw('COUNT(*) as flights'), DB::raw('SUM(pax) as pax'))
@@ -137,10 +174,12 @@ class PassengerIntelligenceController extends Controller
                 'days' => $dateCount,
                 'avg_pax_per_day' => $dateCount > 0 ? round($totalPax / $dateCount, 2) : 0,
                 'avg_pax_per_flight' => $totalFlights > 0 ? round($totalPax / $totalFlights, 2) : 0,
-                'colombian_pax' => $composition ? round($totalPax * ((float) $composition->colombian_pct / 100), 2) : null,
-                'foreign_pax' => $composition ? round($totalPax * ((float) $composition->foreign_pct / 100), 2) : null,
-                'colombian_pct' => $composition ? round((float) $composition->colombian_pct, 3) : null,
-                'foreign_pct' => $composition ? round((float) $composition->foreign_pct, 3) : null,
+                'composition_base_pax' => round($summaryCompositionBasePax, 2),
+                'colombian_pax' => $summaryColombianPax,
+                'foreign_pax' => $summaryForeignPax,
+                'colombian_pct' => $summaryColombianPct,
+                'foreign_pct' => $summaryForeignPct,
+                'composition_source' => $hasStoredCompositionEstimate ? 'stored_flight_estimates' : 'profile_fallback',
             ],
             'composition' => $composition ? $this->profilePayload($composition) : null,
             'quality' => [
@@ -325,8 +364,11 @@ class PassengerIntelligenceController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date',
             'direction' => 'nullable|in:arrival,departure',
+            'data_type' => 'nullable|in:observed,estimated',
             'limit' => 'nullable|integer|min:1|max:500',
         ]);
+
+        $data['data_type'] = $data['data_type'] ?? 'observed';
 
         return response()->json($estimator->latest($data, $data['limit'] ?? 50));
     }
@@ -338,9 +380,77 @@ class PassengerIntelligenceController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date',
             'direction' => 'nullable|in:arrival,departure',
+            'data_type' => 'nullable|in:observed,estimated',
         ]);
 
+        $data['data_type'] = $data['data_type'] ?? 'observed';
+
         return response()->json($estimator->monthlyAnalytics($data));
+    }
+
+    public function forecasts(Request $request, PassengerForecastService $forecastService)
+    {
+        $data = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:50',
+        ]);
+
+        return response()->json($forecastService->latest($data['limit'] ?? 12));
+    }
+
+    public function externalSignals(Request $request, PassengerExternalSignalService $signals)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'signal_type' => 'nullable|string|max:60',
+            'limit' => 'nullable|integer|min:1|max:500',
+        ]);
+
+        return response()->json($signals->latest($data));
+    }
+
+    public function externalSignalImpact(Request $request, PassengerExternalSignalService $signals)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+        ]);
+
+        return response()->json($signals->monthlyImpact($data));
+    }
+
+    public function syncExternalSignals(Request $request, PassengerExternalSignalService $signals)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+        ]);
+
+        return response()->json([
+            'message' => 'Festivos y eventos verificables sincronizados.',
+            ...$signals->syncVerifiableSignals($data['year'] ?? null),
+        ]);
+    }
+
+    public function generateForecast(Request $request, PassengerForecastService $forecastService)
+    {
+        $data = $request->validate([
+            'target_year' => 'nullable|integer|min:2012|max:2100',
+            'target_month' => 'nullable|integer|min:1|max:12',
+            'run_date' => 'nullable|date',
+            'cutoff_date' => 'nullable|date',
+            'send_email' => 'nullable|boolean',
+            'email' => 'nullable|email',
+        ]);
+
+        $result = $forecastService->generate([
+            ...$data,
+            'created_by' => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Forecast Passenger Intelligence generado.',
+            'forecast' => $result,
+        ], 201);
     }
 
     public function recalculateFlightEstimates(Request $request, PassengerFlightEstimationService $estimator)
@@ -349,6 +459,7 @@ class PassengerIntelligenceController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date',
             'direction' => 'nullable|in:arrival,departure',
+            'data_type' => 'nullable|in:observed,estimated',
             'batch_id' => 'nullable|integer',
         ]);
 
@@ -377,6 +488,7 @@ class PassengerIntelligenceController extends Controller
             'date_from' => $data['date_from'] ?? null,
             'date_to' => $data['date_to'] ?? null,
             'direction' => $data['direction'] ?? null,
+            'data_type' => $data['data_type'] ?? 'observed',
             'batch_id' => $data['batch_id'] ?? null,
         ], fn ($value) => $value !== null && $value !== '');
 
@@ -493,6 +605,51 @@ class PassengerIntelligenceController extends Controller
         }
 
         return response()->json($result);
+    }
+
+    public function migrationMicrodataAudit(Request $request, PassengerMigrationMicrodataService $migrationMicrodata)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'month' => 'nullable|integer|min:1|max:12',
+        ]);
+
+        return response()->json($migrationMicrodata->audit($data['year'] ?? null, $data['month'] ?? null));
+    }
+
+    public function importMigrationMicrodata(
+        Request $request,
+        PassengerMigrationMicrodataService $migrationMicrodata,
+        PassengerFlightEstimationService $estimator
+    ) {
+        $data = $request->validate([
+            'file' => 'required|file|mimes:csv,txt,xlsx,xls|max:204800',
+            'recalculate_estimates' => 'nullable|boolean',
+        ]);
+
+        try {
+            $result = $migrationMicrodata->importUploadedFile($request->file('file'), optional($request->user())->id);
+
+            if (($data['recalculate_estimates'] ?? true) && !($result['duplicate'] ?? false) && !empty($result['period_start']) && !empty($result['period_end'])) {
+                $result['estimates'] = $estimator->recalculate([
+                    'date_from' => $result['period_start'],
+                    'date_to' => $result['period_end'],
+                    'data_type' => 'observed',
+                ]);
+            }
+
+            return response()->json([
+                'message' => ($result['duplicate'] ?? false)
+                    ? 'Microdatos de Migracion ya importados previamente.'
+                    : 'Microdatos de Migracion importados y perfiles mensuales creados.',
+                ...$result,
+            ], ($result['duplicate'] ?? false) ? 200 : 201);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'No se pudieron importar los microdatos de Migracion.',
+                'error' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     private function syncOfficialProfileForPeriod(int $targetYear, int $targetMonth, Request $request): array
@@ -670,6 +827,7 @@ class PassengerIntelligenceController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date',
             'direction' => 'nullable|in:arrival,departure',
+            'data_type' => 'nullable|in:observed,estimated,all',
             'airline' => 'nullable|string|max:120',
             'destination' => 'nullable|string|max:8',
         ]);
@@ -678,6 +836,7 @@ class PassengerIntelligenceController extends Controller
             'date_from' => $data['date_from'] ?? null,
             'date_to' => $data['date_to'] ?? null,
             'direction' => $data['direction'] ?? null,
+            'data_type' => $data['data_type'] ?? 'observed',
             'airline' => $data['airline'] ?? null,
             'destination' => isset($data['destination']) ? strtoupper($data['destination']) : null,
         ];
@@ -697,6 +856,10 @@ class PassengerIntelligenceController extends Controller
 
         if ($filters['direction']) {
             $query->where('direction', $filters['direction']);
+        }
+
+        if (($filters['data_type'] ?? null) && $filters['data_type'] !== 'all') {
+            $query->where('data_type', $filters['data_type']);
         }
 
         if ($filters['airline']) {
@@ -732,6 +895,7 @@ class PassengerIntelligenceController extends Controller
 
         $profile = (clone $query)
             ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
             ->orderByDesc('valid_from')
             ->orderByDesc('created_at')
             ->first();
@@ -748,6 +912,7 @@ class PassengerIntelligenceController extends Controller
                 }
             })
             ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
             ->orderByDesc('valid_from')
             ->orderByDesc('created_at')
             ->first();

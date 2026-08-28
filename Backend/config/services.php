@@ -39,6 +39,12 @@ return [
         'api_key' => env('MAILERSEND_API_KEY'),
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'ca_bundle' => env('OPENAI_CA_BUNDLE'),
+        'passenger_intelligence_model' => env('OPENAI_PASSENGER_INTELLIGENCE_MODEL', 'gpt-4o'),
+    ],
+
     'automation' => [
         'token' => env('AUTOMATION_TOKEN', env('IMPORT_AUTOMATION_TOKEN')),
     ],

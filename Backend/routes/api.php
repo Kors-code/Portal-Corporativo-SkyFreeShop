@@ -92,11 +92,16 @@ Route::get('/v1/ping', function () {
         Route::get('passenger-intelligence/monthly-facts', [PassengerIntelligenceController::class, 'monthlyFacts']);
         Route::get('passenger-intelligence/flight-estimates', [PassengerIntelligenceController::class, 'flightEstimates']);
         Route::get('passenger-intelligence/monthly-estimates', [PassengerIntelligenceController::class, 'monthlyEstimateAnalytics']);
+        Route::get('passenger-intelligence/forecasts', [PassengerIntelligenceController::class, 'forecasts']);
+        Route::get('passenger-intelligence/external-signals', [PassengerIntelligenceController::class, 'externalSignals']);
+        Route::get('passenger-intelligence/external-signals/impact', [PassengerIntelligenceController::class, 'externalSignalImpact']);
+        Route::get('passenger-intelligence/migration-microdata/audit', [PassengerIntelligenceController::class, 'migrationMicrodataAudit']);
     });
 
     Route::middleware('permission:passenger-intelligence.import')->group(function () {
         Route::post('passenger-intelligence/import', [PassengerIntelligenceController::class, 'import']);
         Route::post('passenger-intelligence/onedrive/import', [PassengerIntelligenceController::class, 'importOneDriveFile']);
+        Route::post('passenger-intelligence/migration-microdata/import', [PassengerIntelligenceController::class, 'importMigrationMicrodata']);
     });
 
     Route::middleware('permission:passenger-intelligence.manage')->group(function () {
@@ -107,6 +112,12 @@ Route::get('/v1/ping', function () {
         Route::post('passenger-intelligence/exposure/recalculate', [PassengerIntelligenceController::class, 'recalculateExposure']);
         Route::post('passenger-intelligence/flight-estimates/recalculate', [PassengerIntelligenceController::class, 'recalculateFlightEstimates']);
     });
+
+    Route::post('passenger-intelligence/forecasts/generate', [PassengerIntelligenceController::class, 'generateForecast'])
+        ->middleware('permission:passenger-intelligence.manage,passenger-intelligence.forecast');
+
+    Route::post('passenger-intelligence/external-signals/sync', [PassengerIntelligenceController::class, 'syncExternalSignals'])
+        ->middleware('permission:passenger-intelligence.manage,passenger-intelligence.signals.manage');
 
     Route::middleware('permission:inventarios.importes')->group(function () {
         Route::get   ('inventory-imports',               [InventoryImportBatchController::class, 'index']);

@@ -219,7 +219,7 @@ class WhatsappReportConversationService
         return match ($command) {
             'ventas de hoy', 'ventas hoy', 'daily today', 'ventas daily', 'store today', 'store sales' => 'store_today',
             'ventas de asesores', 'ventas asesores', 'asesores', 'asesores hoy', 'advisor today' => 'advisor_today',
-            'asesores mes', 'ventas asesores mes', 'advisor month' => 'advisor_month',
+            'asesores mes', 'ventas de asesores mes', 'ventas asesores mes', 'advisor month' => 'advisor_month',
             'ventas acumuladas mes', 'ventas acumuladas', 'acumuladas mes', 'daily', 'reporte diario', 'daily executive' => 'daily_executive',
             'desglose de ventas', 'desglose ventas', 'detalle diario', 'daily breakdown' => 'daily_breakdown',
             'ventas por tienda', 'ventas tienda', 'tiendas' => 'store_today',

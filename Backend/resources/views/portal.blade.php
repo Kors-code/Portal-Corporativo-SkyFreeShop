@@ -26,6 +26,7 @@
   $cardsByArea = collect($cards)->groupBy('area');
   $firstArea = ($areas ?? [])[0] ?? null;
   $showcaseGroups = collect($showcase_groups ?? []);
+  $quickNavCards = collect($featuredCards ?? [])->take(3);
 @endphp
 
 <div id="logoutModal" class="logout-modal">
@@ -48,43 +49,80 @@
   @csrf
 </form>
 
-<header class="navbar">
+<header class="navbar" data-portal-nav>
   <div class="container navbar-inner">
     <a href="{{ route('welcome') }}" class="brand" aria-label="Sky Free Shop">
       <img src="{{ asset('imagenes/logo5.png') }}" alt="Logo Sky Free Shop" class="logo">
+      <span>
+        <strong>Portal Sky</strong>
+        <small>{{ $moduleCount ?? 0 }} accesos disponibles</small>
+      </span>
     </a>
 
-    <nav class="menu">
-      <a href="{{ route('welcome') }}">Inicio</a>
-      <a href="#areas">Áreas</a>
-      <a href="#destacados">Destacados</a>
+    <nav class="quick-links" aria-label="Accesos frecuentes">
+      <a href="{{ route('welcome') }}" class="quick-link active">
+        <i class="fa-solid fa-house"></i>
+        Inicio
+      </a>
+      @foreach($quickNavCards as $card)
+        <a href="{{ $resolveUrl($card['route']) }}" class="quick-link">
+          <i class="{{ $card['icon'] }}"></i>
+          {{ $card['title'] }}
+        </a>
+      @endforeach
+    </nav>
 
-      <div class="mega-menu">
-        <button class="mega-trigger" type="button">
-          Módulos
-          <i class="fa-solid fa-chevron-down"></i>
-        </button>
-
-        <div class="mega-panel">
-          @foreach(($areas ?? []) as $area)
-            <div class="mega-column">
-              <strong>{{ $area }}</strong>
-              @foreach($cardsByArea->get($area, collect())->take(5) as $card)
-                <a href="{{ $resolveUrl($card['route']) }}">
-                  <i class="{{ $card['icon'] }}"></i>
-                  {{ $card['title'] }}
-                </a>
-              @endforeach
-            </div>
-          @endforeach
-        </div>
-      </div>
+    <div class="nav-actions">
+      <button class="module-toggle" type="button" data-module-toggle aria-expanded="false" aria-controls="moduleDrawer">
+        <i class="fa-solid fa-grip"></i>
+        <span>Módulos</span>
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
 
       <button id="openLogoutModal" class="logout-link" type="button">
         <i class="fa-solid fa-right-from-bracket"></i>
-        Cerrar sesión
+        <span>Cerrar sesión</span>
       </button>
-    </nav>
+    </div>
+  </div>
+
+  <div id="moduleDrawer" class="module-drawer" data-module-drawer>
+    <div class="container module-drawer-inner">
+      <div class="module-finder">
+        <label for="moduleSearch">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <span>Buscar acceso</span>
+        </label>
+        <input id="moduleSearch" type="search" placeholder="Escribe: inventario, cajeros, permisos..." data-module-search autocomplete="off">
+      </div>
+
+      <div class="module-directory">
+        @foreach(($areas ?? []) as $area)
+          <section class="module-group" data-module-group>
+            <h2>{{ $area }}</h2>
+            <div class="module-group-links">
+              @foreach($cardsByArea->get($area, collect()) as $card)
+                <a
+                  href="{{ $resolveUrl($card['route']) }}"
+                  class="drawer-module-link"
+                  data-module-link
+                  data-search-text="{{ \Illuminate\Support\Str::lower($card['title'].' '.$card['text'].' '.$card['area']) }}"
+                >
+                  <span class="drawer-module-icon"><i class="{{ $card['icon'] }}"></i></span>
+                  <span>
+                    <strong>{{ $card['title'] }}</strong>
+                    <small>{{ $card['text'] }}</small>
+                  </span>
+                  <i class="fa-solid fa-arrow-right"></i>
+                </a>
+              @endforeach
+            </div>
+          </section>
+        @endforeach
+      </div>
+
+      <p class="module-empty" data-module-empty>No encontramos accesos con ese texto.</p>
+    </div>
   </div>
 </header>
 

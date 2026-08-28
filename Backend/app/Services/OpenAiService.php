@@ -5,6 +5,7 @@ namespace App\Services;
 use OpenAI;
 use DateTime;
 use Exception;
+use GuzzleHttp\Client as GuzzleClient;
 
 class OpenAIService
 {
@@ -16,7 +17,20 @@ class OpenAIService
 
     public function __construct()
     {
-        $this->client = OpenAI::client(env('OPENAI_API_KEY'));
+        $factory = OpenAI::factory()
+            ->withApiKey((string) config('services.openai.api_key'));
+
+        $caBundle = $this->resolveCaBundle();
+
+        if ($caBundle) {
+            $factory = $factory->withHttpClient(new GuzzleClient([
+                'verify' => $caBundle,
+                'timeout' => 60,
+                'connect_timeout' => 15,
+            ]));
+        }
+
+        $this->client = $factory->make();
     }
 
     public function analizarCV($texto, $nombreVacante , $requisito_ia , $criterios)
@@ -217,6 +231,23 @@ PROMPT;
                 }
             }
         }
+        return null;
+    }
+
+    private function resolveCaBundle(): ?string
+    {
+        $candidates = [
+            config('services.openai.ca_bundle'),
+            ini_get('curl.cainfo') ?: null,
+            'C:\\laragon\\etc\\ssl\\cacert.pem',
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && $candidate !== '' && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
         return null;
     }
 

@@ -3,6 +3,11 @@
 use Illuminate\Support\Str;
 
 $dbProfile = Str::upper(env('DB_DATABASE_PROFILE', 'local'));
+$databaseDriver = function (?string $driver, string $fallback = 'mysql'): string {
+    $supportedDrivers = ['mysql', 'mariadb', 'pgsql', 'sqlite', 'sqlsrv'];
+
+    return in_array($driver, $supportedDrivers, true) ? $driver : $fallback;
+};
 
 return [
 
@@ -47,7 +52,7 @@ return [
         
         
         'mysql_personal' => [
-            'driver' => env('DB_SECOND_CONNECTION', 'mysql'),
+            'driver' => $databaseDriver(env('DB_SECOND_DRIVER', env('DB_SECOND_CONNECTION', 'mysql'))),
             'host' => env("DB_SECOND_{$dbProfile}_HOST", env('DB_SECOND_HOST', '127.0.0.1')),
             'port' => env("DB_SECOND_{$dbProfile}_PORT", env('DB_SECOND_PORT', '3306')),
             'database' => env("DB_SECOND_{$dbProfile}_DATABASE", env('DB_SECOND_DATABASE', 'forge')),
@@ -61,13 +66,13 @@ return [
         ],
         
         'budget' => [
-            'driver' => env('DB_BUDGET_CONNECTION', 'mysql'),
+            'driver' => $databaseDriver(env('DB_BUDGET_DRIVER', env('DB_BUDGET_CONNECTION', 'mysql'))),
             'host' => env("DB_BUDGET_{$dbProfile}_HOST", env('DB_BUDGET_HOST', '127.0.0.1')),
             'port' => env("DB_BUDGET_{$dbProfile}_PORT", env('DB_BUDGET_PORT', '3306')),
             'database' => env("DB_BUDGET_{$dbProfile}_DATABASE", env('DB_BUDGET_DATABASE')),
             'username' => env("DB_BUDGET_{$dbProfile}_USERNAME", env('DB_BUDGET_USERNAME')),
             'password' => env("DB_BUDGET_{$dbProfile}_PASSWORD", env('DB_BUDGET_PASSWORD')),
-            'charset' => env('DB_BUDGET_CHARSET', 'utf8'),
+            'charset' => env('DB_BUDGET_CHARSET', 'utf8mb4'),
             'collation' => env('DB_BUDGET_COLLATION', 'utf8mb4_unicode_ci'),
             'prefix' => '',
             'prefix_indexes' => true,

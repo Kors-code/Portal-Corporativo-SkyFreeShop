@@ -10,10 +10,12 @@ export type PassengerSummaryResponse = {
     days: number;
     avg_pax_per_day: number;
     avg_pax_per_flight: number;
+    composition_base_pax?: number;
     colombian_pax: number | null;
     foreign_pax: number | null;
     colombian_pct: number | null;
     foreign_pct: number | null;
+    composition_source?: string;
   };
   composition: PassengerCompositionProfile | null;
   quality: {
@@ -184,6 +186,100 @@ export type PassengerRecalculateAllResponse = {
   };
 };
 
+export type PassengerForecastRun = {
+  id: number;
+  target_year: number;
+  target_month: number;
+  target_period: string;
+  airport_iata: string;
+  run_date: string | null;
+  cutoff_date: string | null;
+  status: string;
+  method: string;
+  model_version: string;
+  actual_pax_to_date: number | null;
+  predicted_remaining_pax: number | null;
+  predicted_total_pax: number | null;
+  predicted_colombian_pct: number | null;
+  predicted_foreign_pct: number | null;
+  confidence_level: "HIGH" | "MEDIUM" | "LOW";
+  input_sources: Record<string, unknown> | null;
+  explanation: {
+    openai_used?: boolean;
+    executive_summary?: string;
+    forecast_drivers?: string[];
+    risks?: string[];
+    accuracy_monitoring_plan?: string[];
+    failure_modes?: string[];
+    recommendations?: string[];
+    openai_error?: string;
+  } | null;
+  email?: { sent: boolean; to: string; error?: string };
+  created_at: string | null;
+};
+
+export type PassengerExternalSignal = {
+  id: number;
+  date_from: string | null;
+  date_to: string | null;
+  signal_type: string;
+  name: string;
+  location: string | null;
+  source_name: string | null;
+  source_url: string | null;
+  source_published_at: string | null;
+  expected_impact: string;
+  impact_direction: string | null;
+  impact_score: number;
+  verification_status: string;
+  notes: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+export type PassengerExternalSignalImpact = {
+  summary: {
+    months_analyzed: number;
+    months_with_signals: number;
+    months_without_signals: number;
+    avg_pax_with_signals: number | null;
+    avg_pax_without_signals: number | null;
+    difference_pct: number | null;
+    note: string;
+  };
+  months: Array<{
+    period: string;
+    year: number;
+    month: number;
+    pax: number;
+    flights: number;
+    colombian_pax: number;
+    foreign_pax: number;
+    colombian_pct: number | null;
+    foreign_pct: number | null;
+    signals_count: number;
+    signal_score: number;
+    top_signals: PassengerExternalSignal[];
+    previous_3_month_avg: number | null;
+    lift_vs_previous_3_pct: number | null;
+    signal_intensity: "none" | "low" | "medium" | "high";
+    analysis: string;
+  }>;
+};
+
+export type PassengerMigrationMicrodataAudit = {
+  source: {
+    name: string;
+    url: string;
+    method: string;
+    priority_note: string;
+  };
+  filters: { year: number | null; month: number | null };
+  profiles: PassengerCompositionProfile[];
+  monthly_facts: PassengerMonthlyFact[];
+  fallback_profiles_present: PassengerCompositionProfile[];
+  warning: string | null;
+};
+
 export async function getPassengerSummary(params?: Record<string, string>) {
   const { data } = await axios.get<PassengerSummaryResponse>(`${API}/passenger-intelligence/summary`, { params });
   return data;
@@ -217,8 +313,45 @@ export async function getPassengerMonthlyFacts(params?: { year?: number; month?:
   return data;
 }
 
-export async function getPassengerMonthlyEstimates(params?: { year?: number; date_from?: string; date_to?: string; direction?: string }) {
+export async function getPassengerMonthlyEstimates(params?: { year?: number; date_from?: string; date_to?: string; direction?: string; data_type?: string }) {
   const { data } = await axios.get<PassengerMonthlyEstimate[]>(`${API}/passenger-intelligence/monthly-estimates`, { params });
+  return data;
+}
+
+export async function getPassengerForecasts() {
+  const { data } = await axios.get<PassengerForecastRun[]>(`${API}/passenger-intelligence/forecasts`);
+  return data;
+}
+
+export async function getPassengerExternalSignals(params?: { year?: number; date_from?: string; date_to?: string; signal_type?: string }) {
+  const { data } = await axios.get<PassengerExternalSignal[]>(`${API}/passenger-intelligence/external-signals`, { params });
+  return data;
+}
+
+export async function getPassengerExternalSignalImpact(params?: { year?: number }) {
+  const { data } = await axios.get<PassengerExternalSignalImpact>(`${API}/passenger-intelligence/external-signals/impact`, { params });
+  return data;
+}
+
+export async function syncPassengerExternalSignals(payload?: { year?: number }) {
+  const { data } = await axios.post<{ years: number[]; created: number; updated: number; total: number }>(
+    `${API}/passenger-intelligence/external-signals/sync`,
+    payload || {}
+  );
+  return data;
+}
+
+export async function generatePassengerForecast(payload?: {
+  target_year?: number;
+  target_month?: number;
+  run_date?: string;
+  send_email?: boolean;
+  email?: string;
+}) {
+  const { data } = await axios.post<{ message: string; forecast: PassengerForecastRun }>(
+    `${API}/passenger-intelligence/forecasts/generate`,
+    payload || {}
+  );
   return data;
 }
 
@@ -230,7 +363,7 @@ export async function recalculatePassengerExposure(payload?: { year?: number; mo
   return data;
 }
 
-export async function recalculatePassengerAll(payload?: { year?: number; date_from?: string; date_to?: string; direction?: string }) {
+export async function recalculatePassengerAll(payload?: { year?: number; date_from?: string; date_to?: string; direction?: string; data_type?: string }) {
   const { data } = await axios.post<PassengerRecalculateAllResponse>(`${API}/passenger-intelligence/recalculate-all`, payload || {});
   return data;
 }
@@ -243,6 +376,23 @@ export async function importPassengerExcel(file: File) {
     headers: { "Content-Type": "multipart/form-data" },
   });
 
+  return data;
+}
+
+export async function importPassengerMigrationMicrodata(file: File, recalculateEstimates = true) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("recalculate_estimates", recalculateEstimates ? "1" : "0");
+
+  const { data } = await axios.post(`${API}/passenger-intelligence/migration-microdata/import`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
+  return data;
+}
+
+export async function getPassengerMigrationMicrodataAudit(params?: { year?: number; month?: number }) {
+  const { data } = await axios.get<PassengerMigrationMicrodataAudit>(`${API}/passenger-intelligence/migration-microdata/audit`, { params });
   return data;
 }
 

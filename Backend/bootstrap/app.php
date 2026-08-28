@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('inventory:metrics')->dailyAt('01:00');
         $schedule->command('inventory:alerts-cache-top --force')->dailyAt('07:00');
         $schedule->command('inventory:alerts-send')->dailyAt('07:15');
+        $schedule->command('passenger-intelligence:forecast --send-email')->dailyAt('08:00');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

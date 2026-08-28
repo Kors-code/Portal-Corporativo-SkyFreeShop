@@ -129,6 +129,10 @@ class PassengerFlightEstimationService
             $query->whereHas('flight', fn ($q) => $q->where('direction', $filters['direction']));
         }
 
+        if (!empty($filters['data_type'])) {
+            $query->whereHas('flight', fn ($q) => $q->where('data_type', $filters['data_type']));
+        }
+
         return $query
             ->orderByDesc('calculated_at')
             ->orderByDesc('id')
@@ -159,6 +163,10 @@ class PassengerFlightEstimationService
 
         if (!empty($filters['direction'])) {
             $query->where('flights.direction', $filters['direction']);
+        }
+
+        if (!empty($filters['data_type'])) {
+            $query->where('flights.data_type', $filters['data_type']);
         }
 
         return $query
@@ -222,6 +230,10 @@ class PassengerFlightEstimationService
             $query->where('batch_id', $filters['batch_id']);
         }
 
+        if (!empty($filters['data_type'])) {
+            $query->where('data_type', $filters['data_type']);
+        }
+
         return $query;
     }
 
@@ -277,6 +289,7 @@ class PassengerFlightEstimationService
                     $q->whereNull('valid_to')->orWhereDate('valid_to', '>=', $date);
                 })
                 ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+                ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
                 ->orderByDesc('valid_from')
                 ->orderByDesc('created_at')
                 ->first();
@@ -284,10 +297,26 @@ class PassengerFlightEstimationService
             if ($datedProfile) {
                 return $this->compositionCache[$cacheKey] = $datedProfile;
             }
+
+            $flightDate = Carbon::parse($date);
+            $sameMonthProfile = (clone $query)
+                ->whereNotNull('valid_from')
+                ->whereMonth('valid_from', (int) $flightDate->month)
+                ->whereYear('valid_from', '<', (int) $flightDate->year)
+                ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+                ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
+                ->orderByDesc('valid_from')
+                ->orderByDesc('created_at')
+                ->first();
+
+            if ($sameMonthProfile) {
+                return $this->compositionCache[$cacheKey] = $sameMonthProfile;
+            }
         }
 
         return $this->compositionCache[$cacheKey] = $query
             ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
             ->orderByDesc('valid_from')
             ->orderByDesc('created_at')
             ->first();
