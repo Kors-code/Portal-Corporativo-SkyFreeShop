@@ -1,4 +1,5 @@
 import api from "../../../api/axios";
+import type { InventoryMetricItem, Store } from "../../inventory/services/inventoryService";
 
 export type CashClosureSummary = {
   total_cop: number;
@@ -222,6 +223,11 @@ export type AdvisorAnalyticsResponse = {
   }>;
 };
 
+export type InventoryMonitoringResponse = {
+  generated_at: string;
+  rows: InventoryMetricItem[];
+};
+
 export async function getCashRegisterClosure(params: {
   date?: string;
   start_date?: string;
@@ -304,6 +310,26 @@ export async function getAdvisorAnalytics(params: {
     "/visualizaciones/asesores-analytics",
     { params }
   );
+
+  return response.data;
+}
+
+export async function getInventoryMonitoring(params?: {
+  search?: string;
+  as_of_date?: string;
+  max_months?: number;
+  store_ids?: number[];
+}): Promise<InventoryMonitoringResponse> {
+  const response = await api.get<InventoryMonitoringResponse>(
+    "/visualizaciones/inventario",
+    { params }
+  );
+
+  return response.data;
+}
+
+export async function getInventoryMonitoringStores(): Promise<Store[]> {
+  const response = await api.get<Store[]>("/visualizaciones/inventario/tiendas");
 
   return response.data;
 }

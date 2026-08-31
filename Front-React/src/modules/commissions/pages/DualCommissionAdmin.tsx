@@ -192,6 +192,11 @@ export default function DualCommissionAdmin({
     parbel: false,
   });
 
+  const [loadingAdvisorLine, setLoadingAdvisorLine] = useState<Record<Line, boolean>>({
+    montblanc: false,
+    parbel: false,
+  });
+
   const [filterProvider, setFilterProvider] = useState<string>('ALL');
   const [filterBrand, setFilterBrand] = useState<string>('ALL');
   const [filterProduct, setFilterProduct] = useState<string>('ALL');
@@ -417,6 +422,33 @@ console.log(turnsCount)
     }
   }
 
+  const selectAdvisorForLine = async (line: Line, userId: number | null) => {
+    setSelectedAdvisorId((prev) => ({ ...prev, [line]: userId }));
+
+    if (!selectedBudgetId || !userId) {
+      setLineData((prev) => ({ ...prev, [line]: null }));
+      setLineOverrides((prev) => ({ ...prev, [line]: {} }));
+      return;
+    }
+
+    setLoadingAdvisorLine((prev) => ({ ...prev, [line]: true }));
+    try {
+      const [payload, overrides] = await Promise.all([
+        loadSeller(userId, selectedBudgetId, line),
+        fetchOverridesFor(userId, selectedBudgetId),
+      ]);
+
+      setLineData((prev) => ({ ...prev, [line]: payload }));
+      setLineOverrides((prev) => ({ ...prev, [line]: overrides }));
+    } catch (e) {
+      console.error('advisor preview load failed', e);
+      setMessage({ type: 'error', text: 'Error cargando datos del asesor seleccionado' });
+      setTimeout(() => setMessage(null), 2600);
+    } finally {
+      setLoadingAdvisorLine((prev) => ({ ...prev, [line]: false }));
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -504,31 +536,6 @@ console.log(turnsCount)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBudgetId]);
-
-  useEffect(() => {
-    if (!selectedBudgetId) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setLoading(true);
-        await Promise.all([
-          loadLineState('montblanc', selectedBudgetId),
-          loadLineState('parbel', selectedBudgetId),
-        ]);
-      } catch (e) {
-        if (!cancelled) console.error('reload line data failed', e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBudgetId, selectedAdvisorId.montblanc, selectedAdvisorId.parbel]);
 
   const assignSpecialistForLine = async (line: Line, userIdToAssign: number) => {
     if (!selectedBudgetId) return;
@@ -723,6 +730,7 @@ console.log(turnsCount)
 
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => exportCsvFor(currentLine)}
                     className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
@@ -730,6 +738,7 @@ console.log(turnsCount)
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => saveOverridesForLine(currentLine)}
                     disabled={savingOverrides[currentLine] || !currentSelectedAdvisorId}
                     className={`rounded-xl px-4 py-2 text-sm font-medium text-white shadow-sm transition ${
@@ -766,6 +775,7 @@ console.log(turnsCount)
 
                 <div className="ml-auto flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
                   <button
+                    type="button"
                     onClick={() => setViewLine('montblanc')}
                     className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
                       viewLine === 'montblanc'
@@ -776,6 +786,7 @@ console.log(turnsCount)
                     Montblanc
                   </button>
                   <button
+                    type="button"
                     onClick={() => setViewLine('parbel')}
                     className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
                       viewLine === 'parbel'
@@ -844,7 +855,7 @@ console.log(turnsCount)
                       Línea {LINE_LABEL[currentLine]}
                     </div>
                     <div className="mt-1 text-xl font-semibold text-slate-900">
-                      {visibleAdvisorName}
+                      {loadingAdvisorLine[currentLine] ? 'Cargando asesor...' : visibleAdvisorName}
                     </div>
                     <div className="mt-1 text-sm text-slate-500">
                       PPTO usuario:{' '}
@@ -1098,11 +1109,12 @@ console.log(turnsCount)
                     <select
                       value={currentSelectedAdvisorId ?? ''}
                       onChange={(e) =>
-                        setSelectedAdvisorId((prev) => ({
-                          ...prev,
-                          [currentLine]: e.target.value ? Number(e.target.value) : null,
-                        }))
+                        selectAdvisorForLine(
+                          currentLine,
+                          e.target.value ? Number(e.target.value) : null
+                        )
                       }
+                      disabled={loadingAdvisorLine[currentLine]}
                       className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 ${BRAND.ring}`}
                     >
                       <option value="">Selecciona asesor</option>
@@ -1133,19 +1145,22 @@ console.log(turnsCount)
                     </select>
 
                     <button
+                      type="button"
                       onClick={() =>
                         currentSelectedAdvisorId &&
                         assignSpecialistForLine(currentLine, currentSelectedAdvisorId)
                       }
-                      disabled={assigningLine[currentLine] || !currentSelectedAdvisorId}
+                      disabled={assigningLine[currentLine] || loadingAdvisorLine[currentLine] || !currentSelectedAdvisorId}
                       className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-sm transition ${
-                        assigningLine[currentLine] || !currentSelectedAdvisorId
+                        assigningLine[currentLine] || loadingAdvisorLine[currentLine] || !currentSelectedAdvisorId
                           ? 'cursor-not-allowed bg-slate-300'
                           : BRAND.primary
                       }`}
                     >
                       {assigningLine[currentLine]
                         ? 'Asignando…'
+                        : loadingAdvisorLine[currentLine]
+                          ? 'Cargando asesor…'
                         : `Asignar a ${LINE_LABEL[currentLine]}`}
                     </button>
                   </div>

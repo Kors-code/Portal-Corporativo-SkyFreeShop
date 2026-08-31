@@ -9,7 +9,7 @@
 
 <body id="top">
 @php
-  $isPresupuesto = request()->routeIs('presupuesto');
+  $isSubPortal = request()->routeIs('presupuesto');
 
   $resolveUrl = function ($target) {
       if ($target === '#') {
@@ -25,8 +25,16 @@
 
   $cardsByArea = collect($cards)->groupBy('area');
   $firstArea = ($areas ?? [])[0] ?? null;
-  $showcaseGroups = collect($showcase_groups ?? []);
-  $quickNavCards = collect($featuredCards ?? [])->take(3);
+  $quickNavCards = collect($featuredCards ?? [])->merge($cards ?? [])->unique('route')->take(6)->values();
+  $areaDescriptions = [
+      'Comercial' => 'Accesos de uso diario para asesores, especialistas, cajeros, Wishlist y SHA.',
+      'Presupuesto' => 'Presupuesto, reportes, cajeros e importes reunidos en una sola ruta de gestión.',
+      'Informacional' => 'Material interno y consulta rápida para asesores.',
+      'Personal' => 'Talento humano, vacantes, candidatos y procesos de seguimiento interno.',
+      'Analitica' => 'Visualizaciones ejecutivas, pasajeros, ventas por tienda, cierres e inventario.',
+      'Contabilidad' => 'Importaciones bancarias, movimientos normalizados y archivos listos para gestión contable.',
+      'Administracion' => 'Usuarios, permisos, configuraciones y gobierno del portal.',
+  ];
 @endphp
 
 <div id="logoutModal" class="logout-modal">
@@ -53,80 +61,63 @@
   <div class="container navbar-inner">
     <a href="{{ route('welcome') }}" class="brand" aria-label="Sky Free Shop">
       <img src="{{ asset('imagenes/logo5.png') }}" alt="Logo Sky Free Shop" class="logo">
-      <span>
-        <strong>Portal Sky</strong>
-        <small>{{ $moduleCount ?? 0 }} accesos disponibles</small>
-      </span>
     </a>
 
-    <nav class="quick-links" aria-label="Accesos frecuentes">
-      <a href="{{ route('welcome') }}" class="quick-link active">
+    <nav class="utility-menu" aria-label="Accesos de usuario">
+      <a href="{{ route('welcome') }}" class="main-menu-link active">
         <i class="fa-solid fa-house"></i>
         Inicio
       </a>
-      @foreach($quickNavCards as $card)
-        <a href="{{ $resolveUrl($card['route']) }}" class="quick-link">
-          <i class="{{ $card['icon'] }}"></i>
-          {{ $card['title'] }}
-        </a>
-      @endforeach
-    </nav>
-
-    <div class="nav-actions">
-      <button class="module-toggle" type="button" data-module-toggle aria-expanded="false" aria-controls="moduleDrawer">
-        <i class="fa-solid fa-grip"></i>
-        <span>Módulos</span>
-        <i class="fa-solid fa-chevron-down"></i>
-      </button>
-
+      <a href="{{ route('ver_perfil') }}" class="main-menu-link">
+        <i class="fa-solid fa-user"></i>
+        Mi perfil
+      </a>
       <button id="openLogoutModal" class="logout-link" type="button">
         <i class="fa-solid fa-right-from-bracket"></i>
         <span>Cerrar sesión</span>
       </button>
-    </div>
+    </nav>
   </div>
 
-  <div id="moduleDrawer" class="module-drawer" data-module-drawer>
-    <div class="container module-drawer-inner">
-      <div class="module-finder">
-        <label for="moduleSearch">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <span>Buscar acceso</span>
-        </label>
-        <input id="moduleSearch" type="search" placeholder="Escribe: inventario, cajeros, permisos..." data-module-search autocomplete="off">
-      </div>
+  <div class="category-bar">
+    <nav class="container category-menu" aria-label="Módulos por área">
+      @foreach(($areas ?? []) as $area)
+        @php
+          $areaIcon = $cardsByArea->get($area, collect())->first()['icon'] ?? 'fa-solid fa-layer-group';
+        @endphp
+        <button class="category-button" type="button" data-nav-area-toggle="{{ $area }}" aria-expanded="false">
+          <i class="{{ $areaIcon }}"></i>
+          {{ $area }}
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
+      @endforeach
+    </nav>
+  </div>
 
-      <div class="module-directory">
-        @foreach(($areas ?? []) as $area)
-          <section class="module-group" data-module-group>
-            <h2>{{ $area }}</h2>
-            <div class="module-group-links">
-              @foreach($cardsByArea->get($area, collect()) as $card)
-                <a
-                  href="{{ $resolveUrl($card['route']) }}"
-                  class="drawer-module-link"
-                  data-module-link
-                  data-search-text="{{ \Illuminate\Support\Str::lower($card['title'].' '.$card['text'].' '.$card['area']) }}"
-                >
-                  <span class="drawer-module-icon"><i class="{{ $card['icon'] }}"></i></span>
-                  <span>
-                    <strong>{{ $card['title'] }}</strong>
-                    <small>{{ $card['text'] }}</small>
-                  </span>
-                  <i class="fa-solid fa-arrow-right"></i>
-                </a>
-              @endforeach
-            </div>
-          </section>
-        @endforeach
-      </div>
+  <div class="nav-module-panel" data-nav-module-panel>
+    <div class="container nav-module-inner">
+      @foreach(($areas ?? []) as $area)
+        <section class="nav-module-list" data-nav-area-panel="{{ $area }}">
+          <div class="nav-module-head">
+            <span>{{ $area }}</span>
+            <strong>Selecciona un módulo</strong>
+          </div>
 
-      <p class="module-empty" data-module-empty>No encontramos accesos con ese texto.</p>
+          <div class="nav-module-links">
+            @foreach($cardsByArea->get($area, collect()) as $card)
+              <a href="{{ $resolveUrl($card['route']) }}" class="nav-module-link">
+                <span><i class="{{ $card['icon'] }}"></i></span>
+                <strong>{{ $card['title'] }}</strong>
+              </a>
+            @endforeach
+          </div>
+        </section>
+      @endforeach
     </div>
   </div>
 </header>
 
-@if($isPresupuesto)
+@if($isSubPortal)
   <a href="{{ route('welcome') }}" class="back-button">
     <i class="fa-solid fa-arrow-left"></i>
     <span>Volver al Portal</span>
@@ -134,140 +125,169 @@
 @endif
 
 <main>
-  <section class="hero">
-    <div class="hero-glow hero-glow-one"></div>
-    <div class="hero-glow hero-glow-two"></div>
+  <section class="portal-stage" data-portal-carousel aria-label="Carrusel de áreas del portal">
+    <div class="stage-background" aria-hidden="true"></div>
 
-    <div class="container hero-inner">
-      <div class="hero-copy">
-        <span class="hero-label">{{ $eyebrow ?? 'Portal interno' }}</span>
-        <h1>{{ $title ?? 'Bienvenido' }}</h1>
-        <p>{{ $subtitle ?? '' }}</p>
+    <div class="container stage-shell">
+      <div class="guide-assistant" data-guide-assistant>
+        <span class="guide-avatar" aria-hidden="true">
+          <i class="fa-solid fa-route"></i>
+        </span>
 
-        <div class="hero-ctas" aria-label="Accesos principales">
-          @if($showcaseGroups->isNotEmpty())
-            @foreach($showcaseGroups as $index => $group)
-              <button
-                class="btn {{ $index < 2 ? 'btn-primary' : 'btn-outline' }} showcase-picker"
-                type="button"
-                data-showcase-trigger="{{ $group['title'] }}"
-              >
-                <i class="{{ $group['icon'] }}"></i>
-                {{ $group['title'] }}
-              </button>
-            @endforeach
-          @else
-            @foreach($buttons as $btn)
-              <a href="{{ $resolveUrl($btn['route']) }}" class="{{ $btn['class'] }}">
-                <i class="{{ $btn['icon'] }}"></i>
-                {{ $btn['text'] }}
-              </a>
-            @endforeach
-          @endif
+        <span class="guide-message">
+          <small>Guía Sky</small>
+          <strong>¿Primera vez en el portal?</strong>
+          <span>Aquí puedes iniciar un recorrido rápido para entender el carrusel y entrar a tus módulos.</span>
+        </span>
 
-          @if(auth()->user()?->role === 'super_admin')
-            <a href="/panel/AdminPermissionsPanel" class="btn btn-outline permissions-shortcut">
-              <i class="fa-solid fa-shield-halved"></i>
-              Permisos
-            </a>
-          @endif
+        <span class="guide-actions">
+          <button class="guide-start" type="button" data-guide-start>
+          <i class="fa-solid fa-play"></i>
+          Iniciar recorrido
+        </button>
+          <button class="guide-dismiss" type="button" data-guide-dismiss aria-label="Ocultar guía">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </span>
+      </div>
+
+      <div class="tour-card" data-tour-card hidden aria-live="polite">
+        <span class="tour-icon" data-tour-icon><i class="fa-solid fa-route"></i></span>
+        <div>
+          <small data-tour-kicker>Paso 1 de 4</small>
+          <h2 data-tour-title>Cada tarjeta es un área</h2>
+          <p data-tour-text>Este carrusel organiza el portal por áreas. Al elegir una sección, el portal cambia los accesos visibles.</p>
+        </div>
+        <div class="tour-progress" data-tour-progress>
+          <span class="active"></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="tour-actions">
+          <button type="button" data-tour-prev aria-label="Paso anterior">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <button type="button" data-tour-next>
+            Siguiente
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+          <button type="button" data-tour-close aria-label="Cerrar recorrido">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
         </div>
       </div>
 
-      <div class="hero-showcase" aria-label="Módulos dinámicos del portal">
-        <div class="showcase-core">
-          <img src="{{ asset('imagenes/logo5.png') }}" alt="Sky Free Shop">
-        </div>
+      <div class="stage-main">
+        <div class="stage-copy">
+          @foreach(($areas ?? []) as $area)
+            @php
+              $areaCards = $cardsByArea->get($area, collect());
+            @endphp
 
-        <div class="showcase-route-stage">
-          @foreach($showcaseGroups as $group)
-            <div class="showcase-routes" data-showcase-panel="{{ $group['title'] }}">
-              @foreach(collect($group['items'])->take(5) as $itemIndex => $item)
-                <a
-                  href="{{ $resolveUrl($item['route']) }}"
-                  class="route-bubble route-{{ ($itemIndex % 5) + 1 }} route-delay-{{ $itemIndex }}"
-                >
-                  <i class="{{ $item['icon'] }}"></i>
-                  <span>{{ $item['title'] }}</span>
-                </a>
-              @endforeach
-            </div>
+            <article class="stage-slide {{ $area === $firstArea ? 'active' : '' }}" data-carousel-slide="{{ $area }}">
+              <span class="hero-label">Suite corporativa</span>
+              <h1>{{ $area }}</h1>
+              <p>{{ $areaDescriptions[$area] ?? 'Accesos organizados para que cada equipo encuentre su ruta de trabajo sin fricción.' }}</p>
+
+              <div class="slide-actions" aria-label="Todos los accesos de {{ $area }}">
+                @foreach($areaCards as $card)
+                  <a href="{{ $resolveUrl($card['route']) }}">
+                    <span class="slide-action-icon"><i class="{{ $card['icon'] }}"></i></span>
+                    <span>{{ $card['title'] }}</span>
+                  </a>
+                @endforeach
+              </div>
+            </article>
           @endforeach
         </div>
-      </div>
-    </div>
-  </section>
 
-  <section id="destacados" class="featured-section">
-    <div class="container">
-      <div class="section-heading centered">
-        <span>Accesos principales</span>
-        <h2>Lo más usado, siempre a la mano</h2>
+        <div class="stage-visual" aria-hidden="true">
+          <span>Portal Sky</span>
+          <strong data-carousel-count>{{ $cardsByArea->get($firstArea, collect())->count() }}</strong>
+          <small>módulos disponibles</small>
+        </div>
+
+        <div class="carousel-controls" aria-label="Controles del carrusel">
+          <button type="button" data-carousel-prev aria-label="Área anterior">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <button type="button" data-carousel-next aria-label="Área siguiente">
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
       </div>
 
-      <div class="featured-grid">
-        @foreach(($featuredCards ?? collect($cards)->take(4)) as $card)
-          <a href="{{ $resolveUrl($card['route']) }}" class="featured-card">
-            <div class="featured-icon">
-              <i class="{{ $card['icon'] }}"></i>
-            </div>
-            <span>{{ $card['area'] }}</span>
-            <h3>{{ $card['title'] }}</h3>
-            <p>{{ $card['text'] }}</p>
-            <strong>Ingresar <i class="fa-solid fa-arrow-right"></i></strong>
-          </a>
+      <div class="area-carousel-cards" aria-label="Tarjetas de áreas">
+        @foreach(($areas ?? []) as $areaIndex => $area)
+          @php
+            $areaCards = $cardsByArea->get($area, collect());
+            $icon = $areaCards->first()['icon'] ?? 'fa-solid fa-layer-group';
+          @endphp
+
+          <button
+            class="area-carousel-card {{ $area === $firstArea ? 'active' : '' }}"
+            type="button"
+            data-carousel-area="{{ $area }}"
+            style="--card-delay: {{ $areaIndex * 0.05 }}s"
+            aria-pressed="{{ $area === $firstArea ? 'true' : 'false' }}"
+          >
+            <span class="area-card-icon"><i class="{{ $icon }}"></i></span>
+            <span>
+              <strong>{{ $area }}</strong>
+              <small>{{ $areaCards->count() }} accesos</small>
+            </span>
+          </button>
         @endforeach
       </div>
     </div>
   </section>
 
-  <section id="areas" class="areas-section">
-    <div class="container">
-      <div class="section-heading">
-        <span>Directorio corporativo</span>
-        <h2>Explora los módulos por área</h2>
-        <p>Elige una categoría para ver sus accesos sin perderte entre todos los módulos del portal.</p>
+  <section id="areas" class="workspace-section">
+    <div class="container workspace-layout">
+      <div class="workspace-heading">
+        <span>Centro de trabajo</span>
+        <h2>Módulos disponibles</h2>
+        <p>El panel cambia con el carrusel para mantener visible solo el área que necesitas.</p>
       </div>
 
-      <div class="area-explorer">
-        <aside class="area-menu">
-          @foreach(($areas ?? []) as $area)
-            <button
-              class="area-option {{ $area === $firstArea ? 'active' : '' }}"
-              type="button"
-              data-area-target="{{ $area }}"
-            >
-              <span>{{ $area }}</span>
-              <small>{{ $cardsByArea->get($area, collect())->count() }} módulos</small>
-            </button>
-          @endforeach
-        </aside>
+      <div class="featured-access" aria-label="Accesos principales">
+        @foreach($quickNavCards as $cardIndex => $card)
+          <a href="{{ $resolveUrl($card['route']) }}" class="featured-card" style="--card-delay: {{ $cardIndex * 0.045 }}s">
+            <span class="featured-icon"><i class="{{ $card['icon'] }}"></i></span>
+            <span>
+              <small>{{ $card['area'] }}</small>
+              <strong>{{ $card['title'] }}</strong>
+            </span>
+          </a>
+        @endforeach
+      </div>
 
-        <div class="area-panels">
-          @foreach(($areas ?? []) as $area)
-            <section class="area-panel {{ $area === $firstArea ? 'active' : '' }}" data-area-panel="{{ $area }}">
-              <div class="area-panel-head">
-                <span>{{ $area }}</span>
-                <h3>{{ $cardsByArea->get($area, collect())->count() }} accesos disponibles</h3>
+      <div class="module-panels">
+        @foreach(($areas ?? []) as $areaIndex => $area)
+          <article id="area-{{ \Illuminate\Support\Str::slug($area) }}" class="module-panel {{ $area === $firstArea ? 'active' : '' }}" data-carousel-panel="{{ $area }}">
+            <div class="module-panel-head">
+              <div>
+                <span>Área activa</span>
+                <h3>{{ $area }}</h3>
               </div>
+              <strong>{{ $cardsByArea->get($area, collect())->count() }} accesos</strong>
+            </div>
 
-              <div class="module-list">
-                @foreach($cardsByArea->get($area, collect()) as $card)
-                  <a href="{{ $resolveUrl($card['route']) }}" class="module-link">
-                    <div class="module-link-icon">
-                      <i class="{{ $card['icon'] }}"></i>
-                    </div>
-                    <div>
-                      <strong>{{ $card['title'] }}</strong>
-                      <p>{{ $card['text'] }}</p>
-                    </div>
-                    <i class="fa-solid fa-arrow-right"></i>
-                  </a>
-                @endforeach
-              </div>
-            </section>
-          @endforeach
-        </div>
+            <div class="module-grid">
+              @foreach($cardsByArea->get($area, collect()) as $cardIndex => $card)
+                <a href="{{ $resolveUrl($card['route']) }}" class="module-card" style="--card-delay: {{ ($areaIndex * 0.035) + ($cardIndex * 0.035) }}s">
+                  <span class="module-icon"><i class="{{ $card['icon'] }}"></i></span>
+                  <span class="module-copy">
+                    <strong>{{ $card['title'] }}</strong>
+                    <small>{{ $card['text'] }}</small>
+                  </span>
+                  <i class="fa-solid fa-arrow-right"></i>
+                </a>
+              @endforeach
+            </div>
+          </article>
+        @endforeach
       </div>
     </div>
   </section>

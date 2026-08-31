@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, CalendarDays, ChevronRight, LockKeyhole, TrendingUp, Users } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, ChevronRight, LockKeyhole, PackageSearch, TrendingUp, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const dashboards = [
@@ -33,6 +33,14 @@ const dashboards = [
     icon: Users,
     status: "New",
     type: "Analytics",
+  },
+  {
+    title: "Inventory Monitoring",
+    description: "Corporate stock watch with availability days, status, provider, brand, SKU and category filters.",
+    to: "/visualizaciones/inventario",
+    icon: PackageSearch,
+    status: "New",
+    type: "Inventory",
   },
   {
     title: "Info asesores",

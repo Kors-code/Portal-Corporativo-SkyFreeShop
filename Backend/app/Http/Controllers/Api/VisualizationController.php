@@ -9,6 +9,7 @@ use App\Services\StoreSalesWhatsappImageService;
 use App\Services\WhatsappReportJobService;
 use App\Services\WhatsappNumberReportSender;
 use App\Services\WhatsappReportSender;
+use App\Services\Inventario\InventoryReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -761,6 +762,35 @@ class VisualizationController extends Controller
                 ['label' => 'Ticket promedio', 'value' => $totalTrx > 0 ? round($totalSales / $totalTrx, 2) : 0, 'pct' => 0],
             ],
         ]);
+    }
+
+    public function inventoryMonitoring(Request $request, InventoryReportService $service)
+    {
+        $search = $request->get('search');
+        $storeIds = $request->input('store_ids', []);
+        if (!is_array($storeIds)) {
+            $storeIds = [$storeIds];
+        }
+        $storeIds = collect($storeIds)
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->map(fn ($value) => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+        $asOfDate = $request->input('as_of_date');
+        $maxMonths = filter_var($request->input('max_months', 6), FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+
+        return response()->json([
+            'generated_at' => now()->toISOString(),
+            'rows' => $service->getReport($search, $storeIds, $asOfDate, min($maxMonths ?: 6, 20)),
+        ]);
+    }
+
+    public function inventoryMonitoringStores(InventoryReportService $service)
+    {
+        return response()->json($service->getStores());
     }
 
     public function advisorSalesWhatsappPreview(Request $request, AdvisorSalesWhatsappImageService $imageService)

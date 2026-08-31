@@ -303,6 +303,16 @@ class CommissionReportController extends Controller
      */
 private function buildParticipationMap(array $budgetIds, ?int $roleId = null): array
 {
+    $participationColumn = collect([
+        'particiaption_pct_sellers',
+        'particiaption_value_budget_Asesors',
+        'participation_pct',
+    ])->first(fn ($column) => Schema::connection('budget')->hasColumn('category_commissions', $column));
+
+    if (!$participationColumn) {
+        return [];
+    }
+
     $q = DB::connection('budget')
         ->table('category_commissions as cc')
         ->join('categories as c', 'c.id', '=', 'cc.category_id')
@@ -317,7 +327,7 @@ private function buildParticipationMap(array $budgetIds, ?int $roleId = null): a
 
     $rows = $q->select(
         'c.classification_code',
-        DB::raw('SUM(cc.particiaption_pct_sellers) as participation')
+        DB::raw("SUM(cc.`{$participationColumn}`) as participation")
     )
     ->groupBy('c.classification_code')
     ->get();

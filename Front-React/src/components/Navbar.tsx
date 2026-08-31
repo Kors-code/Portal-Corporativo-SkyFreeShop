@@ -34,7 +34,7 @@ const budgetNav: NavItem[] = [
   { label: "Cajeros", to: "/CashierAwards", permissions: ["budget.cashier.view"] },
   { label: "Categorias", to: "/commissions/categories", permissions: ["budget.commissions.manage"] },
   { label: "Especializados", to: "/commissions/DualCommissionAdmin", permissions: ["budget.commissions.manage"] },
-  { label: "Lideres", to: "/commissions/CommissionLeadersPage", permissions: ["budget.leader.view"] },
+  { label: "Importar turnos y ventas", to: "/ImportsManagerPage", permissions: ["imports.create"] },
 ];
 
 const inventoryNav: NavItem[] = [
@@ -56,9 +56,9 @@ const entregaNav: NavItem[] = [
 ];
 
 const accountingNav: NavItem[] = [
-  { label: "Bancos", to: "/BankImportsManagerPage", permissions: ["accounting.bank-imports.view"] },
-  { label: "Movimientos", to: "/BankMovementsPage", permissions: ["accounting.bank-imports.view"] },
-  { label: "Davibank", to: "/davibank-converter", permissions: ["accounting.bank-imports.create"] },
+  { label: "Bancos", to: "/BankImportsManagerPage", permissions: ["accounting.bank-imports.view", "imports.create"] },
+  { label: "Movimientos", to: "/BankMovementsPage", permissions: ["accounting.bank-imports.view", "imports.create"] },
+  { label: "Davibank", to: "/davibank-converter", permissions: ["accounting.bank-imports.create", "imports.create"] },
 ];
 
 const peopleNav: NavItem[] = [
@@ -73,6 +73,7 @@ const analyticsNav: NavItem[] = [
   { label: "Cierre caja", to: "/visualizaciones/cierre-caja", permissions: ["visualizations.view"] },
   { label: "Ventas tiendas", to: "/visualizaciones/ventas-tiendas", permissions: ["visualizations.view"] },
   { label: "Ventas asesores", to: "/visualizaciones/ventas-asesores", permissions: ["visualizations.view"] },
+  { label: "Inventario", to: "/visualizaciones/inventario", permissions: ["visualizations.view"] },
 ];
 
 function resolveContext(pathname: string): NavContext {
@@ -123,7 +124,7 @@ function resolveContext(pathname: string): NavContext {
       { label: "Presupuesto", to: "/budget", permissions: ["budget.admin.view"] },
       { label: "Inventario", to: "/inventarios/cobertura", permissions: ["inventarios.cobertura"] },
       { label: "Entregas", to: "/entregas", permissions: ["entregas.view"] },
-      { label: "Bancos", to: "/BankImportsManagerPage", permissions: ["accounting.bank-imports.view"] },
+      { label: "Bancos", to: "/BankImportsManagerPage", permissions: ["accounting.bank-imports.view", "imports.create"] },
       { label: "Personal", to: "/users", permissions: ["users.view"] },
     ],
   };

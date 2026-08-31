@@ -1,4 +1,5 @@
-import  { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import api from '../../../api/axios';
 import CommissionDetailModal from '../components/CommissionDetailModal';
 
@@ -6,7 +7,6 @@ type TicketMetrics = {
   tickets_count: number;
   avg_ticket_usd?: number | null;
   avg_units_per_ticket?: number | null;
-  max_ticket_usd?: number | null;
 };
 
 type SellerRow = {
@@ -51,11 +51,14 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub?: st
 
 export default function CommissionCardsPage() {
   const [budgetProgress, setBudgetProgress] = useState<any>(null);
+  const [budgetInfo, setBudgetInfo] = useState<any>(null);
   const [categoriesSummaryGlobal, setCategoriesSummaryGlobal] = useState<CategoryRow[]>([]);
   const [rows, setRows] = useState<SellerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [rectifyingRoles, setRectifyingRoles] = useState(false);
   const [generatingCommissions, setGeneratingCommissions] = useState(false);
+  const [exportingCombined, setExportingCombined] = useState(false);
+  const [exportingMonthly, setExportingMonthly] = useState(false);
   const [selectedSellerId, setSelectedSellerId] = useState<number | null>(null);
   const selectedSeller = useMemo(
     () => rows.find(r => Number(r.user_id) === Number(selectedSellerId)) ?? null,
@@ -65,9 +68,8 @@ export default function CommissionCardsPage() {
 
   // viewMode admite 'cards' | 'table' | 'tickets'
   const [viewMode, setViewMode] = useState<'cards' | 'table' | 'tickets'>('cards');
-  const [sortBy, setSortBy] = useState<'sales_cop' | 'sales_usd' | 'commission_cop' | 'name'>('sales_cop');
+  const [sortBy, setSortBy] = useState<'sales_cop' | 'sales_usd' | 'commission_cop' | 'commission_usd' | 'compliance' | 'name'>('sales_cop');
   const [query, setQuery] = useState<string>('');
-  const [showCategories, setShowCategories] = useState<boolean>(false); // oculto por defecto
 
   // budgets & selection (now supports multiple)
   const [budgetIds, setBudgetIds] = useState<number[]>([]);
@@ -123,6 +125,7 @@ export default function CommissionCardsPage() {
         // clear
         setRows([]);
         setBudgetProgress(null);
+        setBudgetInfo(null);
         setCategoriesSummaryGlobal([]);
         setTicketsSummary(null);
         setTurnsSummary(null);
@@ -146,13 +149,16 @@ export default function CommissionCardsPage() {
       } else {
         setRows([]);
         setBudgetProgress(null);
+        setBudgetInfo(null);
         setCategoriesSummaryGlobal([]);
         setTicketsSummary(null);
+        setTurnsSummary(null);
       }
     } catch (e) {
       console.error('load commissions error', e);
       setRows([]);
       setBudgetProgress(null);
+      setBudgetInfo(null);
       setCategoriesSummaryGlobal([]);
       setTicketsSummary(null);
       setTurnsSummary(null);
@@ -263,8 +269,8 @@ export default function CommissionCardsPage() {
 
 
   const totalUsd = (budgetProgress?.total_usd ?? categoriesSummaryGlobal.reduce((s:any,c:any)=> s + Number(c.sales_usd || 0), 0));
-  const [budgetInfo, setBudgetInfo] = useState<any>(null);
-const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetProgress?.total_commission_usd;
+  const pptoUsd = budgetInfo?.target_amount ?? 0;
+  const commissionUsd = budgetProgress?.total_commission_usd;
   const totalCommissionCop = (budgetProgress?.total_commission_cop ?? rows.reduce((s,r)=> s + Number(r.total_commission_cop || 0), 0));
   const trm = (() => {
     if (budgetProgress?.trm) return budgetProgress.trm;
@@ -286,32 +292,100 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
     switch (sortBy) {
       case 'sales_usd': return list.sort((a,b) => (b.total_sales_usd||0) - (a.total_sales_usd||0));
       case 'commission_cop': return list.sort((a,b) => (b.total_commission_cop||0) - (a.total_commission_cop||0));
+      case 'commission_usd': return list.sort((a,b) => (b.total_commission_usd||0) - (a.total_commission_usd||0));
+      case 'compliance': return list.sort((a,b) => sellerCompliance(b) - sellerCompliance(a));
       case 'name': return list.sort((a,b) => (a.seller||'').localeCompare(b.seller||''));
       default: return list.sort((a,b) => (b.total_sales_cop||0) - (a.total_sales_cop||0));
     }
   }, [rows, sortBy, query]);
 
-  // Excel export (supports multiple budgets)
-  const downloadExcel = async () => {
+  const selectedBudgets = useMemo(
+    () => budgets.filter(b => budgetIds.includes(Number(b.id))),
+    [budgets, budgetIds]
+  );
+
+  const exportSellerRow = (r: SellerRow) => ({
+    Vendedor: r.seller || '',
+    Turnos: r.assignedTurns ?? 0,
+    'Ventas USD': Number(r.total_sales_usd || 0),
+    'Ventas COP': Number(r.total_sales_cop || 0),
+    'Comision USD': Number(r.total_commission_usd || 0),
+    'Comision COP': Number(r.total_commission_cop || 0),
+    TRX: Number(r.tickets?.tickets_count || 0),
+    'Unidad ticket': typeof r.tickets?.avg_units_per_ticket === 'number' ? r.tickets.avg_units_per_ticket : '',
+    'Ticket promedio USD': typeof r.tickets?.avg_ticket_usd === 'number' ? r.tickets.avg_ticket_usd : '',
+    'TRM promedio': Number(r.avg_trm || 0),
+    'Cumplimiento %': sellerCompliance(r),
+  });
+
+  const safeSheetName = (name: string) => {
+    const clean = name.replace(/[:\\/?*[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+    return (clean || 'Hoja').slice(0, 31);
+  };
+
+  const downloadTableAndKpisExcel = async () => {
     if (!budgetIds || budgetIds.length === 0) {
       alert('Selecciona al menos un presupuesto antes de exportar.');
       return;
     }
     try {
-      const q = buildBudgetParams(budgetIds);
-      const res = await api.get(`/commissions/export?${q}`, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `commissions_${budgetIds.join('_')}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      setExportingCombined(true);
+      const workbook = XLSX.utils.book_new();
+      const budgetNames = selectedBudgets.map(b => b.name).join(', ') || budgetIds.join(', ');
+      const kpis = [
+        { Indicador: 'Presupuestos', Valor: budgetNames },
+        { Indicador: 'Asesores visibles', Valor: displayedRows.length },
+        { Indicador: 'Turnos asignados', Valor: turnsSummary ? `${turnsSummary.assigned_total} / ${turnsSummary.total}` : '' },
+        { Indicador: 'Turnos disponibles', Valor: turnsSummary?.remaining ?? '' },
+        { Indicador: 'Ventas USD', Valor: Number(totalUsd || 0) },
+        { Indicador: 'Presupuesto USD', Valor: Number(pptoUsd || 0) },
+        { Indicador: 'Comisiones USD', Valor: Number(commissionUsd || 0) },
+        { Indicador: 'Comisiones COP', Valor: Number(totalCommissionCop || 0) },
+        { Indicador: 'Ticket promedio USD', Valor: Number(avgTicketUsd || 0) },
+        { Indicador: 'Items por ticket', Valor: typeof avgUnitsPerTicket === 'number' ? avgUnitsPerTicket : '' },
+        { Indicador: 'TRM', Valor: trm },
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(kpis), 'KPIs');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(displayedRows.map(exportSellerRow)), 'Tabla asesores');
+      XLSX.writeFile(workbook, `tabla_kpis_asesores_${budgetIds.join('_')}.xlsx`);
     } catch (err) {
-      console.error('Error downloading Excel', err);
+      console.error('Error exporting KPI Excel', err);
       alert('Error al descargar Excel');
+    } finally {
+      setExportingCombined(false);
+    }
+  };
+
+  const downloadMonthlyAdvisorsExcel = async () => {
+    if (!budgetIds || budgetIds.length === 0) {
+      alert('Selecciona al menos un presupuesto antes de exportar asesores.');
+      return;
+    }
+
+    try {
+      setExportingMonthly(true);
+      const workbook = XLSX.utils.book_new();
+      const budgetsToExport = selectedBudgets.length > 0
+        ? selectedBudgets
+        : budgetIds.map(id => ({ id, name: `Presupuesto ${id}` }));
+
+      for (const [index, budget] of budgetsToExport.entries()) {
+        const id = Number(budget.id);
+        const q = buildBudgetParams([id]);
+        const res = await api.get(`/commissions/by-seller?${q}`);
+        const sellers = Array.isArray(res.data?.sellers) ? res.data.sellers as SellerRow[] : [];
+        const sheetRows = sellers.map(exportSellerRow);
+        const sheet = XLSX.utils.json_to_sheet(sheetRows);
+        XLSX.utils.book_append_sheet(workbook, sheet, safeSheetName(`${index + 1} ${budget.name ?? id}`));
+      }
+
+      XLSX.writeFile(workbook, `asesores_por_presupuesto_${budgetIds.join('_')}.xlsx`);
+    } catch (err) {
+      console.error('Error exporting advisors by budget', err);
+      alert('Error al exportar asesores por presupuesto');
+    } finally {
+      setExportingMonthly(false);
     }
   };
 
@@ -423,7 +497,20 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               >
                 {generatingCommissions ? 'Generando...' : 'Generar comisiones'}
               </button>
-              <button onClick={downloadExcel} className="w-full text-sm px-3 py-2 bg-blue-600 text-white rounded">Exportar Excel</button>
+              <button
+                onClick={downloadTableAndKpisExcel}
+                disabled={exportingCombined}
+                className="w-full text-sm px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60"
+              >
+                {exportingCombined ? 'Exportando...' : 'Exportar tabla + KPI'}
+              </button>
+              <button
+                onClick={downloadMonthlyAdvisorsExcel}
+                disabled={exportingMonthly}
+                className="w-full text-sm px-3 py-2 bg-slate-800 text-white rounded disabled:opacity-60"
+              >
+                {exportingMonthly ? 'Preparando...' : 'Asesores por presupuesto'}
+              </button>
             </div>
           </div>
         </aside>
@@ -478,23 +565,36 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               </button>
             )}
 
-            <div className="flex gap-2 mt-2">
-              <button onClick={load} className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded">Cargar</button>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button onClick={load} className="flex-1 min-w-[8rem] px-3 py-2 bg-indigo-600 text-white rounded">Cargar</button>
               <button
                 onClick={onRectifyRoles}
                 disabled={rectifyingRoles}
-                className="flex-1 px-3 py-2 bg-amber-600 text-white rounded disabled:opacity-60"
+                className="flex-1 min-w-[8rem] px-3 py-2 bg-amber-600 text-white rounded disabled:opacity-60"
               >
                 {rectifyingRoles ? 'Roles...' : 'Roles'}
               </button>
               <button
                 onClick={onGenerate}
                 disabled={generatingCommissions}
-                className="flex-1 px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60"
+                className="flex-1 min-w-[8rem] px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60"
               >
                 {generatingCommissions ? 'Generando...' : 'Generar'}
               </button>
-              <button onClick={downloadExcel} className="flex-1 px-3 py-2 bg-blue-600 text-white rounded">Exportar</button>
+              <button
+                onClick={downloadTableAndKpisExcel}
+                disabled={exportingCombined}
+                className="flex-1 min-w-[8rem] px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60"
+              >
+                {exportingCombined ? 'Excel...' : 'Tabla + KPI'}
+              </button>
+              <button
+                onClick={downloadMonthlyAdvisorsExcel}
+                disabled={exportingMonthly}
+                className="flex-1 min-w-[8rem] px-3 py-2 bg-slate-800 text-white rounded disabled:opacity-60"
+              >
+                {exportingMonthly ? 'Mes...' : 'Mes a mes'}
+              </button>
             </div>
           </div>
 
@@ -538,9 +638,11 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
               <div className="flex items-center gap-2 sm:ml-auto">
                 <label className="text-xs text-gray-500 hidden sm:block">Ordenar</label>
                 <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="border rounded px-3 py-2 text-sm">
-                  <option value="sales_cop">Ventas (COP)</option>
-                  <option value="sales_usd">Ventas (USD)</option>
-                  <option value="commission_cop">Comisión (COP)</option>
+                  <option value="compliance">Cumplimiento mayor a menor</option>
+                  <option value="sales_cop">Ventas COP mayor a menor</option>
+                  <option value="sales_usd">Ventas USD mayor a menor</option>
+                  <option value="commission_cop">Comisión COP mayor a menor</option>
+                  <option value="commission_usd">Comisión USD mayor a menor</option>
                   <option value="name">Nombre</option>
                 </select>
 
@@ -549,60 +651,9 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                   <button onClick={() => setViewMode('table')} className={`px-3 py-2 rounded-md text-sm ${viewMode==='table' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>Tabla</button>
                   <button onClick={() => setViewMode('tickets')} className={`px-3 py-2 rounded-md text-sm ${viewMode==='tickets' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>KPI´s</button>
                 </div>
-
-                <button onClick={() => setShowCategories(s => !s)} className="ml-2 px-3 py-2 bg-gray-50 rounded-md text-sm border">
-                  {showCategories ? 'Ocultar categorías' : 'Mostrar categorías'}
-                </button>
               </div>
             </div>
           </div>
-
-          {/* CATEGORÍAS (oculto por defecto) */}
-          {showCategories && (
-            <div className="mb-6 bg-white rounded shadow overflow-x-auto">
-              <div className="p-3 border-b">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold">Totales por categoría</div>
-                    <div className="text-xs text-gray-500">Resumen de ventas y comisiones por categoría</div>
-                  </div>
-                </div>
-              </div>
-
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100 text-gray-700">
-                  <tr>
-                    <th className="p-2 text-left">Categoría</th>
-                    <th className="p-2 text-right">Participación %</th>
-                    <th className="p-2 text-right">Presupuesto (USD)</th>
-                    <th className="p-2 text-right">Ventas (USD)</th>
-                    <th className="p-2 text-right">% de categoría</th>
-                    <th className="p-2 text-right">Califica</th>
-                    <th className="p-2 text-right">Comisión (USD)</th>
-                    <th className="p-2 text-right">Comisión (COP)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {categoriesSummaryGlobal.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="p-4 text-center text-gray-500">No hay datos de categorías</td>
-                    </tr>
-                  ) : categoriesSummaryGlobal.map((c, i) => (
-                    <tr key={c.classification + i} className="border-t hover:bg-gray-50">
-                      <td className="p-2">{(c.classification === 'fragancias' || String(c.classification ?? '').toLowerCase().includes('frag')) ? 'FRAGANCIAS' : (c.classification || 'Sin categoría')}</td>
-                      <td className="p-2 text-right">{(c.participation_pct ?? 0).toFixed(2)}%</td>
-                      <td className="p-2 text-right">{moneyUSD(Number(c.category_budget_usd ?? 0))}</td>
-                      <td className="p-2 text-right">{Number(c.sales_usd ?? 0).toFixed(2)}</td>
-                      <td className="p-2 text-right">{c.pct_of_category === null || typeof c.pct_of_category === 'undefined' ? '—' : `${Number(c.pct_of_category).toFixed(2)}%`}</td>
-                      <td className="p-2 text-right">{c.qualifies ? 'Sí' : 'No'}</td>
-                      <td className="p-2 text-right">{c.projected_commission_usd ? moneyUSD(Number(c.projected_commission_usd)) : (c.commission_usd ? moneyUSD(Number(c.commission_usd)) : '—')}</td>
-                      <td className="p-2 text-right">{moneyCOP(Number(c.commission_cop ?? 0))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
 
           {/* CONTENT: Cards / Tickets / Table */}
           {loading ? (
@@ -678,6 +729,11 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <div>Ítems/ticket: {typeof r.tickets?.avg_units_per_ticket === 'number' ? r.tickets.avg_units_per_ticket.toFixed(2) : '—'}</div>
                       <div>Avg USD: {typeof r.tickets?.avg_ticket_usd === 'number' ? moneyUSD(r.tickets!.avg_ticket_usd || 0) : '—'}</div>
                     </div>
+                    <div className="mt-3 flex justify-end">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
+                        Cumplimiento {pct(sellerCompliance(r))}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -691,7 +747,7 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <th className="p-2 text-right">TRX</th>
                       <th className="p-2 text-right">Unidad Ticket</th>
                       <th className="p-2 text-right">Avg Ticket (USD)</th>
-                      <th className="p-2 text-right">Max (USD)</th>
+                      <th className="p-2 text-right">Cumplimiento</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -701,7 +757,11 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                         <td className="p-2 text-right">{r.tickets?.tickets_count ?? 0}</td>
                         <td className="p-2 text-right font-medium">{typeof r.tickets?.avg_units_per_ticket === 'number' ? r.tickets!.avg_units_per_ticket!.toFixed(2) : '—'}</td>
                         <td className="p-2 text-right">{typeof r.tickets?.avg_ticket_usd === 'number' ? moneyUSD(r.tickets!.avg_ticket_usd || 0) : '—'}</td>
-                        <td className="p-2 text-right">{typeof r.tickets?.max_ticket_usd === 'number' ? moneyUSD(r.tickets!.max_ticket_usd || 0) : '—'}</td>
+                        <td className="p-2 text-right">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
+                            {pct(sellerCompliance(r))}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -719,16 +779,16 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <div>
                         <div className="font-medium">{r.seller}</div>
                         <div className="text-xs text-gray-500">Turnos: {r.assignedTurns}</div>
-                        <div className="mt-1">
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
-                            Cumpl. {pct(sellerCompliance(r))}
-                          </span>
-                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold text-green-600">{moneyCOP(r.total_commission_cop)}</div>
                         <div className="text-xs text-gray-500">{moneyCOP(r.total_sales_cop)} / {Number(r.total_sales_usd || 0).toFixed(2)} USD</div>
                       </div>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
+                        Cumplimiento {pct(sellerCompliance(r))}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -741,10 +801,10 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                     <tr>
                       <th className="p-2 text-left">Vendedor</th>
                       <th className="p-2 text-right">Turnos</th>
-                      <th className="p-2 text-right">Cumplimiento</th>
                       <th className="p-2 text-right">Ventas (USD)</th>
                       <th className="p-2 text-right">Comisión (USD)</th>
                       <th className="p-2 text-right">Comisión (COP)</th>
+                      <th className="p-2 text-right">Cumplimiento</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -752,14 +812,14 @@ const pptoUsd = budgetInfo?.target_amount ?? 0;  const commissionUsd = budgetPro
                       <tr key={r.user_id} className="border-t hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedSellerId(r.user_id)}>
                         <td className="p-2">{r.seller}</td>
                         <td className="p-2 text-right">{r.assignedTurns}</td>
+                        <td className="p-2 text-right">{Number(r.total_sales_usd || 0).toFixed(2)}</td>
+                        <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(r.total_commission_usd)}</td>
+                        <td className="p-2 text-right font-semibold text-green-600">{moneyCOP(r.total_commission_cop)}</td>
                         <td className="p-2 text-right">
                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${complianceClasses(sellerCompliance(r))}`}>
                             {pct(sellerCompliance(r))}
                           </span>
                         </td>
-                        <td className="p-2 text-right">{Number(r.total_sales_usd || 0).toFixed(2)}</td>
-                        <td className="p-2 text-right font-semibold text-green-600">{moneyUSD(r.total_commission_usd)}</td>
-                        <td className="p-2 text-right font-semibold text-green-600">{moneyCOP(r.total_commission_cop)}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -38,9 +38,8 @@ export default function HomePage() {
         { title: "Presupuesto", to: "/budget", description: "Crea, configura y edita presupuestos por periodo.", Icon: FileSpreadsheet, permissions: ["budget.admin.view"] },
         { title: "Seguimiento asesores", to: "/CommissionCardsPage", description: "Resumen de ventas, KPI y comisiones.", Icon: Target, permissions: ["budget.commissions.view"] },
         { title: "Seguimiento cajeros", to: "/CashierAwards", description: "Premios y comisiones por cajero.", Icon: WalletCards, permissions: ["budget.cashier.view"] },
-        { title: "Comisiones lideres", to: "/commissions/CommissionLeadersPage", description: "Cumplimiento y comisiones de liderazgo.", Icon: HeartHandshake, permissions: ["budget.leader.view"] },
         { title: "Asesores especializados", to: "/commissions/DualCommissionAdmin", description: "Distribucion y seguimiento por categoria.", Icon: Users, permissions: ["budget.commissions.manage"] },
-        { title: "Importaciones de ventas", to: "/ImportsManagerPage", description: "Carga, consulta y correccion de archivos.", Icon: Import, permissions: ["imports.create"] },
+        { title: "Importar turnos y ventas", to: "/ImportsManagerPage", description: "Carga, consulta y correccion de archivos comerciales.", Icon: Import, permissions: ["imports.create"] },
       ],
     },
     {
