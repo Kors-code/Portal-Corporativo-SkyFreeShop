@@ -1,5 +1,6 @@
 import {
   Banknote,
+  BadgeDollarSign,
   BarChart3,
   BookOpen,
   Boxes,
@@ -38,6 +39,8 @@ export default function HomePage() {
         { title: "Presupuesto", to: "/budget", description: "Crea, configura y edita presupuestos por periodo.", Icon: FileSpreadsheet, permissions: ["budget.admin.view"] },
         { title: "Seguimiento asesores", to: "/CommissionCardsPage", description: "Resumen de ventas, KPI y comisiones.", Icon: Target, permissions: ["budget.commissions.view"] },
         { title: "Seguimiento cajeros", to: "/CashierAwards", description: "Premios y comisiones por cajero.", Icon: WalletCards, permissions: ["budget.cashier.view"] },
+        { title: "Perfiles de comision", to: "/commissions/profiles", description: "Reglas flexibles por proveedor, categoria y persona.", Icon: Users, permissions: ["budget.commissions.manage"] },
+        { title: "Quienes comisionan", to: "/commissions/profile-earners", description: "Personas con comision calculada y exportable.", Icon: BadgeDollarSign, permissions: ["budget.commissions.view"] },
         { title: "Asesores especializados", to: "/commissions/DualCommissionAdmin", description: "Distribucion y seguimiento por categoria.", Icon: Users, permissions: ["budget.commissions.manage"] },
         { title: "Importar turnos y ventas", to: "/ImportsManagerPage", description: "Carga, consulta y correccion de archivos comerciales.", Icon: Import, permissions: ["imports.create"] },
       ],

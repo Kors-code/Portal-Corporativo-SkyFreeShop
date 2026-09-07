@@ -1334,6 +1334,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
             $classification = $this->firstNotEmpty($assoc, ['category_code', 'classification', 'categoria']);
             $classificationDesc = $this->firstNotEmpty($assoc, ['category_description', 'classification_desc', 'category']);
             $brand = $this->firstNotEmpty($assoc, ['brand_description', 'brand', 'marca']);
+            $providerName = $this->firstNotEmpty($assoc, ['provider_name', 'supplier_description', 'proveedor', 'provedor', 'supplier']);
+            $providerCode = $this->firstNotEmpty($assoc, ['provider_code', 'supplier_code', 'codigo_proveedor']);
             $regularPrice = $this->parseNumber($this->firstNotEmpty($assoc, [
                 'retail_price',
                 'regular_price',
@@ -1353,6 +1355,8 @@ protected function parseDate($value, string $context = 'sale'): ?string
                 'classification' => $this->limitText($classification, 255),
                 'classification_desc' => $this->limitText($classificationDesc, 255),
                 'brand' => $this->limitText($brand, 255),
+                'provider_name' => $this->limitText($providerName, 255),
+                'provider_code' => $this->limitText($providerCode, 255),
                 'regular_price' => $regularPrice,
                 'cost_usd' => $costUsd,
                 'avg_cost_usd' => $costUsd,
@@ -1360,6 +1364,19 @@ protected function parseDate($value, string $context = 'sale'): ?string
             ]);
 
             $created['products']++;
+        } elseif (empty($productsCache[$sku]->provider_name)) {
+            // Auto-sana productos que ya quedaron como "stub" (creados por una venta anterior
+            // sin que el catalogo estuviera cargado todavia) si esta fila trae el proveedor.
+            $providerName = $this->firstNotEmpty($assoc, ['provider_name', 'supplier_description', 'proveedor', 'provedor', 'supplier']);
+
+            if ($providerName) {
+                $providerCode = $this->firstNotEmpty($assoc, ['provider_code', 'supplier_code', 'codigo_proveedor']);
+
+                $productsCache[$sku]->forceFill([
+                    'provider_name' => $this->limitText($providerName, 255),
+                    'provider_code' => $productsCache[$sku]->provider_code ?: $this->limitText($providerCode, 255),
+                ])->save();
+            }
         }
 
         return $productsCache[$sku];

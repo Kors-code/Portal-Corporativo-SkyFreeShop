@@ -47,6 +47,18 @@ class ShowInicioController extends Controller
                                 'permissions' => ['commissions.asesorSpecialist.view'],
                             ],
                             [
+                                'title' => 'Perfiles de comisión',
+                                'route' => '/panel/commissions/profiles',
+                                'icon' => 'fa-solid fa-badge-dollar',
+                                'permissions' => ['budget.commissions.manage'],
+                            ],
+                            [
+                                'title' => 'Quiénes comisionan',
+                                'route' => '/panel/commissions/profile-earners',
+                                'icon' => 'fa-solid fa-users-viewfinder',
+                                'permissions' => ['budget.commissions.view'],
+                            ],
+                            [
                                 'title' => 'Minuta entrega',
                                 'route' => '/panel/EntregasDashboardPage',
                                 'icon' => 'fa-solid fa-clipboard-check',
@@ -153,6 +165,18 @@ class ShowInicioController extends Controller
                                 'icon' => 'fa-solid fa-layer-group',
                                 'permissions' => ['budget.commissions.manage'],
                             ],
+                            [
+                                'title' => 'Perfiles de comisión',
+                                'route' => '/panel/commissions/profiles',
+                                'icon' => 'fa-solid fa-badge-dollar',
+                                'permissions' => ['budget.commissions.manage'],
+                            ],
+                            [
+                                'title' => 'Quiénes comisionan',
+                                'route' => '/panel/commissions/profile-earners',
+                                'icon' => 'fa-solid fa-users-viewfinder',
+                                'permissions' => ['budget.commissions.view'],
+                            ],
                         ],
                     ],
                     [
@@ -197,6 +221,22 @@ class ShowInicioController extends Controller
                         'area' => 'Comercial',
                         'route' => '/panel/commissions/SpecialistCommissionsPanel',
                         'permissions' => ['commissions.asesorSpecialist.view'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-badge-dollar',
+                        'title' => 'Perfiles de Comisión',
+                        'text' => 'Configura comisiones flexibles por proveedor, categoria y personas asignadas.',
+                        'area' => 'Presupuesto',
+                        'route' => '/panel/commissions/profiles',
+                        'permissions' => ['budget.commissions.manage'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-users-viewfinder',
+                        'title' => 'Quiénes Comisionan',
+                        'text' => 'Consulta personas comisionables por perfil y descarga el reporte en Excel.',
+                        'area' => 'Presupuesto',
+                        'route' => '/panel/commissions/profile-earners',
+                        'permissions' => ['budget.commissions.view'],
                     ],
                     [
                         'icon' => 'fa-solid fa-cash-register',
@@ -428,6 +468,22 @@ class ShowInicioController extends Controller
                         'text' => 'Analisis de cumplimiento y desempeno por area.',
                         'area' => 'Reportes',
                         'route' => '/panel/CommissionCardsPage',
+                        'permissions' => ['budget.commissions.view'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-badge-dollar',
+                        'title' => 'Perfiles de Comisión',
+                        'text' => 'Crea reglas por proveedor o categoria y asigna quienes comisionan.',
+                        'area' => 'Administracion',
+                        'route' => '/panel/commissions/profiles',
+                        'permissions' => ['budget.commissions.manage'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-users-viewfinder',
+                        'title' => 'Quiénes Comisionan',
+                        'text' => 'Vista exportable de perfiles con comisiones calculadas.',
+                        'area' => 'Reportes',
+                        'route' => '/panel/commissions/profile-earners',
                         'permissions' => ['budget.commissions.view'],
                     ],
                     [

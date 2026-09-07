@@ -78,7 +78,7 @@ export default function InventoryMonitoringDashboard() {
       setLoading(true);
       setError("");
       const result = await getInventoryMonitoring({
-        max_months: 6,
+        max_months: 12,
         store_ids: storeIds.length > 0 ? storeIds : undefined,
       });
       setRows(Array.isArray(result.rows) ? result.rows : []);
@@ -144,19 +144,19 @@ export default function InventoryMonitoringDashboard() {
     });
 
     return list.sort((left, right) => {
-      if (sortBy === "days") return numberOrZero(left.dias_disponibles) - numberOrZero(right.dias_disponibles);
-      if (sortBy === "stock") return numberOrZero(right.stock_actual) - numberOrZero(left.stock_actual);
+      if (sortBy === "days") return coverageDaysForRow(left) - coverageDaysForRow(right);
+      if (sortBy === "stock") return stockForRow(right) - stockForRow(left);
       if (sortBy === "description") return String(left.description ?? "").localeCompare(String(right.description ?? ""));
       return statusRank(left) - statusRank(right);
     });
   }, [rows, search, category, provider, brand, status, sortBy]);
 
   const visibleRows = filteredRows.slice(0, 250);
-  const totalStock = filteredRows.reduce((sum, row) => sum + numberOrZero(row.stock_actual), 0);
+  const totalStock = filteredRows.reduce((sum, row) => sum + stockForRow(row), 0);
   const criticalCount = filteredRows.filter((row) => ["sin_stock", "critico"].includes(normalizeStatus(row.stock_alert_level))).length;
   const stableCount = filteredRows.filter((row) => normalizeStatus(row.stock_alert_level) === "estable").length;
   const avgDays = filteredRows.length
-    ? filteredRows.reduce((sum, row) => sum + numberOrZero(row.dias_disponibles), 0) / filteredRows.length
+    ? filteredRows.reduce((sum, row) => sum + coverageDaysForRow(row), 0) / filteredRows.length
     : 0;
 
   const statusChart = useMemo(() => {
@@ -174,7 +174,7 @@ export default function InventoryMonitoringDashboard() {
     const map = new Map<string, number>();
     filteredRows.forEach((row) => {
       const key = String(row.proveedor ?? row.supplier ?? "Sin proveedor");
-      map.set(key, (map.get(key) ?? 0) + numberOrZero(row.stock_actual));
+      map.set(key, (map.get(key) ?? 0) + stockForRow(row));
     });
     return Array.from(map.entries())
       .map(([label, stock]) => ({ label, stock }))
@@ -461,8 +461,8 @@ export default function InventoryMonitoringDashboard() {
                       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                         <InfoPill label="Proveedor" value={row.proveedor ?? row.supplier ?? "-"} />
                         <InfoPill label="Marca" value={row.brand ?? "-"} />
-                        <InfoPill label="Stock" value={numberFmt.format(numberOrZero(row.stock_actual))} />
-                        <InfoPill label="Dias" value={decimalFmt.format(numberOrZero(row.dias_disponibles))} />
+                        <InfoPill label="Stock" value={numberFmt.format(stockForRow(row))} />
+                        <InfoPill label="Dias" value={decimalFmt.format(coverageDaysForRow(row))} />
                       </div>
                     </div>
                   );
@@ -526,10 +526,10 @@ export default function InventoryMonitoringDashboard() {
                         </td>
                         <td className="break-words px-3 py-3 align-top text-sm font-semibold text-slate-700">{row.brand ?? "-"}</td>
                         <td className="px-3 py-3 text-right align-top text-sm font-black text-slate-950">
-                          {numberFmt.format(numberOrZero(row.stock_actual))}
+                          {numberFmt.format(stockForRow(row))}
                         </td>
                         <td className="px-3 py-3 text-right align-top text-sm font-black text-slate-950">
-                          {decimalFmt.format(numberOrZero(row.dias_disponibles))}
+                          {decimalFmt.format(coverageDaysForRow(row))}
                         </td>
                         <td className="px-3 py-3 text-right align-top">
                           <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${statusClasses[level] ?? statusClasses.estable}`}>
@@ -654,6 +654,23 @@ function normalizeStatus(value: string | null | undefined): string {
 function numberOrZero(value: number | null | undefined): number {
   const numeric = Number(value ?? 0);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function stockForRow(row: InventoryMetricItem): number {
+  const values = row as InventoryMetricItem & {
+    stock?: number | null;
+  };
+
+  return numberOrZero(values.stock_actual ?? values.stock);
+}
+
+function coverageDaysForRow(row: InventoryMetricItem): number {
+  const values = row as InventoryMetricItem & {
+    dias?: number | null;
+    dias_disponibles_cobertura?: number | null;
+  };
+
+  return numberOrZero(values.dias_disponibles_cobertura ?? values.dias_disponibles ?? values.dias ?? values.days_in_stock);
 }
 
 function statusRank(row: InventoryMetricItem): number {

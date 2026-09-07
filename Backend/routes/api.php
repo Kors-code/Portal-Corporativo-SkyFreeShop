@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ImportSalesController;
 use App\Http\Controllers\Api\CommissionController;
+use App\Http\Controllers\Api\CommissionProfileController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\CommissionReportController;
 use App\Http\Controllers\Api\CategoryCommissionController;
@@ -95,6 +96,7 @@ Route::get('/v1/ping', function () {
         Route::get('passenger-intelligence/forecasts', [PassengerIntelligenceController::class, 'forecasts']);
         Route::get('passenger-intelligence/external-signals', [PassengerIntelligenceController::class, 'externalSignals']);
         Route::get('passenger-intelligence/external-signals/impact', [PassengerIntelligenceController::class, 'externalSignalImpact']);
+        Route::get('passenger-intelligence/source-audit', [PassengerIntelligenceController::class, 'sourceAudit']);
         Route::get('passenger-intelligence/migration-microdata/audit', [PassengerIntelligenceController::class, 'migrationMicrodataAudit']);
     });
 
@@ -108,6 +110,7 @@ Route::get('/v1/ping', function () {
         Route::post('passenger-intelligence/profiles', [PassengerIntelligenceController::class, 'storeProfile']);
         Route::post('passenger-intelligence/sync-official-sources', [PassengerIntelligenceController::class, 'syncOfficialSources']);
         Route::post('passenger-intelligence/onedrive/sync-files', [PassengerIntelligenceController::class, 'syncOneDriveFiles']);
+        Route::post('passenger-intelligence/onedrive/reload-all', [PassengerIntelligenceController::class, 'reloadOneDrivePax']);
         Route::post('passenger-intelligence/recalculate-all', [PassengerIntelligenceController::class, 'recalculateAll']);
         Route::post('passenger-intelligence/exposure/recalculate', [PassengerIntelligenceController::class, 'recalculateExposure']);
         Route::post('passenger-intelligence/flight-estimates/recalculate', [PassengerIntelligenceController::class, 'recalculateFlightEstimates']);
@@ -242,6 +245,22 @@ Route::get('/v1/ping', function () {
         ->middleware('permission:budget.cashier.manage');
 
     // COMMISSION CONFIG
+    Route::get('commission-profiles/options', [CommissionProfileController::class, 'options'])
+        ->middleware('permission:budget.commissions.view,commission_profiles.view');
+    Route::get('commission-profiles/earners/export', [CommissionProfileController::class, 'exportEarners'])
+        ->middleware('permission:budget.commissions.view,commission_profiles.view');
+    Route::get('commission-profiles/earners', [CommissionProfileController::class, 'earners'])
+        ->middleware('permission:budget.commissions.view,commission_profiles.view');
+    Route::get('commission-profiles', [CommissionProfileController::class, 'index'])
+        ->middleware('permission:budget.commissions.view,commission_profiles.view');
+    Route::get('commission-profiles/{id}/summary', [CommissionProfileController::class, 'summary'])
+        ->middleware('permission:budget.commissions.view,commission_profiles.view');
+    Route::middleware('permission:budget.commissions.manage,commission_profiles.manage')->group(function () {
+        Route::post('commission-profiles', [CommissionProfileController::class, 'store']);
+        Route::put('commission-profiles/{id}', [CommissionProfileController::class, 'update']);
+        Route::delete('commission-profiles/{id}', [CommissionProfileController::class, 'destroy']);
+    });
+
     Route::get('commissions/categories', [CategoryCommissionController::class, 'index'])
         ->middleware('permission:budget.commissions.view');
     Route::get('commissions/category-commissions/overrides', [AdvisorController::class, 'getCommissionOverrides'])

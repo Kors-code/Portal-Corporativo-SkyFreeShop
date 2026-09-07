@@ -135,10 +135,12 @@ export type PassengerMonthlyEstimate = {
   flights: number;
   base_pax: number;
   commercial_exposed_pax: number;
-  colombian_pax: number;
-  foreign_pax: number;
+  colombian_pax: number | null;
+  foreign_pax: number | null;
   colombian_pct: number | null;
   foreign_pct: number | null;
+  missing_composition?: number;
+  rows_with_composition?: number;
   high_confidence: number;
   medium_confidence: number;
   low_confidence: number;
@@ -280,6 +282,105 @@ export type PassengerMigrationMicrodataAudit = {
   warning: string | null;
 };
 
+export type PassengerSourceAudit = {
+  filters: {
+    year: number | null;
+    month: number | null;
+    period_start: string | null;
+    period_end: string | null;
+  };
+  summary: {
+    months: number;
+    batches: number;
+    onedrive_batches: number;
+    manual_batches: number;
+    audited_pax: number;
+    warning: string | null;
+  };
+  monthly: Array<{
+    period: string;
+    year: number;
+    month: number;
+    monthly_fact_pax: number;
+    monthly_fact_rows: number;
+    flight_rows_pax: number;
+    flight_rows_count: number;
+    batch_total_pax: number;
+    batch_rows: number;
+    batch_count: number;
+    source_mode: string;
+    difference_vs_flight_rows: number;
+    status: string;
+    source_name: string | null;
+    source_period: string | null;
+    explanation: string;
+  }>;
+  batches: Array<{
+    batch_id: number;
+    filename: string;
+    period_start: string | null;
+    period_end: string | null;
+    source_type: string;
+    observed_scope: string | null;
+    is_onedrive: boolean;
+    status: string;
+    batch_pax: number;
+    batch_rows: number;
+    flight_rows_pax: number;
+    flight_rows_count: number;
+    difference_vs_flight_rows: number;
+    flight_min_date: string | null;
+    flight_max_date: string | null;
+    directions: Array<{ direction: string; rows: number; pax: number }>;
+    raw_excel_directions: Array<{ direction: string; rows: number; pax: number; source: string }>;
+    raw_excel_path_found: boolean;
+    source_file: {
+      id: number;
+      provider: string;
+      drive_item_id: string;
+      drive_id: string | null;
+      name: string;
+      web_url: string | null;
+      parent_path: string | null;
+      status: string;
+      checksum: string | null;
+      source_last_modified_at: string | null;
+      downloaded_at: string | null;
+    } | null;
+    source_url: string | null;
+    source_path: string | null;
+    notes: Record<string, unknown> | null;
+    explanation: string;
+  }>;
+  formulas: Record<string, string>;
+};
+
+export type PassengerOneDriveReloadResponse = {
+  message: string;
+  discover_error: string | null;
+  discovered_files: number;
+  facts_refreshed: number;
+  files_found: number;
+  files_reloaded: number;
+  files_failed: number;
+  rows_imported: number;
+  total_pax: number;
+  results: Array<{
+    source_file: PassengerSourceFile;
+    batch_id: number | null;
+    reloaded: boolean;
+    rows_imported: number;
+    rows_skipped: number;
+    total_pax: number;
+    raw_total_pax_before_dedupe: number | null;
+    old_batch_pax: number | null;
+    old_flight_rows_pax: number | null;
+    pax_difference: number | null;
+    flight_rows_difference: number | null;
+  }>;
+  errors: Array<{ source_file_id: number; filename: string; error: string }>;
+};
+
 export async function getPassengerSummary(params?: Record<string, string>) {
   const { data } = await axios.get<PassengerSummaryResponse>(`${API}/passenger-intelligence/summary`, { params });
   return data;
@@ -305,6 +406,11 @@ export async function syncPassengerOneDriveFiles() {
 export async function importPassengerOneDriveFile(sourceFileId?: number) {
   const payload = sourceFileId ? { source_file_id: sourceFileId } : { limit: 5 };
   const { data } = await axios.post(`${API}/passenger-intelligence/onedrive/import`, payload);
+  return data;
+}
+
+export async function reloadPassengerOneDrivePax(payload?: { limit?: number; rediscover?: boolean }) {
+  const { data } = await axios.post<PassengerOneDriveReloadResponse>(`${API}/passenger-intelligence/onedrive/reload-all`, payload || { rediscover: true });
   return data;
 }
 
@@ -393,6 +499,11 @@ export async function importPassengerMigrationMicrodata(file: File, recalculateE
 
 export async function getPassengerMigrationMicrodataAudit(params?: { year?: number; month?: number }) {
   const { data } = await axios.get<PassengerMigrationMicrodataAudit>(`${API}/passenger-intelligence/migration-microdata/audit`, { params });
+  return data;
+}
+
+export async function getPassengerSourceAudit(params?: { year?: number; month?: number }) {
+  const { data } = await axios.get<PassengerSourceAudit>(`${API}/passenger-intelligence/source-audit`, { params });
   return data;
 }
 

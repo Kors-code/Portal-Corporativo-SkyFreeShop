@@ -21,6 +21,8 @@ import AdminWishList from "../modules/WishList/pages/AdminWishList";
 import AdvisorSplitByCategory from "../modules/commissions/pages/AdvisorSplitByCategory";
 import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmin";
 import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
+import CommissionProfilesPage from "../modules/commissions/pages/CommissionProfilesPage";
+import CommissionProfileEarnersPage from "../modules/commissions/pages/CommissionProfileEarnersPage";
 import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
 import InventoryDashboard  from "../modules/inventory/InventoryDashboard";
 import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
@@ -123,6 +125,8 @@ export default function AppRouter() {
           <Route path="/CommissionCardsPage" element={<CommissionCardsPage />} />
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<PermissionGate permission="budget.commissions.manage"><CategoryCommissionsPage /></PermissionGate>} />
+          <Route path="/commissions/profiles" element={<PermissionGate permission={["budget.commissions.manage", "commission_profiles.manage"]}><CommissionProfilesPage /></PermissionGate>} />
+          <Route path="/commissions/profile-earners" element={<PermissionGate permission={["budget.commissions.view", "commission_profiles.view"]}><CommissionProfileEarnersPage /></PermissionGate>} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
           <Route
             path="/commissions/CommissionLeadersPage"

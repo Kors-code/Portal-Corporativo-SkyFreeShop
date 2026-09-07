@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryReportService
 {
-    private const DEFAULT_MAX_MONTHS = 12;
-    private const MAX_ALLOWED_MONTHS = 20;
+    public const DEFAULT_MAX_MONTHS = 12;
+    public const MAX_ALLOWED_MONTHS = 20;
 
     public function getStores(): array
     {
@@ -235,6 +235,7 @@ class InventoryReportService
                 'description' => $row->description,
                 'classification_desc' => $row->classification_desc,
                 'stock_actual' => $stockActual,
+                'stock' => $stockActual,
                 'factor_caja' => (float) ($row->factor_caja ?? 1),
                 'total_ventas' => (float) ($row->total_ventas ?? 0),
                 'total_general' => (float) $totalGeneral,
@@ -259,6 +260,8 @@ class InventoryReportService
                 'days_in_stock' => (int) ($row->days_in_stock ?? 0),
                 'batch_id' => $row->batch_id ? (int) $row->batch_id : null,
                 'dias_disponibles' => $diasDisponibles,
+                'dias_disponibles_cobertura' => $diasDisponibles,
+                'dias' => $diasDisponibles,
                 'stock_alert_level' => $alerta['level'],
                 'stock_alert_label' => $alerta['label'],
                 'stock_alert_color' => $alerta['color'],

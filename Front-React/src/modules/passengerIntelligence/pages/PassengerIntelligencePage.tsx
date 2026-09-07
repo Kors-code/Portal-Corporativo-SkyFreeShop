@@ -37,10 +37,12 @@ import {
   getPassengerMonthlyFacts,
   getPassengerSourceFiles,
   getPassengerSummary,
+  getPassengerSourceAudit,
   importPassengerExcel,
   importPassengerMigrationMicrodata,
   importPassengerOneDriveFile,
   recalculatePassengerAll,
+  reloadPassengerOneDrivePax,
   syncPassengerExternalSignals,
   syncPassengerOneDriveFiles,
   type PassengerBatch,
@@ -49,6 +51,7 @@ import {
   type PassengerForecastRun,
   type PassengerMonthlyEstimate,
   type PassengerMonthlyFact,
+  type PassengerSourceAudit,
   type PassengerSourceFile,
   type PassengerSummaryResponse,
 } from "../services/passengerIntelligenceService";
@@ -66,6 +69,7 @@ const views = [
   { id: "analysis", label: "Analisis", icon: BarChart3 },
   { id: "forecast", label: "Forecast IA", icon: BrainCircuit },
   { id: "monthly", label: "Mensual", icon: CalendarDays },
+  { id: "audit", label: "Auditoria", icon: CheckCircle2 },
   { id: "operation", label: "Operacion", icon: PlaneTakeoff },
   { id: "data", label: "Datos", icon: Table2 },
 ] as const;
@@ -119,8 +123,8 @@ function tooltipMonthly(value: unknown, name: unknown) {
   const label =
     name === "skyfreePax"
       ? "Sky Free observado"
-      : name === "officialPax"
-        ? "Aerocivil oficial"
+      : name === "previousMonthPax"
+        ? "Mes anterior"
         : name === "difference"
           ? "Diferencia"
           : String(name);
@@ -198,10 +202,12 @@ export default function PassengerIntelligencePage() {
   const [forecasts, setForecasts] = useState<PassengerForecastRun[]>([]);
   const [externalSignals, setExternalSignals] = useState<PassengerExternalSignal[]>([]);
   const [externalImpact, setExternalImpact] = useState<PassengerExternalSignalImpact | null>(null);
+  const [sourceAudit, setSourceAudit] = useState<PassengerSourceAudit | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [syncingOneDrive, setSyncingOneDrive] = useState(false);
   const [importingOneDrive, setImportingOneDrive] = useState(false);
+  const [reloadingOneDrive, setReloadingOneDrive] = useState(false);
   const [importingMigration, setImportingMigration] = useState(false);
   const [recalculatingAll, setRecalculatingAll] = useState(false);
   const [generatingForecast, setGeneratingForecast] = useState(false);
@@ -233,7 +239,16 @@ export default function PassengerIntelligencePage() {
       if (dateTo) estimateParams.date_to = dateTo;
       if (direction) estimateParams.direction = direction;
 
-      const [summaryData, batchesData, sourceFilesData, monthlyFactsData, monthlyEstimateData, forecastData, signalData, signalImpactData] = await Promise.all([
+      const auditParams = selectedMonth
+        ? {
+            year: Number(selectedMonth.slice(0, 4)),
+            month: Number(selectedMonth.slice(5, 7)),
+          }
+        : dateFrom
+          ? { year: Number(dateFrom.slice(0, 4)) }
+          : undefined;
+
+      const [summaryData, batchesData, sourceFilesData, monthlyFactsData, monthlyEstimateData, forecastData, signalData, signalImpactData, sourceAuditData] = await Promise.all([
         getPassengerSummary(params),
         getPassengerBatches(),
         getPassengerSourceFiles(),
@@ -242,6 +257,7 @@ export default function PassengerIntelligencePage() {
         getPassengerForecasts(),
         getPassengerExternalSignals(dateFrom || dateTo ? { date_from: dateFrom || undefined, date_to: dateTo || undefined } : undefined),
         getPassengerExternalSignalImpact(),
+        getPassengerSourceAudit(auditParams),
       ]);
 
       setSummary(summaryData);
@@ -252,6 +268,7 @@ export default function PassengerIntelligencePage() {
       setForecasts(forecastData);
       setExternalSignals(signalData);
       setExternalImpact(signalImpactData);
+      setSourceAudit(sourceAuditData);
     } catch (error: any) {
       setMessage(error?.response?.data?.message || "No se pudo cargar Passenger Intelligence.");
     } finally {
@@ -308,6 +325,24 @@ export default function PassengerIntelligencePage() {
     }
   }
 
+  async function handleOneDriveReloadAll() {
+    setReloadingOneDrive(true);
+    setMessage(null);
+    try {
+      const result = await reloadPassengerOneDrivePax({ rediscover: true });
+      const errorsText = result.files_failed > 0 ? ` ${formatNumber(result.files_failed)} archivos fallaron.` : "";
+      setMessage(
+        `OneDrive recargado: ${formatNumber(result.files_reloaded)} archivos, ${formatNumber(result.rows_imported)} filas, ${formatNumber(result.total_pax)} PAX.${errorsText}`
+      );
+      await load();
+      setActiveView("audit");
+    } catch (error: any) {
+      setMessage(error?.response?.data?.message || error?.response?.data?.error || "No se pudo recargar OneDrive PAX.");
+    } finally {
+      setReloadingOneDrive(false);
+    }
+  }
+
   async function handleMigrationMicrodataImport(file?: File | null) {
     if (!file) return;
     setImportingMigration(true);
@@ -347,7 +382,14 @@ export default function PassengerIntelligencePage() {
     setGeneratingForecast(true);
     setMessage(null);
     try {
+      const target = selectedMonth
+        ? {
+            target_year: Number(selectedMonth.slice(0, 4)),
+            target_month: Number(selectedMonth.slice(5, 7)),
+          }
+        : {};
       const result = await generatePassengerForecast({
+        ...target,
         send_email: sendEmail,
         email: "sebastian.cruz@dutyfreepartners.com",
       });
@@ -412,6 +454,18 @@ export default function PassengerIntelligencePage() {
     [summary]
   );
 
+  const skyfreeMonthlyFactTotals = useMemo(() => {
+    const rows = new Map<string, number>();
+
+    monthlyFacts
+      .filter((fact) => fact.direction === "total" && fact.fact_type === "skyfree_commercial_observed_pax")
+      .forEach((fact) => {
+        rows.set(`${fact.year}-${String(fact.month).padStart(2, "0")}`, Number(fact.value || 0));
+      });
+
+    return rows;
+  }, [monthlyFacts]);
+
   const monthlyComparisonData = useMemo(() => {
     const rows = new Map<
       string,
@@ -420,14 +474,14 @@ export default function PassengerIntelligencePage() {
         year: number;
         month: number;
         skyfreePax: number;
-        officialPax: number;
+        previousMonthPax: number | null;
         difference: number;
-        coveragePct: number | null;
+        monthOverMonthPct: number | null;
       }
     >();
 
     monthlyFacts
-      .filter((fact) => fact.direction === "total")
+      .filter((fact) => fact.direction === "total" && fact.fact_type === "skyfree_commercial_observed_pax")
       .forEach((fact) => {
         const period = `${fact.year}-${String(fact.month).padStart(2, "0")}`;
         const current = rows.get(period) || {
@@ -435,25 +489,29 @@ export default function PassengerIntelligencePage() {
           year: fact.year,
           month: fact.month,
           skyfreePax: 0,
-          officialPax: 0,
+          previousMonthPax: null,
           difference: 0,
-          coveragePct: null,
+          monthOverMonthPct: null,
         };
 
-        if (fact.fact_type === "skyfree_commercial_observed_pax") {
-          current.skyfreePax = Number(fact.value || 0);
-        }
-
-        if (fact.fact_type === "airport_official_international_pax") {
-          current.officialPax = Number(fact.value || 0);
-        }
-
-        current.difference = current.skyfreePax - current.officialPax;
-        current.coveragePct = current.officialPax > 0 ? Number(((current.skyfreePax / current.officialPax) * 100).toFixed(1)) : null;
+        current.skyfreePax = Number(fact.value || 0);
         rows.set(period, current);
       });
 
-    return Array.from(rows.values()).sort((a, b) => (a.year === b.year ? a.month - b.month : a.year - b.year));
+    const sorted = Array.from(rows.values()).sort((a, b) => (a.year === b.year ? a.month - b.month : a.year - b.year));
+
+    return sorted.map((row, index) => {
+      const previous = sorted[index - 1] || null;
+      const previousMonthPax = previous ? previous.skyfreePax : null;
+      const difference = previousMonthPax === null ? 0 : row.skyfreePax - previousMonthPax;
+
+      return {
+        ...row,
+        previousMonthPax,
+        difference,
+        monthOverMonthPct: previousMonthPax && previousMonthPax > 0 ? Number(((difference / previousMonthPax) * 100).toFixed(1)) : null,
+      };
+    });
   }, [monthlyFacts]);
 
   const selectedMonthComparison = selectedMonth ? monthlyComparisonData.find((row) => row.period === selectedMonth) : null;
@@ -467,10 +525,12 @@ export default function PassengerIntelligencePage() {
         month: number;
         flights: number;
         commercialPax: number;
-        colombianPax: number;
-        foreignPax: number;
-        colombianPct: number;
-        foreignPct: number;
+        colombianPax: number | null;
+        foreignPax: number | null;
+        colombianPct: number | null;
+        foreignPct: number | null;
+        missingComposition: number;
+        rowsWithComposition: number;
       }
     >();
 
@@ -481,25 +541,67 @@ export default function PassengerIntelligencePage() {
         month: item.month,
         flights: 0,
         commercialPax: 0,
-        colombianPax: 0,
-        foreignPax: 0,
-        colombianPct: 0,
-        foreignPct: 0,
+        colombianPax: null,
+        foreignPax: null,
+        colombianPct: null,
+        foreignPct: null,
+        missingComposition: 0,
+        rowsWithComposition: 0,
       };
 
       current.flights += Number(item.flights || 0);
       current.commercialPax += Number(item.commercial_exposed_pax || 0);
-      current.colombianPax += Number(item.colombian_pax || 0);
-      current.foreignPax += Number(item.foreign_pax || 0);
-      current.colombianPct = current.commercialPax > 0 ? Number(((current.colombianPax / current.commercialPax) * 100).toFixed(1)) : 0;
-      current.foreignPct = current.commercialPax > 0 ? Number(((current.foreignPax / current.commercialPax) * 100).toFixed(1)) : 0;
+      current.missingComposition += Number(item.missing_composition || 0);
+      current.rowsWithComposition += Number(item.rows_with_composition || 0);
+
+      if (item.colombian_pax !== null && item.foreign_pax !== null) {
+        current.colombianPax = Number((Number(current.colombianPax || 0) + Number(item.colombian_pax)).toFixed(2));
+        current.foreignPax = Number((Number(current.foreignPax || 0) + Number(item.foreign_pax)).toFixed(2));
+      }
+
+      current.colombianPct =
+        current.commercialPax > 0 && current.rowsWithComposition > 0 && current.colombianPax !== null
+          ? Number(((current.colombianPax / current.commercialPax) * 100).toFixed(1))
+          : null;
+      current.foreignPct =
+        current.commercialPax > 0 && current.rowsWithComposition > 0 && current.foreignPax !== null
+          ? Number(((current.foreignPax / current.commercialPax) * 100).toFixed(1))
+          : null;
       rows.set(item.period, current);
     });
 
-    return Array.from(rows.values()).sort((a, b) => (a.year === b.year ? a.month - b.month : a.year - b.year));
-  }, [monthlyEstimates]);
+    return Array.from(rows.values())
+      .map((row) => {
+        const oneDrivePax = skyfreeMonthlyFactTotals.get(row.period);
+        if (!oneDrivePax || oneDrivePax <= 0 || row.commercialPax <= 0 || row.colombianPct === null) {
+          return row;
+        }
+
+        const colombianPct = row.colombianPct;
+        const colombianPax = Number(((oneDrivePax * colombianPct) / 100).toFixed(2));
+
+        return {
+          ...row,
+          commercialPax: oneDrivePax,
+          colombianPax,
+          foreignPax: Number((oneDrivePax - colombianPax).toFixed(2)),
+        };
+      })
+      .sort((a, b) => (a.year === b.year ? a.month - b.month : a.year - b.year));
+  }, [monthlyEstimates, skyfreeMonthlyFactTotals]);
 
   const selectedNationalityMonth = selectedMonth ? nationalityMonthlyData.find((row) => row.period === selectedMonth) : null;
+  const nationalityChartData = useMemo(() => {
+    const rowsWithComposition = nationalityMonthlyData.filter((row) => row.colombianPct !== null && row.foreignPct !== null);
+
+    if (selectedMonth) {
+      return selectedNationalityMonth && selectedNationalityMonth.colombianPct !== null && selectedNationalityMonth.foreignPct !== null
+        ? [selectedNationalityMonth]
+        : [];
+    }
+
+    return rowsWithComposition.slice(-24);
+  }, [nationalityMonthlyData, selectedMonth, selectedNationalityMonth]);
   const latestForecast = forecasts[0];
   const recentMonths = nationalityMonthlyData.slice(-8).reverse();
   const signalImpactMonths = useMemo(
@@ -642,17 +744,25 @@ export default function PassengerIntelligencePage() {
                     </span>
                   </div>
                   <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={nationalityMonthlyData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-                        <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip formatter={tooltipPercent} />
-                        <Legend />
-                        <Bar dataKey="colombianPct" stackId="nationality" fill="#0f766e" name="Colombianos" />
-                        <Bar dataKey="foreignPct" stackId="nationality" fill="#475569" name="Extranjeros" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {nationalityChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={nationalityChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                          <Tooltip formatter={tooltipPercent} />
+                          <Legend />
+                          <Bar dataKey="colombianPct" stackId="nationality" fill="#0f766e" name="Colombianos" />
+                          <Bar dataKey="foreignPct" stackId="nationality" fill="#475569" name="Extranjeros" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+                        <p className="max-w-md text-sm font-semibold leading-6 text-slate-500">
+                          No hay perfil colombiano/extranjero para este rango. El PAX existe, pero la composicion no se grafica hasta tener datos de Migracion o un perfil valido.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -898,7 +1008,7 @@ export default function PassengerIntelligencePage() {
               </section>
 
               <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <SectionHeader title="Comparativo mensual Sky Free vs Aerocivil" sub="Este bloque concentra el contraste con el total oficial disponible." />
+                <SectionHeader title="Comparativo mensual Sky Free" sub="Compara el PAX observado de OneDrive contra el mes anterior importado." />
                 {selectedMonth && (
                   <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
                     {selectedMonthComparison ? (
@@ -912,12 +1022,15 @@ export default function PassengerIntelligencePage() {
                           <p className="mt-1 font-black text-slate-900">{formatNumber(selectedMonthComparison.skyfreePax)} PAX</p>
                         </div>
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Aerocivil oficial</p>
-                          <p className="mt-1 font-black text-slate-900">{formatNumber(selectedMonthComparison.officialPax)} PAX</p>
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Mes anterior</p>
+                          <p className="mt-1 font-black text-slate-900">{formatNumber(selectedMonthComparison.previousMonthPax)} PAX</p>
                         </div>
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Cobertura</p>
-                          <p className="mt-1 font-black text-slate-900">{formatPct(selectedMonthComparison.coveragePct)}</p>
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Variacion</p>
+                          <p className={`mt-1 font-black ${selectedMonthComparison.difference >= 0 ? "text-teal-700" : "text-rose-700"}`}>
+                            {formatPct(selectedMonthComparison.monthOverMonthPct)}
+                          </p>
+                          <p className="text-xs text-slate-500">{formatNumber(selectedMonthComparison.difference)} PAX</p>
                         </div>
                       </div>
                     ) : (
@@ -934,7 +1047,7 @@ export default function PassengerIntelligencePage() {
                       <Tooltip formatter={tooltipMonthly} />
                       <Legend />
                       <Bar dataKey="skyfreePax" fill="#0f766e" name="Sky Free observado" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="officialPax" fill="#2563eb" name="Aerocivil oficial" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="previousMonthPax" fill="#64748b" name="Mes anterior" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1020,6 +1133,204 @@ export default function PassengerIntelligencePage() {
                       )}
                     </tbody>
                   </table>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeView === "audit" && (
+            <div className="space-y-4">
+              <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <SectionHeader
+                    title="Auditoria PAX OneDrive"
+                    sub="Rectifica de que archivo viene cada total mensual y cuanto aportan llegadas/salidas."
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={load}
+                      disabled={loading}
+                      className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-60"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Actualizar
+                    </button>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={handleOneDriveReloadAll}
+                        disabled={reloadingOneDrive}
+                        className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"
+                      >
+                        <Cloud className="h-4 w-4" />
+                        {reloadingOneDrive ? "Recargando..." : "Recargar OneDrive"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {sourceAudit?.summary.warning && (
+                  <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+                    {sourceAudit.summary.warning}
+                  </div>
+                )}
+
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <Kpi title="PAX auditado" value={formatNumber(sourceAudit?.summary.audited_pax)} sub="Total desde hechos OneDrive" icon={Users} />
+                  <Kpi title="Meses" value={formatNumber(sourceAudit?.summary.months)} sub="Periodos revisados" icon={CalendarDays} />
+                  <Kpi title="Batches OneDrive" value={formatNumber(sourceAudit?.summary.onedrive_batches)} sub={`${formatNumber(sourceAudit?.summary.batches)} batches totales`} icon={Cloud} />
+                  <Kpi title="Cargas manuales" value={formatNumber(sourceAudit?.summary.manual_batches)} sub="Deben revisarse aparte" icon={AlertTriangle} />
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <SectionHeader title="Meses auditados" sub="El total mensual debe venir de OneDrive PAX Col." />
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Mes</th>
+                        <th className="px-3 py-2">Fuente usada</th>
+                        <th className="px-3 py-2 text-right">PAX OneDrive</th>
+                        <th className="px-3 py-2 text-right">Filas vuelos</th>
+                        <th className="px-3 py-2 text-right">Diferencia</th>
+                        <th className="px-3 py-2">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(sourceAudit?.monthly || []).map((row) => (
+                        <tr key={row.period}>
+                          <td className="px-3 py-3">
+                            <button type="button" onClick={() => handleMonthChange(row.period)} className="font-black text-slate-900 hover:underline">
+                              {row.period}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3 text-slate-600">
+                            <p className="font-semibold text-slate-800">{row.source_mode}</p>
+                            <p className="text-xs text-slate-500">{row.explanation}</p>
+                          </td>
+                          <td className="px-3 py-3 text-right font-black text-slate-900">{formatNumber(row.monthly_fact_pax)}</td>
+                          <td className="px-3 py-3 text-right text-slate-600">
+                            {formatNumber(row.flight_rows_pax)}
+                            <p className="text-xs text-slate-500">{formatNumber(row.flight_rows_count)} filas</p>
+                          </td>
+                          <td className={`px-3 py-3 text-right font-bold ${Math.abs(row.difference_vs_flight_rows) > 0.01 ? "text-amber-700" : "text-teal-700"}`}>
+                            {formatNumber(row.difference_vs_flight_rows)}
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className={`rounded-md px-2 py-1 text-xs font-bold ${row.status === "OK" ? "bg-teal-50 text-teal-700" : "bg-amber-50 text-amber-800"}`}>
+                              {row.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {!sourceAudit?.monthly?.length && (
+                        <tr>
+                          <td className="px-3 py-8 text-center text-slate-500" colSpan={6}>
+                            No hay meses auditados para el filtro actual.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <SectionHeader title="Archivos que alimentan el periodo" sub="Cada fila muestra el Excel, su origen OneDrive y su desglose Arrivals/Departures." />
+                <div className="mt-4 space-y-3">
+                  {(sourceAudit?.batches || []).map((batch) => (
+                    <div key={batch.batch_id} className="rounded-lg border border-slate-200 p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-black text-slate-900">{batch.filename}</p>
+                            <span className={`rounded-md px-2 py-1 text-xs font-bold ${batch.is_onedrive ? "bg-teal-50 text-teal-700" : "bg-amber-50 text-amber-800"}`}>
+                              {batch.is_onedrive ? "OneDrive" : "Revisar fuente"}
+                            </span>
+                            <span className={`rounded-md px-2 py-1 text-xs font-bold ${batch.status === "OK" ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-800"}`}>
+                              {batch.status}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Batch #{batch.batch_id} · {batch.period_start} - {batch.period_end}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">{batch.source_file?.parent_path || batch.source_path || "Sin ruta registrada"}</p>
+                        </div>
+                        {(batch.source_file?.web_url || batch.source_url) && (
+                          <a
+                            href={batch.source_file?.web_url || batch.source_url || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"
+                          >
+                            Abrir archivo
+                          </a>
+                        )}
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+                        <div className="rounded-md bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">PAX batch</p>
+                          <p className="mt-1 text-lg font-black text-slate-900">{formatNumber(batch.batch_pax)}</p>
+                        </div>
+                        <div className="rounded-md bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">PAX filas guardadas</p>
+                          <p className="mt-1 text-lg font-black text-slate-900">{formatNumber(batch.flight_rows_pax)}</p>
+                        </div>
+                        <div className="rounded-md bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Diferencia</p>
+                          <p className={`mt-1 text-lg font-black ${Math.abs(batch.difference_vs_flight_rows) > 0.01 ? "text-amber-700" : "text-teal-700"}`}>
+                            {formatNumber(batch.difference_vs_flight_rows)}
+                          </p>
+                        </div>
+                        <div className="rounded-md bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Filas</p>
+                          <p className="mt-1 text-lg font-black text-slate-900">{formatNumber(batch.batch_rows)}</p>
+                        </div>
+                      </div>
+
+                      {batch.raw_excel_directions.length > 0 && (
+                        <div className="mt-4">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Excel crudo por hoja</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {batch.raw_excel_directions.map((directionRow) => (
+                              <div key={`${batch.batch_id}-raw-${directionRow.direction}`} className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="font-black text-slate-900">{directionLabels[directionRow.direction] || directionRow.direction}</span>
+                                  <span className="font-black text-slate-900">{formatNumber(directionRow.pax)} PAX</span>
+                                </div>
+                                <p className="mt-1 text-xs text-slate-600">{formatNumber(directionRow.rows)} filas leidas desde el Excel original</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {batch.directions.map((directionRow) => (
+                          <div key={`${batch.batch_id}-${directionRow.direction}`} className="rounded-md border border-slate-200 px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-black text-slate-900">{directionLabels[directionRow.direction] || directionRow.direction}</span>
+                              <span className="font-black text-slate-900">{formatNumber(directionRow.pax)} PAX</span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">{formatNumber(directionRow.rows)} filas guardadas en BD desde este Excel</p>
+                          </div>
+                        ))}
+                        {batch.directions.length === 0 && (
+                          <div className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-500">
+                            Este batch no tiene filas de vuelo guardadas.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {!sourceAudit?.batches?.length && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-8 text-center text-sm text-slate-500">
+                      No hay archivos para auditar en el periodo seleccionado.
+                    </div>
+                  )}
                 </div>
               </section>
             </div>

@@ -24,6 +24,7 @@ export interface InventoryItem {
   salida?: number | null;
   existencia_final?: number | null;
   stock_actual?: number | null;
+  stock?: number | null;
   factor_caja?: number | null;
   cost_unitario?: number | null;
   total_inv_final?: number | null;
@@ -80,6 +81,8 @@ export interface InventoryMetricItem extends InventoryItem {
   total_general?: number | null;
   month_columns?: Record<string, number>;
   dias_disponibles?: number | null;
+  dias_disponibles_cobertura?: number | null;
+  dias?: number | null;
   stock_alert_level?: string | null;
   stock_alert_label?: string | null;
   stock_alert_color?: string | null;

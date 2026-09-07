@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PassengerIntelligence\PassengerCompositionProfile;
 use App\Models\PassengerIntelligence\PassengerFlight;
 use App\Models\PassengerIntelligence\PassengerImportBatch;
+use App\Models\PassengerIntelligence\PassengerMonthlyFact;
 use App\Models\PassengerIntelligence\PassengerSourceFile;
 use App\Services\PassengerIntelligence\PassengerCommercialExposureService;
 use App\Services\PassengerIntelligence\PassengerExcelImportService;
@@ -19,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class PassengerIntelligenceController extends Controller
 {
@@ -41,6 +43,12 @@ class PassengerIntelligenceController extends Controller
         $estimatedPax = (float) (clone $query)->where('data_type', 'estimated')->sum('pax');
         $totalFlights = (clone $query)->count();
         $dateCount = (clone $query)->distinct('flight_date')->count('flight_date');
+        $monthlyObservedFactPax = $this->observedMonthlyFactTotalForFilters($filters);
+        if ($monthlyObservedFactPax !== null) {
+            $totalPax = $monthlyObservedFactPax;
+            $observedPax = $monthlyObservedFactPax;
+        }
+
         $composition = $this->resolveComposition($filters);
         if (!$composition) {
             try {
@@ -72,12 +80,16 @@ class PassengerIntelligenceController extends Controller
         $hasStoredCompositionEstimate = $estimateCommercialPax > 0 && ($estimateColombianPax > 0 || $estimateForeignPax > 0);
 
         $summaryColombianPax = $hasStoredCompositionEstimate
-            ? $estimateColombianPax
+            ? ($monthlyObservedFactPax !== null && $estimateCommercialPax > 0
+                ? round($monthlyObservedFactPax * ($estimateColombianPax / $estimateCommercialPax), 2)
+                : $estimateColombianPax)
             : ($composition ? round($totalPax * ((float) $composition->colombian_pct / 100), 2) : null);
         $summaryForeignPax = $hasStoredCompositionEstimate
-            ? $estimateForeignPax
+            ? ($monthlyObservedFactPax !== null && $summaryColombianPax !== null
+                ? round($monthlyObservedFactPax - $summaryColombianPax, 2)
+                : $estimateForeignPax)
             : ($composition ? round($totalPax * ((float) $composition->foreign_pct / 100), 2) : null);
-        $summaryCompositionBasePax = $hasStoredCompositionEstimate ? $estimateCommercialPax : $totalPax;
+        $summaryCompositionBasePax = $monthlyObservedFactPax ?? ($hasStoredCompositionEstimate ? $estimateCommercialPax : $totalPax);
         $summaryColombianPct = $summaryCompositionBasePax > 0 && $summaryColombianPax !== null
             ? round(($summaryColombianPax / $summaryCompositionBasePax) * 100, 3)
             : ($composition ? round((float) $composition->colombian_pct, 3) : null);
@@ -225,6 +237,49 @@ class PassengerIntelligenceController extends Controller
         return response()->json($batches);
     }
 
+    public function sourceAudit(Request $request, PassengerCommercialExposureService $exposureService)
+    {
+        $data = $request->validate([
+            'year' => 'nullable|integer|min:2012|max:2100',
+            'month' => 'nullable|integer|min:1|max:12',
+        ]);
+
+        if (!empty($data['year']) || !empty($data['month'])) {
+            $exposureService->refreshObservedFacts($data['year'] ?? null, $data['month'] ?? null);
+        }
+
+        $period = $this->auditPeriod($data['year'] ?? null, $data['month'] ?? null);
+        $monthlyRows = $this->sourceAuditMonthlyRows($period);
+        $batchRows = $this->sourceAuditBatchRows($period, isset($data['year'], $data['month']));
+
+        return response()->json([
+            'filters' => [
+                'year' => $data['year'] ?? null,
+                'month' => $data['month'] ?? null,
+                'period_start' => $period['start']?->toDateString(),
+                'period_end' => $period['end']?->toDateString(),
+            ],
+            'summary' => [
+                'months' => count($monthlyRows),
+                'batches' => count($batchRows),
+                'onedrive_batches' => collect($batchRows)->where('is_onedrive', true)->count(),
+                'manual_batches' => collect($batchRows)->where('is_onedrive', false)->count(),
+                'audited_pax' => round((float) collect($monthlyRows)->sum('monthly_fact_pax'), 2),
+                'warning' => collect($batchRows)->contains(fn ($row) => $row['status'] !== 'OK')
+                    ? 'Hay diferencias o fuentes no OneDrive en el periodo. Revisa el detalle por archivo.'
+                    : null,
+            ],
+            'monthly' => $monthlyRows,
+            'batches' => $batchRows,
+            'formulas' => [
+                'monthly_fact_pax' => 'passenger_intelligence_monthly_facts.value donde fact_type = skyfree_commercial_observed_pax y source_type = skyfree_onedrive_pax',
+                'batch_pax' => 'passenger_intelligence_import_batches.total_pax del archivo importado',
+                'flight_rows_pax' => 'SUM(passenger_intelligence_flights.pax) por batch_id o por mes',
+                'difference' => 'monthly_fact_pax - flight_rows_pax o batch_pax - flight_rows_pax',
+            ],
+        ]);
+    }
+
     public function import(
         Request $request,
         PassengerExcelImportService $importer,
@@ -346,6 +401,50 @@ class PassengerIntelligenceController extends Controller
             'results' => $results,
             'errors' => $errors,
         ], empty($results) ? 422 : 200);
+    }
+
+    public function reloadOneDrivePax(
+        Request $request,
+        PassengerOneDrivePaxService $oneDrive,
+        PassengerExcelImportService $importer,
+        PassengerCommercialExposureService $exposureService,
+        PassengerFlightEstimationService $estimator
+    ) {
+        $data = $request->validate([
+            'limit' => 'nullable|integer|min:1|max:100',
+            'rediscover' => 'nullable|boolean',
+        ]);
+
+        $discoverError = null;
+        $discoveredFiles = [];
+
+        if ($data['rediscover'] ?? true) {
+            try {
+                $discoveredFiles = $oneDrive->discoverFiles(true);
+            } catch (\Throwable $e) {
+                $discoverError = $e->getMessage();
+            }
+        }
+
+        $reload = $oneDrive->reloadImportedFiles(
+            $importer,
+            optional($request->user())->id,
+            $data['limit'] ?? null
+        );
+
+        $facts = $exposureService->refreshObservedFacts();
+        $estimates = $estimator->recalculate(['data_type' => 'observed']);
+
+        return response()->json([
+            'message' => empty($reload['errors'])
+                ? 'OneDrive PAX recargado y recalculado.'
+                : 'OneDrive PAX recargado con advertencias.',
+            'discover_error' => $discoverError,
+            'discovered_files' => count($discoveredFiles),
+            'facts_refreshed' => count($facts),
+            'estimates' => $estimates,
+            ...$reload,
+        ], empty($reload['results']) ? 422 : 200);
     }
 
     public function monthlyFacts(Request $request, PassengerCommercialExposureService $exposureService)
@@ -804,6 +903,290 @@ class PassengerIntelligenceController extends Controller
         }
     }
 
+    private function auditPeriod(?int $year, ?int $month): array
+    {
+        if (!$year && !$month) {
+            return ['start' => null, 'end' => null];
+        }
+
+        $year = $year ?: (int) now('America/Bogota')->year;
+
+        if (!$month) {
+            return [
+                'start' => Carbon::create($year, 1, 1, 0, 0, 0, 'America/Bogota'),
+                'end' => Carbon::create($year, 12, 1, 0, 0, 0, 'America/Bogota')->endOfMonth(),
+            ];
+        }
+
+        $start = Carbon::create($year, $month, 1, 0, 0, 0, 'America/Bogota');
+
+        return ['start' => $start, 'end' => $start->copy()->endOfMonth()];
+    }
+
+    private function sourceAuditMonthlyRows(array $period): array
+    {
+        $facts = PassengerMonthlyFact::where([
+            'airport_iata' => 'MDE',
+            'direction' => 'total',
+            'fact_type' => 'skyfree_commercial_observed_pax',
+            'source_type' => 'skyfree_onedrive_pax',
+        ]);
+
+        if ($period['start'] && $period['end']) {
+            $facts->where(function ($q) use ($period) {
+                $q->where('year', '>', (int) $period['start']->year)
+                    ->orWhere(fn ($sameYear) => $sameYear->where('year', (int) $period['start']->year)->where('month', '>=', (int) $period['start']->month));
+            })->where(function ($q) use ($period) {
+                $q->where('year', '<', (int) $period['end']->year)
+                    ->orWhere(fn ($sameYear) => $sameYear->where('year', (int) $period['end']->year)->where('month', '<=', (int) $period['end']->month));
+            });
+        }
+
+        return $facts
+            ->orderByDesc('year')
+            ->orderByDesc('month')
+            ->limit(36)
+            ->get()
+            ->map(function (PassengerMonthlyFact $fact) {
+                $flightAgg = PassengerFlight::where('data_type', 'observed')
+                    ->where('observed_scope', 'commercial_flow')
+                    ->whereYear('flight_date', $fact->year)
+                    ->whereMonth('flight_date', $fact->month)
+                    ->selectRaw('COUNT(*) as rows_count, COALESCE(SUM(pax), 0) as pax_value')
+                    ->first();
+
+                $singleMonthBatches = PassengerImportBatch::where('source_type', 'onedrive_skyfree_pax')
+                    ->where('observed_scope', 'commercial_flow')
+                    ->whereYear('period_start', $fact->year)
+                    ->whereMonth('period_start', $fact->month)
+                    ->whereRaw('YEAR(period_start) = YEAR(period_end)')
+                    ->whereRaw('MONTH(period_start) = MONTH(period_end)')
+                    ->get();
+
+                $factPax = round((float) $fact->value, 2);
+                $flightPax = round((float) ($flightAgg?->pax_value ?? 0), 2);
+
+                $difference = round($factPax - $flightPax, 2);
+
+                return [
+                    'period' => sprintf('%04d-%02d', $fact->year, $fact->month),
+                    'year' => $fact->year,
+                    'month' => $fact->month,
+                    'monthly_fact_pax' => $factPax,
+                    'monthly_fact_rows' => $fact->records_count,
+                    'flight_rows_pax' => $flightPax,
+                    'flight_rows_count' => (int) ($flightAgg?->rows_count ?? 0),
+                    'batch_total_pax' => round((float) $singleMonthBatches->sum('total_pax'), 2),
+                    'batch_rows' => (int) $singleMonthBatches->sum('rows_imported'),
+                    'batch_count' => $singleMonthBatches->count(),
+                    'source_mode' => 'onedrive_flight_rows',
+                    'difference_vs_flight_rows' => $difference,
+                    'status' => $fact->source_name === 'OneDrive Sky Free PAX Col' && abs($difference) <= 0.01 ? 'OK' : 'REVISAR',
+                    'source_name' => $fact->source_name,
+                    'source_period' => $fact->source_period,
+                    'explanation' => 'El total mensual se reconstruye desde las filas de vuelos guardadas desde OneDrive para que OneDrive y BD cuadren linea a linea.',
+                ];
+            })
+            ->all();
+    }
+
+    private function sourceAuditBatchRows(array $period, bool $includeRawExcel = false): array
+    {
+        $batches = PassengerImportBatch::with('sourceFile')
+            ->whereIn('source_type', ['onedrive_skyfree_pax', 'excel'])
+            ->whereNotNull('period_start')
+            ->whereNotNull('period_end');
+
+        if ($period['start'] && $period['end']) {
+            $batches
+                ->whereDate('period_start', '<=', $period['end']->toDateString())
+                ->whereDate('period_end', '>=', $period['start']->toDateString());
+        }
+
+        return $batches
+            ->orderByDesc('period_start')
+            ->orderByDesc('id')
+            ->limit(60)
+            ->get()
+            ->map(function (PassengerImportBatch $batch) use ($includeRawExcel) {
+                $flightAgg = PassengerFlight::where('batch_id', $batch->id)
+                    ->selectRaw('COUNT(*) as rows_count, COALESCE(SUM(pax), 0) as pax_value, MIN(flight_date) as min_date, MAX(flight_date) as max_date')
+                    ->first();
+
+                $directions = PassengerFlight::where('batch_id', $batch->id)
+                    ->select('direction', DB::raw('COUNT(*) as rows_count'), DB::raw('COALESCE(SUM(pax), 0) as pax_value'))
+                    ->groupBy('direction')
+                    ->orderBy('direction')
+                    ->get()
+                    ->map(fn ($row) => [
+                        'direction' => $row->direction,
+                        'rows' => (int) $row->rows_count,
+                        'pax' => round((float) $row->pax_value, 2),
+                    ])
+                    ->all();
+                $rawDirections = $includeRawExcel
+                    ? $this->rawExcelDirectionsForBatch($batch)
+                    : ['path_found' => false, 'directions' => []];
+
+                $sourceFile = $batch->sourceFile;
+                $batchPax = round((float) $batch->total_pax, 2);
+                $flightPax = round((float) ($flightAgg?->pax_value ?? 0), 2);
+                $isOneDrive = $batch->source_type === 'onedrive_skyfree_pax'
+                    && $batch->observed_scope === 'commercial_flow'
+                    && ($sourceFile || $batch->source_url);
+                $difference = round($batchPax - $flightPax, 2);
+
+                return [
+                    'batch_id' => $batch->id,
+                    'filename' => $batch->filename,
+                    'period_start' => $batch->period_start?->toDateString(),
+                    'period_end' => $batch->period_end?->toDateString(),
+                    'source_type' => $batch->source_type,
+                    'observed_scope' => $batch->observed_scope,
+                    'is_onedrive' => $isOneDrive,
+                    'status' => $isOneDrive && abs($difference) <= 0.01 ? 'OK' : 'REVISAR',
+                    'batch_pax' => $batchPax,
+                    'batch_rows' => $batch->rows_imported,
+                    'flight_rows_pax' => $flightPax,
+                    'flight_rows_count' => (int) ($flightAgg?->rows_count ?? 0),
+                    'difference_vs_flight_rows' => $difference,
+                    'flight_min_date' => $flightAgg?->min_date,
+                    'flight_max_date' => $flightAgg?->max_date,
+                    'directions' => $directions,
+                    'raw_excel_directions' => $rawDirections['directions'],
+                    'raw_excel_path_found' => $rawDirections['path_found'],
+                    'source_file' => $sourceFile ? [
+                        'id' => $sourceFile->id,
+                        'provider' => $sourceFile->provider,
+                        'drive_item_id' => $sourceFile->drive_item_id,
+                        'drive_id' => $sourceFile->drive_id,
+                        'name' => $sourceFile->name,
+                        'web_url' => $sourceFile->web_url,
+                        'parent_path' => $sourceFile->parent_path,
+                        'status' => $sourceFile->status,
+                        'checksum' => $sourceFile->checksum,
+                        'source_last_modified_at' => $sourceFile->source_last_modified_at?->toDateTimeString(),
+                        'downloaded_at' => $sourceFile->downloaded_at?->toDateTimeString(),
+                    ] : null,
+                    'source_url' => $batch->source_url,
+                    'source_path' => $batch->source_path,
+                    'notes' => $batch->notes,
+                    'explanation' => $isOneDrive
+                        ? 'Este batch viene de Microsoft Graph / OneDrive PAX Col y representa PAX operativo Sky Free.'
+                        : 'Este batch no esta completamente trazado a OneDrive; puede ser carga manual o fuente anterior.',
+                ];
+            })
+            ->all();
+    }
+
+    private function rawExcelDirectionsForBatch(PassengerImportBatch $batch): array
+    {
+        $path = $this->storedOriginalPathForBatch($batch);
+
+        if (!$path) {
+            return ['path_found' => false, 'directions' => []];
+        }
+
+        try {
+            $reader = IOFactory::createReaderForFile($path);
+            $reader->setReadDataOnly(true);
+            $workbook = $reader->load($path);
+            $directions = [];
+
+            foreach ($workbook->getWorksheetIterator() as $sheet) {
+                $direction = match (strtoupper(trim($sheet->getTitle()))) {
+                    'ARRIVALS' => 'arrival',
+                    'DEPARTURES' => 'departure',
+                    default => null,
+                };
+
+                if (!$direction) {
+                    continue;
+                }
+
+                $rows = $sheet->toArray(null, true, true, false);
+                if (empty($rows)) {
+                    continue;
+                }
+
+                $headers = array_map(fn ($header) => strtolower(trim(str_replace([' ', '-'], '_', (string) $header))), $rows[0]);
+                $pax = 0.0;
+                $validRows = 0;
+
+                for ($i = 1; $i < count($rows); $i++) {
+                    $row = [];
+                    foreach ($headers as $idx => $key) {
+                        if ($key !== '') {
+                            $row[$key] = $rows[$i][$idx] ?? null;
+                        }
+                    }
+
+                    if (!$this->rawExcelRowLooksImportable($row)) {
+                        continue;
+                    }
+
+                    $pax += $this->rawExcelNumber($row['pax'] ?? null);
+                    $validRows++;
+                }
+
+                $directions[] = [
+                    'direction' => $direction,
+                    'rows' => $validRows,
+                    'pax' => round($pax, 2),
+                    'source' => 'stored_original_excel',
+                ];
+            }
+
+            return ['path_found' => true, 'directions' => $directions];
+        } catch (\Throwable $e) {
+            return [
+                'path_found' => true,
+                'directions' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function storedOriginalPathForBatch(PassengerImportBatch $batch): ?string
+    {
+        $directory = storage_path('app/private/imports/passenger-intelligence');
+        if (!is_dir($directory)) {
+            return null;
+        }
+
+        $candidates = glob($directory . DIRECTORY_SEPARATOR . '*.xlsx') ?: [];
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate) && hash_file('sha256', $candidate) === $batch->checksum) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function rawExcelRowLooksImportable(array $row): bool
+    {
+        return trim((string) ($row['date'] ?? '')) !== ''
+            && trim((string) ($row['aer'] ?? '')) !== ''
+            && trim((string) ($row['code'] ?? '')) !== ''
+            && $this->rawExcelNumber($row['pax'] ?? null) > 0;
+    }
+
+    private function rawExcelNumber(mixed $value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+
+        if (is_numeric($value)) {
+            return round((float) $value, 2);
+        }
+
+        $normalized = str_replace(',', '.', trim((string) $value));
+
+        return is_numeric($normalized) ? round((float) $normalized, 2) : 0.0;
+    }
+
     private function periodForExposure(?int $year, ?int $month): array
     {
         if ($year && $month) {
@@ -840,6 +1223,54 @@ class PassengerIntelligenceController extends Controller
             'airline' => $data['airline'] ?? null,
             'destination' => isset($data['destination']) ? strtoupper($data['destination']) : null,
         ];
+    }
+
+    private function observedMonthlyFactTotalForFilters(array $filters): ?float
+    {
+        if (($filters['data_type'] ?? 'observed') !== 'observed' || !empty($filters['direction']) || !empty($filters['airline']) || !empty($filters['destination'])) {
+            return null;
+        }
+
+        if (empty($filters['date_from']) || empty($filters['date_to'])) {
+            return null;
+        }
+
+        $from = Carbon::parse($filters['date_from'], 'America/Bogota')->startOfDay();
+        $to = Carbon::parse($filters['date_to'], 'America/Bogota')->startOfDay();
+
+        if (!$from->isSameDay($from->copy()->startOfMonth()) || !$to->isSameDay($to->copy()->endOfMonth()->startOfDay())) {
+            return null;
+        }
+
+        $cursor = $from->copy()->startOfMonth();
+        $end = $to->copy()->startOfMonth();
+        $periods = [];
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $periods[] = [(int) $cursor->year, (int) $cursor->month];
+            $cursor->addMonth();
+        }
+
+        if (empty($periods)) {
+            return null;
+        }
+
+        $query = PassengerMonthlyFact::where([
+            'airport_iata' => 'MDE',
+            'direction' => 'total',
+            'fact_type' => 'skyfree_commercial_observed_pax',
+            'source_type' => 'skyfree_onedrive_pax',
+        ]);
+
+        $query->where(function ($q) use ($periods) {
+            foreach ($periods as [$year, $month]) {
+                $q->orWhere(fn ($periodQuery) => $periodQuery->where('year', $year)->where('month', $month));
+            }
+        });
+
+        $facts = $query->get();
+
+        return $facts->count() === count($periods) ? round((float) $facts->sum('value'), 2) : null;
     }
 
     private function flightQuery(array $filters)
@@ -904,14 +1335,35 @@ class PassengerIntelligenceController extends Controller
             return $profile;
         }
 
-        return PassengerCompositionProfile::where('is_active', true)
+        $fallbackQuery = PassengerCompositionProfile::where('is_active', true)
             ->where(function ($q) use ($filters) {
                 $q->whereNull('direction');
                 if ($filters['direction']) {
                     $q->orWhere('direction', $filters['direction']);
                 }
+            });
+
+        $flightDate = Carbon::parse($date, 'America/Bogota');
+        $sameMonthProfile = (clone $fallbackQuery)
+            ->whereNotNull('valid_from')
+            ->whereMonth('valid_from', (int) $flightDate->month)
+            ->whereYear('valid_from', '<', (int) $flightDate->year)
+            ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
+            ->orderByDesc('valid_from')
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($sameMonthProfile) {
+            return $sameMonthProfile;
+        }
+
+        return $fallbackQuery
+            ->where(function ($q) use ($date) {
+                $q->whereNull('valid_from')->orWhereDate('valid_from', '<=', $date);
             })
             ->orderByRaw('CASE WHEN direction IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw('CASE WHEN valid_from IS NULL THEN 1 ELSE 0 END')
             ->orderByRaw("CASE WHEN method = 'MIGRATION_MICRODATA_MONTHLY_PROFILE' THEN 0 WHEN method = 'OFFICIAL_MONTHLY_RECONCILIATION' THEN 1 ELSE 2 END")
             ->orderByDesc('valid_from')
             ->orderByDesc('created_at')

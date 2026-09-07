@@ -18,6 +18,22 @@ class PassengerCommercialExposureService
 
     public function refreshObservedFacts(?int $year = null, ?int $month = null): array
     {
+        $factsToRefresh = PassengerMonthlyFact::where([
+            'airport_iata' => self::AIRPORT,
+            'fact_type' => 'skyfree_commercial_observed_pax',
+            'source_type' => 'skyfree_onedrive_pax',
+        ]);
+
+        if ($year) {
+            $factsToRefresh->where('year', $year);
+        }
+
+        if ($month) {
+            $factsToRefresh->where('month', $month);
+        }
+
+        $factsToRefresh->delete();
+
         $query = PassengerFlight::query()
             ->where('data_type', 'observed')
             ->where('observed_scope', 'commercial_flow');
@@ -54,7 +70,7 @@ class PassengerCommercialExposureService
 
         $facts = [];
 
-        foreach ($directionRows->merge($totalRows) as $row) {
+        foreach (array_merge($directionRows->all(), $totalRows->all()) as $row) {
             $facts[] = $this->upsertObservedFact(
                 (int) $row->year_value,
                 (int) $row->month_value,
