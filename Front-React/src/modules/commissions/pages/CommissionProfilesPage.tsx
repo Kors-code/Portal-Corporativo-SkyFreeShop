@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Target,
   Trash2,
   UserPlus,
   X,
@@ -39,6 +40,17 @@ type Draft = {
   user_ids: number[];
 };
 
+const emptyRule = (): CommissionProfileRule => ({
+  rule_type: "provider",
+  provider_name: "",
+  category_id: null,
+  category_code: null,
+  participation_pct: 0,
+  commission_percentage: 0,
+  commission_percentage100: 0,
+  commission_percentage120: 0,
+});
+
 const emptyDraft = (budgetId: number | null): Draft => ({
   budget_id: budgetId,
   name: "",
@@ -47,7 +59,7 @@ const emptyDraft = (budgetId: number | null): Draft => ({
   target_amount_usd: "",
   is_active: true,
   note: "",
-  rules: [{ rule_type: "provider", provider_name: "", category_id: null, category_code: null, commission_percentage: 0, commission_percentage100: 0, commission_percentage120: 0 }],
+  rules: [emptyRule()],
   user_ids: [],
 });
 
@@ -56,6 +68,9 @@ const moneyUsd = (value: number) =>
 
 const moneyCop = (value: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(Number(value || 0));
+
+// Muestra el numero tal cual (1.5 -> "1.5"), sin forzar 2 decimales (1.5 -> "1.50").
+const pct = (value: number | null | undefined) => String(Math.round(Number(value || 0) * 100) / 100);
 
 function draftFromProfile(profile: CommissionProfile): Draft {
   return {
@@ -69,7 +84,7 @@ function draftFromProfile(profile: CommissionProfile): Draft {
     note: profile.note ?? "",
     rules: profile.rules.length
       ? profile.rules.map((rule) => ({ ...rule }))
-      : [{ rule_type: "provider", provider_name: "", category_id: null, category_code: null, commission_percentage: 0, commission_percentage100: 0, commission_percentage120: 0 }],
+      : [emptyRule()],
     user_ids: profile.users.map((user) => Number(user.user_id)),
   };
 }
@@ -108,6 +123,33 @@ export default function CommissionProfilesPage() {
       )
       .slice(0, 80);
   }, [options, userSearch]);
+
+  const profileTargetUsd = Number(draft.target_amount_usd || 0);
+  const participationTotal = useMemo(
+    () => draft.rules.reduce((sum, rule) => sum + Number(rule.participation_pct || 0), 0),
+    [draft.rules]
+  );
+  const participationOverLimit = participationTotal > 100;
+
+  const ruleTargetUsd = (rule: CommissionProfileRule) => {
+    const pct = Number(rule.participation_pct || 0);
+    if (profileTargetUsd <= 0) return 0;
+    if (participationTotal > 0 && pct <= 0) return 0;
+    return pct > 0 ? profileTargetUsd * (pct / 100) : profileTargetUsd;
+  };
+
+  const assignedTargetUsd = useMemo(
+    () => draft.rules.reduce((sum, rule) => sum + ruleTargetUsd(rule), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draft.rules, profileTargetUsd, participationTotal]
+  );
+  const remainingTargetUsd = Math.max(0, profileTargetUsd - assignedTargetUsd);
+
+  function updateRuleTargetUsd(index: number, dollarValue: number) {
+    if (profileTargetUsd <= 0) return;
+    const pct = Math.max(0, (dollarValue / profileTargetUsd) * 100);
+    updateRule(index, { participation_pct: pct });
+  }
 
   useEffect(() => {
     (async () => {
@@ -187,7 +229,7 @@ export default function CommissionProfilesPage() {
   function addRule() {
     setDraft((current) => ({
       ...current,
-      rules: [...current.rules, { rule_type: "provider", provider_name: "", category_id: null, category_code: null, commission_percentage: 0, commission_percentage100: 0, commission_percentage120: 0 }],
+      rules: [...current.rules, emptyRule()],
     }));
   }
 
@@ -394,13 +436,19 @@ export default function CommissionProfilesPage() {
                 <button
                   type="button"
                   onClick={saveProfile}
-                  disabled={saving}
+                  disabled={saving || participationOverLimit}
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95 disabled:opacity-60"
                 >
                   <Check className="h-4 w-4" />
                   {saving ? "Guardando" : "Guardar"}
                 </button>
               </div>
+
+              {participationOverLimit && (
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                  La suma de las metas por regla no puede superar la meta total del perfil ({moneyUsd(profileTargetUsd)}).
+                </div>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -430,7 +478,7 @@ export default function CommissionProfilesPage() {
               </label>
 
               <label className="space-y-1">
-                <span className="text-sm font-bold text-slate-700">Meta USD opcional</span>
+                <span className="text-sm font-bold text-slate-700">Meta total USD</span>
                 <input
                   type="number"
                   min="0"
@@ -453,8 +501,28 @@ export default function CommissionProfilesPage() {
             </div>
 
             <div className="mt-6">
+              <div className="mb-4 grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                    <Target className="h-4 w-4 text-primary" />
+                    Meta perfil
+                  </div>
+                  <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(profileTargetUsd)}</p>
+                </div>
+                <div className={`rounded-md border p-3 ${participationOverLimit ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
+                  <p className={`text-xs font-black uppercase tracking-wide ${participationOverLimit ? "text-red-600" : "text-slate-500"}`}>Meta asignada a reglas</p>
+                  <p className={`mt-1 text-lg font-black ${participationOverLimit ? "text-red-700" : "text-slate-950"}`}>
+                    {moneyUsd(assignedTargetUsd)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Meta disponible</p>
+                  <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(remainingTargetUsd)}</p>
+                </div>
+              </div>
+
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-black text-slate-900">Reglas del perfil</h3>
+                <h3 className="font-black text-slate-900">Reglas y metas</h3>
                 <button type="button" onClick={addRule} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
                   <Plus className="h-4 w-4" />
                   Agregar regla
@@ -463,70 +531,89 @@ export default function CommissionProfilesPage() {
 
               <div className="space-y-3">
                 {draft.rules.map((rule, index) => (
-                  <div key={index} className="grid gap-3 rounded-md border border-slate-200 p-3 lg:grid-cols-[190px_1fr_1fr_180px_42px]">
-                    <select
-                      value={rule.rule_type}
-                      onChange={(event) => updateRule(index, { rule_type: event.target.value as CommissionProfileRule["rule_type"] })}
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                    >
-                      {(options?.rule_types ?? []).map((type) => (
-                        <option key={type.value} value={type.value}>
-                          {type.label}
-                        </option>
-                      ))}
-                    </select>
+                  <div key={index} className="rounded-md border border-slate-200 p-3">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <p className="text-sm font-black text-slate-900">Regla {index + 1}</p>
+                      <button
+                        type="button"
+                        onClick={() => removeRule(index)}
+                        disabled={draft.rules.length === 1}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                        aria-label="Quitar regla"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
 
-                    <select
-                      value={rule.provider_name ?? ""}
-                      onChange={(event) => updateRule(index, { provider_name: event.target.value })}
-                      disabled={rule.rule_type === "category"}
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      <option value="">Proveedor</option>
-                      {(options?.providers ?? []).map((provider) => (
-                        <option key={provider} value={provider}>
-                          {provider}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="grid gap-3 lg:grid-cols-[170px_1fr_1fr_150px_190px]">
+                      <select
+                        value={rule.rule_type}
+                        onChange={(event) => updateRule(index, { rule_type: event.target.value as CommissionProfileRule["rule_type"] })}
+                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      >
+                        {(options?.rule_types ?? []).map((type) => (
+                          <option key={type.value} value={type.value}>
+                            {type.label}
+                          </option>
+                        ))}
+                      </select>
 
-                    <select
-                      value={rule.category_id ?? ""}
-                      onChange={(event) => {
-                        const category = options?.categories.find((item) => item.id === Number(event.target.value));
-                        updateRule(index, { category_id: category?.id ?? null, category_code: category?.code ?? null });
-                      }}
-                      disabled={rule.rule_type === "provider"}
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      <option value="">Categoria</option>
-                      {(options?.categories ?? []).map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name} ({category.code})
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        value={rule.provider_name ?? ""}
+                        onChange={(event) => updateRule(index, { provider_name: event.target.value })}
+                        disabled={rule.rule_type === "category"}
+                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">Proveedor</option>
+                        {(options?.providers ?? []).map((provider) => (
+                          <option key={provider} value={provider}>
+                            {provider}
+                          </option>
+                        ))}
+                      </select>
 
-                    <button
-                      type="button"
-                      onClick={() => setTierModalIndex(index)}
-                      className="inline-flex h-10 items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                    >
-                      <span>
-                        80: {Number(rule.commission_percentage || 0).toFixed(2)} · 100: {Number(rule.commission_percentage100 || 0).toFixed(2)} · 120: {Number(rule.commission_percentage120 || 0).toFixed(2)}
-                      </span>
-                      <Percent className="h-4 w-4 text-primary" />
-                    </button>
+                      <select
+                        value={rule.category_id ?? ""}
+                        onChange={(event) => {
+                          const category = options?.categories.find((item) => item.id === Number(event.target.value));
+                          updateRule(index, { category_id: category?.id ?? null, category_code: category?.code ?? null });
+                        }}
+                        disabled={rule.rule_type === "provider"}
+                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">Categoria</option>
+                        {(options?.categories ?? []).map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name} ({category.code})
+                          </option>
+                        ))}
+                      </select>
 
-                    <button
-                      type="button"
-                      onClick={() => removeRule(index)}
-                      disabled={draft.rules.length === 1}
-                      className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-                      aria-label="Quitar regla"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                      <label className="relative" title={profileTargetUsd <= 0 ? "Define primero la meta total del perfil" : "Meta de esta regla, en dolares"}>
+                        <span className="pointer-events-none absolute left-3 top-2.5 text-sm font-bold text-slate-400">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          disabled={profileTargetUsd <= 0}
+                          value={Math.round(ruleTargetUsd(rule) * 100) / 100}
+                          onChange={(event) => updateRuleTargetUsd(index, Number(event.target.value || 0))}
+                          placeholder={profileTargetUsd <= 0 ? "Meta total primero" : "0.00"}
+                          className="h-10 w-full rounded-md border border-slate-200 pl-6 pr-3 text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => setTierModalIndex(index)}
+                        className="inline-flex h-10 items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        <span>
+                          80: {pct(rule.commission_percentage)} · 100: {pct(rule.commission_percentage100)} · 120: {pct(rule.commission_percentage120)}
+                        </span>
+                        <Percent className="h-4 w-4 text-primary" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -668,6 +755,22 @@ export default function CommissionProfilesPage() {
                           <p className="font-semibold text-slate-700">{Number(row.applied_commission_pct || 0).toFixed(2)}%</p>
                         </div>
                       </div>
+                      {!!row.rules?.length && (
+                        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                          {row.rules.map((rule) => (
+                            <div key={rule.rule_id} className="grid gap-2 rounded-md bg-slate-50 p-2 text-xs sm:grid-cols-[1fr_90px_90px_70px]">
+                              <div className="font-bold text-slate-700">
+                                {rule.provider_name || "Proveedor libre"} · {rule.category_code || "Categoria libre"}
+                              </div>
+                              <div className="text-slate-600">Meta {moneyUsd(rule.target_usd ?? 0)}</div>
+                              <div className="font-bold text-slate-900">{moneyUsd(rule.sales_usd)}</div>
+                              <div className={Number(rule.fulfillment_pct || 0) >= 80 ? "font-bold text-emerald-700" : "font-bold text-amber-700"}>
+                                {rule.fulfillment_pct == null ? "Sin meta" : `${Number(rule.fulfillment_pct).toFixed(0)}%`}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
 
@@ -687,7 +790,7 @@ export default function CommissionProfilesPage() {
                 <div className="mt-3 space-y-2">
                   {selectedProfile.rules.map((rule) => (
                     <div key={rule.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                      {rule.rule_type.replace("_", " + ")} · {rule.provider_name || "cualquier proveedor"} · {rule.category_code || "cualquier categoria"} · 80: {Number(rule.commission_percentage || 0).toFixed(2)} / 100: {Number(rule.commission_percentage100 || 0).toFixed(2)} / 120: {Number(rule.commission_percentage120 || 0).toFixed(2)}
+                      {rule.rule_type.replace("_", " + ")} · {rule.provider_name || "cualquier proveedor"} · {rule.category_code || "cualquier categoria"} · Meta: {moneyUsd(ruleTargetUsd(rule))} · 80: {pct(rule.commission_percentage)} / 100: {pct(rule.commission_percentage100)} / 120: {pct(rule.commission_percentage120)}
                     </div>
                   ))}
                 </div>

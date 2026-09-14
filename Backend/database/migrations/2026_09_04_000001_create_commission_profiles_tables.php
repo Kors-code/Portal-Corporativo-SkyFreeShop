@@ -40,6 +40,7 @@ return new class extends Migration
             $table->string('category_code', 60)->nullable()->index();
             $table->string('brand', 120)->nullable()->index();
             $table->string('product_code', 80)->nullable()->index();
+            $table->decimal('participation_pct', 8, 4)->default(0);
             $table->decimal('commission_percentage', 8, 4)->default(0);
             $table->decimal('commission_percentage100', 8, 4)->default(0);
             $table->decimal('commission_percentage120', 8, 4)->default(0);

@@ -27,6 +27,7 @@ class CommissionProfileEarnersExport implements FromArray, WithHeadings, ShouldA
             'Codigo vendedor',
             'Ventas',
             'Unidades',
+            'Meta USD',
             'Ventas USD',
             'Ventas COP',
             'Cumplimiento %',

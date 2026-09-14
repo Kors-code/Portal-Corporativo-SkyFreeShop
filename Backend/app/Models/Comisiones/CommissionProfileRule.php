@@ -16,6 +16,7 @@ class CommissionProfileRule extends Model
         'category_code',
         'brand',
         'product_code',
+        'participation_pct',
         'commission_percentage',
         'commission_percentage100',
         'commission_percentage120',
@@ -25,6 +26,7 @@ class CommissionProfileRule extends Model
         'commission_percentage' => 'float',
         'commission_percentage100' => 'float',
         'commission_percentage120' => 'float',
+        'participation_pct' => 'float',
     ];
 
     public function profile()

@@ -220,6 +220,7 @@ class CommissionProfileController extends Controller
             $row['seller_code'] ?? '',
             $row['sales_count'] ?? 0,
             $row['units'] ?? 0,
+            $row['target_usd'] ?? '',
             $row['sales_usd'] ?? 0,
             $row['sales_cop'] ?? 0,
             $row['fulfillment_pct'] ?? '',
@@ -234,8 +235,12 @@ class CommissionProfileController extends Controller
     private function buildRowsForProfile(CommissionProfile $profile, ?int $budgetId, $budget): array
     {
         $rows = [];
+        $hasRuleParticipationPlan = $profile->rules->sum(fn ($rule) => (float) ($rule->participation_pct ?? 0)) > 0;
+        $targetUsd = (float) ($profile->target_amount_usd ?? 0);
+
         foreach ($profile->assignments as $assignment) {
-            $ruleRows = [];
+            // Primera pasada: solo traemos las ventas de cada regla, sin decidir tramo todavia.
+            $ruleSales = [];
             foreach ($profile->rules as $rule) {
                 $query = DB::connection('budget')
                     ->table('sales')
@@ -255,10 +260,28 @@ class CommissionProfileController extends Controller
                     ->selectRaw('MAX(users.codigo_vendedor) as seller_code')
                     ->first();
 
+                $ruleSales[] = ['rule' => $rule, 'sales' => $sales];
+            }
+
+            // Cumplimiento de la PERSONA contra la meta total del perfil: esto es lo que decide
+            // el tramo 80/100/120 de cada regla, sin importar que tan chica sea su participacion.
+            $personSalesUsd = array_sum(array_map(fn ($rs) => (float) ($rs['sales']->sales_usd ?? 0), $ruleSales));
+            $personFulfillment = $targetUsd > 0 ? round(($personSalesUsd / $targetUsd) * 100, 2) : null;
+
+            // Segunda pasada: con el cumplimiento de la persona ya calculado, resolvemos el tramo
+            // y la comision de cada regla (la meta prorrateada por regla sigue siendo informativa).
+            $ruleRows = [];
+            foreach ($ruleSales as $entry) {
+                $rule = $entry['rule'];
+                $sales = $entry['sales'];
+
                 $salesUsd = (float) ($sales->sales_usd ?? 0);
-                $targetUsd = (float) ($profile->target_amount_usd ?? 0);
-                $fulfillment = $targetUsd > 0 ? round(($salesUsd / $targetUsd) * 100, 2) : null;
-                $appliedPct = $this->resolveRuleCommissionPct($rule, $fulfillment);
+                $ruleParticipationPct = (float) ($rule->participation_pct ?? 0);
+                $ruleTargetUsd = $this->ruleTargetAmount($targetUsd, $ruleParticipationPct, $hasRuleParticipationPlan);
+                $ruleFulfillment = $ruleTargetUsd > 0 ? round(($salesUsd / $ruleTargetUsd) * 100, 2) : null;
+                $appliedPct = ($hasRuleParticipationPlan && $ruleTargetUsd <= 0)
+                    ? 0.0
+                    : $this->resolveRuleCommissionPct($rule, $personFulfillment);
                 $eligible = $salesUsd > 0 && $appliedPct > 0;
                 $commissionUsd = $eligible ? round($salesUsd * ($appliedPct / 100), 2) : 0.0;
 
@@ -267,11 +290,13 @@ class CommissionProfileController extends Controller
                     'rule_type' => $rule->rule_type,
                     'provider_name' => $rule->provider_name,
                     'category_code' => $rule->category_code,
+                    'participation_pct' => round($ruleParticipationPct, 4),
+                    'target_usd' => $ruleTargetUsd,
                     'sales_count' => (int) ($sales->rows_count ?? 0),
                     'units' => (float) ($sales->units ?? 0),
                     'sales_usd' => round($salesUsd, 2),
                     'sales_cop' => round((float) ($sales->sales_cop ?? 0), 2),
-                    'fulfillment_pct' => $fulfillment,
+                    'fulfillment_pct' => $ruleFulfillment,
                     'eligible' => $eligible,
                     'applied_commission_pct' => $appliedPct,
                     'commission_usd' => $commissionUsd,
@@ -287,11 +312,10 @@ class CommissionProfileController extends Controller
             $salesUsd = array_sum(array_column($ruleRows, 'sales_usd'));
             $salesCop = array_sum(array_column($ruleRows, 'sales_cop'));
             $commissionUsd = array_sum(array_column($ruleRows, 'commission_usd'));
+            $ruleTargetUsd = array_sum(array_column($ruleRows, 'target_usd'));
             $weightedPct = $salesUsd > 0
                 ? array_sum(array_map(fn ($ruleRow) => $ruleRow['sales_usd'] * $ruleRow['applied_commission_pct'], $ruleRows)) / $salesUsd
                 : 0.0;
-            $targetUsd = (float) ($profile->target_amount_usd ?? 0);
-            $fulfillment = $targetUsd > 0 ? round(($salesUsd / $targetUsd) * 100, 2) : null;
 
             $rows[] = [
                 'user_id' => $assignment->user_id,
@@ -299,9 +323,10 @@ class CommissionProfileController extends Controller
                 'seller_code' => $user->codigo_vendedor ?? null,
                 'sales_count' => (int) array_sum(array_column($ruleRows, 'sales_count')),
                 'units' => (float) array_sum(array_column($ruleRows, 'units')),
+                'target_usd' => round($ruleTargetUsd, 2),
                 'sales_usd' => round($salesUsd, 2),
                 'sales_cop' => round($salesCop, 2),
-                'fulfillment_pct' => $fulfillment,
+                'fulfillment_pct' => $personFulfillment,
                 'eligible' => $commissionUsd > 0,
                 'applied_commission_pct' => round($weightedPct, 4),
                 'commission_usd' => round($commissionUsd, 2),
@@ -317,6 +342,7 @@ class CommissionProfileController extends Controller
         return [
             'sales_usd' => round(array_sum(array_column($rows, 'sales_usd')), 2),
             'sales_cop' => round(array_sum(array_column($rows, 'sales_cop')), 2),
+            'target_usd' => round(array_sum(array_column($rows, 'target_usd')), 2),
             'commission_usd' => round(array_sum(array_column($rows, 'commission_usd')), 2),
             'sales_count' => array_sum(array_column($rows, 'sales_count')),
         ];
@@ -344,6 +370,7 @@ class CommissionProfileController extends Controller
             'rules.*.provider_name' => ['nullable', 'string', 'max:160'],
             'rules.*.category_id' => ['nullable', 'integer'],
             'rules.*.category_code' => ['nullable', 'string', 'max:60'],
+            'rules.*.participation_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'rules.*.commission_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
             'rules.*.commission_percentage100' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'rules.*.commission_percentage120' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -362,6 +389,15 @@ class CommissionProfileController extends Controller
             ) {
                 abort(422, 'La categoria es obligatoria para reglas por categoria.');
             }
+        }
+
+        $participationTotal = array_sum(array_map(
+            fn ($rule) => (float) ($rule['participation_pct'] ?? 0),
+            $payload['rules']
+        ));
+
+        if ($participationTotal > 100.0001) {
+            abort(422, 'La participacion total de las reglas no puede superar el 100% de la meta del perfil.');
         }
 
         return [
@@ -405,6 +441,7 @@ class CommissionProfileController extends Controller
                 'provider_name' => $rule['provider_name'] ?? null,
                 'category_id' => $rule['category_id'] ?? null,
                 'category_code' => $categoryCode,
+                'participation_pct' => $rule['participation_pct'] ?? 0,
                 'commission_percentage' => $rule['commission_percentage'] ?? 0,
                 'commission_percentage100' => $rule['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $rule['commission_percentage120'] ?? 0,
@@ -447,6 +484,7 @@ class CommissionProfileController extends Controller
                 'provider_name' => $rule->provider_name,
                 'category_id' => $rule->category_id,
                 'category_code' => $rule->category_code,
+                'participation_pct' => (float) ($rule->participation_pct ?? 0),
                 'commission_percentage' => (float) $rule->commission_percentage,
                 'commission_percentage100' => (float) $rule->commission_percentage100,
                 'commission_percentage120' => (float) $rule->commission_percentage120,
@@ -507,6 +545,23 @@ class CommissionProfileController extends Controller
         if (in_array($rule->rule_type, ['category', 'provider_category'], true)) {
             $query->whereRaw('CAST(products.classification AS CHAR) = ?', [(string) $rule->category_code]);
         }
+    }
+
+    private function ruleTargetAmount(float $profileTargetUsd, float $participationPct, bool $hasRuleParticipationPlan): float
+    {
+        if ($profileTargetUsd <= 0) {
+            return 0.0;
+        }
+
+        if ($hasRuleParticipationPlan && $participationPct <= 0) {
+            return 0.0;
+        }
+
+        if ($participationPct <= 0) {
+            return round($profileTargetUsd, 2);
+        }
+
+        return round($profileTargetUsd * ($participationPct / 100), 2);
     }
 
     private function resolveRuleCommissionPct($rule, ?float $fulfillment): float

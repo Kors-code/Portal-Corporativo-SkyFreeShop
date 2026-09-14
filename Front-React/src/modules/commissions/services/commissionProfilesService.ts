@@ -6,6 +6,7 @@ export type CommissionProfileRule = {
   provider_name?: string | null;
   category_id?: number | null;
   category_code?: string | null;
+  participation_pct?: number;
   commission_percentage: number;
   commission_percentage100?: number;
   commission_percentage120?: number;
@@ -59,6 +60,7 @@ export type CommissionProfileSummary = {
     seller_code?: string | null;
     sales_count: number;
     units: number;
+    target_usd?: number;
     sales_usd: number;
     sales_cop: number;
     fulfillment_pct?: number | null;
@@ -70,6 +72,8 @@ export type CommissionProfileSummary = {
       rule_type: CommissionProfileRule["rule_type"];
       provider_name?: string | null;
       category_code?: string | null;
+      participation_pct?: number;
+      target_usd?: number;
       sales_count: number;
       sales_usd: number;
       fulfillment_pct?: number | null;
@@ -80,6 +84,7 @@ export type CommissionProfileSummary = {
   totals: {
     sales_usd: number;
     sales_cop: number;
+    target_usd?: number;
     commission_usd: number;
     sales_count: number;
   };
