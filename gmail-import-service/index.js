@@ -19,7 +19,7 @@ const config = {
   downloadDir: process.env.GMAIL_DOWNLOAD_DIR || "./downloads",
   statePath: process.env.STATE_PATH || "./state.json",
   runOnStart: String(process.env.RUN_ON_START || "true").toLowerCase() === "true",
-  cronSchedule: process.env.CRON_SCHEDULE || "*/10 * * * *",
+  cronSchedule: process.env.CRON_SCHEDULE || "*/30 * * * *",
   timezone: process.env.TIMEZONE || "America/Bogota",
   catalogEnabled: String(process.env.CATALOG_ENABLED || "true").toLowerCase() === "true",
   catalogQuery: process.env.CATALOG_QUERY || "",

@@ -9,7 +9,7 @@ Flujo:
 3. Envia el archivo al endpoint Laravel con `X-Automation-Token`.
 4. Guarda `state.json` para no repetir el mismo adjunto.
 
-El servicio queda pensado para correr como una app Node independiente. En produccion se recomienda levantarlo con Docker y dejar que su cron interno revise Gmail cada 10 minutos.
+El servicio queda pensado para correr como una app Node independiente. En produccion se recomienda levantarlo con Docker y dejar que su cron interno revise Gmail cada 30 minutos.
 
 ## Endpoints Laravel
 
@@ -131,7 +131,7 @@ Una sola vez:
 npm run once
 ```
 
-Cada 10 minutos por cron interno:
+Cada 30 minutos por cron interno:
 
 ```powershell
 npm start
@@ -140,7 +140,7 @@ npm start
 El horario se controla con:
 
 ```env
-CRON_SCHEDULE=*/10 * * * *
+CRON_SCHEDULE=*/30 * * * *
 TIMEZONE=America/Bogota
 ```
 
@@ -165,9 +165,9 @@ Copy-Item gmail-import-service/.env.docker.example gmail-import-service/.env.doc
 ```env
 BACKEND_URL=https://tu-backend.com
 IMPORT_AUTOMATION_TOKEN=el-mismo-token-de-Backend
-CRON_SCHEDULE=*/10 * * * *
+CRON_SCHEDULE=*/30 * * * *
 RESUME_AUTO_ENABLED=true
-RESUME_AUTO_QUERY=subject:(hoja de vida OR cv OR hv) has:attachment newer_than:7d
+RESUME_AUTO_QUERY=subject:(hoja de vida OR cv OR hv) has:attachment after:2026/09/16
 ```
 
 3. Deja credenciales y token en el volumen persistente:
