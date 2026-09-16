@@ -13,6 +13,7 @@
 
     <a  class="btn-nuevo" href="{{ route('vacantes.index') }}">➕ Nuevo candidato</a>
     <a  class="btn-nuevo"  href="{{ route('subirAllCv') }}">🧙​ Store masivo</a>
+    <a  class="btn-nuevo"  href="{{ route('candidatos.provenientes-correo') }}">📩 Provenientes del correo</a>
 
 
     <ul class="vacante-lista ">

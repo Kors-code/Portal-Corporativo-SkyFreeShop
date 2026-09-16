@@ -1,0 +1,10 @@
+services:
+  gmail-import-service:
+    build:
+      context: ./gmail-import-service
+    container_name: sky-gmail-import-service
+    restart: unless-stopped
+    env_file:
+      - ./gmail-import-service/.env.docker
+    volumes:
+      - ./gmail-import-service/data:/app/data

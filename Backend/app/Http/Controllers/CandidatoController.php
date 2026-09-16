@@ -11,6 +11,7 @@ use PhpOffice\PhpWord\Element\Text;
 use PhpOffice\PhpWord\Element\TextRun;
 use PhpOffice\PhpWord\Element\AbstractElement; // Importar la clase base AbstractElement
 use App\Services\OpenAiService;
+use App\Services\CandidateCvImportService;
 use Illuminate\Support\Facades\Storage;
 use MailerSend\MailerSend;
 use MailerSend\Helpers\Builder\Recipient;
@@ -34,6 +35,73 @@ public function index(Request $request)
     $candidatos = $query->get();
 
     return view('candidatos.index', compact('candidatos'));
+}
+
+public function provenientesCorreo(Request $request)
+{
+    $query = Candidato::query()
+        ->with('vacante')
+        ->where('source_channel', 'gmail')
+        ->latest();
+
+    if ($request->input('estado_bandeja', 'pendientes') === 'vistos') {
+        $query->whereNotNull('gmail_seen_at');
+    } elseif ($request->input('estado_bandeja', 'pendientes') === 'todos') {
+        // sin filtro
+    } else {
+        $query->whereNull('gmail_seen_at');
+    }
+
+    if ($request->filled('from')) {
+        $query->where('source_email_from', 'LIKE', $this->likeSearchTerm($request->input('from')));
+    }
+
+    if ($request->filled('subject')) {
+        $query->where('source_email_subject', 'LIKE', $this->likeSearchTerm($request->input('subject')));
+    }
+
+    if ($request->filled('vacante')) {
+        $query->whereHas('vacante', function ($vacanteQuery) use ($request) {
+            $vacanteQuery->where('slug', $request->input('vacante'));
+        });
+    }
+
+    $candidatos = $query->paginate(50)->withQueryString();
+    $vacantes = Vacante::orderBy('titulo')->get(['titulo', 'slug']);
+
+    return view('candidatos.provenientes-correo', compact('candidatos', 'vacantes'));
+}
+
+public function marcarCorreoVisto(Candidato $candidato)
+{
+    $candidato->gmail_seen_at = now();
+    $candidato->save();
+
+    return back()->with('success', 'Candidato marcado como visto.');
+}
+
+public function marcarCorreoPendiente(Candidato $candidato)
+{
+    $candidato->gmail_seen_at = null;
+    $candidato->save();
+
+    return back()->with('success', 'Candidato devuelto a pendientes.');
+}
+
+public function reasignarVacanteCorreo(Request $request, Candidato $candidato, CandidateCvImportService $importer)
+{
+    $data = $request->validate([
+        'vacante_slug' => ['required', 'string', 'exists:vacantes,slug'],
+    ]);
+
+    $vacante = Vacante::where('slug', $data['vacante_slug'])->firstOrFail();
+    $importer->reevaluateCandidateForVacancy(
+        $candidato,
+        $vacante,
+        'Reasignado manualmente a "' . $vacante->titulo . '" y reevaluado con IA.'
+    );
+
+    return back()->with('success', 'Candidato reasignado y reevaluado con IA para ' . $vacante->titulo);
 }
 
     public function mostrarCandidatos(Request $request)
@@ -204,9 +272,23 @@ if ($extension === 'pdf') {
     session()->put('toggles.contador', $request->input('contador') == '1');
     session()->put('toggles.cajero',   $request->input('cajero')   == '1');
     session()->put('toggles.ventas',   $request->input('ventas')   == '1');
-    $query = Candidato::query();
     $vacante = Vacante::where('slug', $slug)->firstOrFail();
-    $candidatos = $query->where('vacante_id', 'like', $vacante->id)->get();
+    $query = Candidato::query()->where('vacante_id', $vacante->id);
+
+    match ($request->input('bandeja', 'pendientes')) {
+        'vistos' => $query->whereNotNull('gmail_seen_at'),
+        'aprobados' => $query->where('estado', 'aprobado'),
+        'rechazados' => $query->where('estado', 'rechazado'),
+        'todos' => null,
+        default => $query
+            ->whereNull('gmail_seen_at')
+            ->where(function ($statusQuery) {
+                $statusQuery
+                    ->whereNull('estado')
+                    ->orWhere('estado', '')
+                    ->orWhere('estado', 'pendiente');
+            }),
+    };
     
     if ($request->filled('ordenar')) {
     $orden = $request->input('ordenar');

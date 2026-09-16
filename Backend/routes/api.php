@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\TurnsImportController;
 use App\Http\Controllers\Api\WhatsappAutomationController;
 use App\Http\Controllers\Api\WhatsappWebhookController;
+use App\Http\Controllers\Api\CandidateCvAutomationController;
 use App\Http\Controllers\Api\AdvisorInfoController;
 use App\Http\Controllers\Api\PassengerIntelligenceController;
 use App\Http\Controllers\importAutomation;
@@ -45,6 +46,8 @@ Route::post('/automation/import-catalog/chunk', [ProductCatalogImportController:
 Route::post('/automation/import-product-catalog', [ProductCatalogImportController::class, 'importAutomation'])->middleware($automationMiddleware);
 Route::post('/automation/import-product-catalog/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware($automationMiddleware);
 Route::post('/automation/import-product-catalog/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware($automationMiddleware);
+Route::post('/automation/import-cvs', [CandidateCvAutomationController::class, 'store'])->middleware($automationMiddleware);
+Route::post('/automation/import-cvs/auto', [CandidateCvAutomationController::class, 'autoStore'])->middleware($automationMiddleware);
 Route::post('/v1/product-catalog/import-automation', [ProductCatalogImportController::class, 'importAutomation'])->middleware($automationMiddleware);
 Route::post('/v1/product-catalog/import-automation/start', [ProductCatalogImportController::class, 'startAutomation'])->middleware($automationMiddleware);
 Route::post('/v1/product-catalog/import-automation/chunk', [ProductCatalogImportController::class, 'chunkAutomation'])->middleware($automationMiddleware);

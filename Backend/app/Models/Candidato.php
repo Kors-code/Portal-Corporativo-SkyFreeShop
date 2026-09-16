@@ -21,6 +21,21 @@ class Candidato extends Model
         'celular',
         'estado_correo',
         'autorizacion',
+        'source_channel',
+        'source_email_message_id',
+        'source_email_from',
+        'source_email_subject',
+        'source_email_received_at',
+        'routing_method',
+        'gmail_seen_at',
+        'cv_summary',
+        'vacancy_suggestions',
+    ];
+
+    protected $casts = [
+        'source_email_received_at' => 'datetime',
+        'gmail_seen_at' => 'datetime',
+        'vacancy_suggestions' => 'array',
     ];
      // Cifrar automáticamente algunos campos
     protected function email(): Attribute

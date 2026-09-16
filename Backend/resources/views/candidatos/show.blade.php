@@ -25,6 +25,7 @@
     <input type="hidden" name="contador" value="{{ request('contador') }}">
     <input type="hidden" name="cajero" value="{{ request('cajero') }}">
     <input type="hidden" name="ventas" value="{{ request('ventas') }}">
+    <input type="hidden" name="bandeja" value="{{ request('bandeja', 'pendientes') }}">
     <button type="submit" class="btn btn-success">Descargar Excel</button>
 </form>
 
@@ -51,6 +52,25 @@
     </div>
   </div>
 
+@php
+    $currentInbox = request('bandeja', 'pendientes');
+    $inboxTabs = [
+        'pendientes' => 'Pendientes',
+        'vistos' => 'Vistos',
+        'aprobados' => 'Aprobados',
+        'rechazados' => 'Rechazados',
+        'todos' => 'Todos',
+    ];
+@endphp
+
+<nav class="candidate-tabs" aria-label="Organizar candidatos">
+    @foreach ($inboxTabs as $tab => $label)
+        <a class="{{ $currentInbox === $tab ? 'is-active' : '' }}" href="{{ request()->fullUrlWithQuery(['bandeja' => $tab]) }}">
+            {{ $label }}
+        </a>
+    @endforeach
+</nav>
+
 
 <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasRight" aria-labelledby="offcanvasRightLabel">
     <div class="offcanvas-header">
@@ -69,6 +89,7 @@
         <input name="contador" id="contador" value="{{ request('contador') }}" type="hidden"/>
         <input name="cajero" id="cajero" value="{{ request('cajero') }}" type="hidden" />
         <input name="ventas" id="ventas" value="{{ request('ventas') }}" type="hidden" />
+        <input name="bandeja" value="{{ request('bandeja', 'pendientes') }}" type="hidden" />
         </div>
         <div >
             <h6>puntaje</h6>
@@ -96,6 +117,7 @@
                 <th>Descargar</th>
                 <th>Enviar Correo</th>
                 <th>¿Correo enviado?</th>
+                <th>Bandeja</th>
 <th>
     Puntaje 
     <div class="dropdown d-inline">
@@ -184,6 +206,24 @@
                     </td>
                     <td>
                         {{$candidato->estado_correo}}
+                    </td>
+                    <td>
+                        <div class="candidate-inbox-state">
+                            <span class="{{ $candidato->gmail_seen_at ? 'seen' : 'pending' }}">
+                                {{ $candidato->gmail_seen_at ? 'Vista' : 'Pendiente' }}
+                            </span>
+                            @if ($candidato->gmail_seen_at)
+                                <form action="{{ route('candidatos.pendiente', $candidato) }}" method="POST">
+                                    @csrf
+                                    <button type="submit" class="inbox-action">Devolver</button>
+                                </form>
+                            @else
+                                <form action="{{ route('candidatos.visto', $candidato) }}" method="POST">
+                                    @csrf
+                                    <button type="submit" class="inbox-action">Marcar vista</button>
+                                </form>
+                            @endif
+                        </div>
                     </td>
                     <td>
                         {{$candidato->puntaje}}

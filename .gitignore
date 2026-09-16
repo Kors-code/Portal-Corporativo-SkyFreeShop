@@ -1,1 +1,16 @@
 _incoming_onedrive_zip/
+
+# Node dependencies and local runtime files
+node_modules/
+gmail-import-service/node_modules/
+gmail-import-service/.env
+gmail-import-service/.env.docker
+gmail-import-service/credentials.json
+gmail-import-service/token.json
+gmail-import-service/state.json
+gmail-import-service/downloads/
+gmail-import-service/data/
+
+# Local framework/runtime noise
+Backend/storage/logs/*.log
+Backend/bootstrap/cache/*.php

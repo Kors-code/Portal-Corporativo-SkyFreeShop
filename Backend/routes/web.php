@@ -235,8 +235,26 @@ Route::middleware('auth')->group(function () {
     Route::post('/candidatos/{candidato}/aprobar', [CandidatoController::class, 'aprobar'])
         ->middleware(['permission:candidates.manage'])->name('candidatos.aprobar');
 
+    Route::post('/candidatos/{candidato}/visto', [CandidatoController::class, 'marcarCorreoVisto'])
+        ->middleware(['permission:candidates.manage'])->name('candidatos.visto');
+
+    Route::post('/candidatos/{candidato}/pendiente', [CandidatoController::class, 'marcarCorreoPendiente'])
+        ->middleware(['permission:candidates.manage'])->name('candidatos.pendiente');
+
     Route::get('/panel/candidatos', [CandidatoController::class, 'mostrarCandidatos'])
         ->middleware(['permission:candidates.view'])->name('panel.candidatos');
+
+    Route::get('/candidatos/provenientes-correo', [CandidatoController::class, 'provenientesCorreo'])
+        ->middleware(['permission:candidates.view'])->name('candidatos.provenientes-correo');
+
+    Route::post('/candidatos/provenientes-correo/{candidato}/reasignar', [CandidatoController::class, 'reasignarVacanteCorreo'])
+        ->middleware(['permission:candidates.manage'])->name('candidatos.provenientes-correo.reasignar');
+
+    Route::post('/candidatos/provenientes-correo/{candidato}/visto', [CandidatoController::class, 'marcarCorreoVisto'])
+        ->middleware(['permission:candidates.manage'])->name('candidatos.provenientes-correo.visto');
+
+    Route::post('/candidatos/provenientes-correo/{candidato}/pendiente', [CandidatoController::class, 'marcarCorreoPendiente'])
+        ->middleware(['permission:candidates.manage'])->name('candidatos.provenientes-correo.pendiente');
 
     Route::get('/candidatos/{slug}/aprobados', [CandidatoController::class, 'showaprobados'])
         ->middleware(['permission:candidates.view'])->name('candidatos.aprobados.list');

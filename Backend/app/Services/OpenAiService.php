@@ -208,6 +208,143 @@ PROMPT;
         ];
     }
 
+    public function elegirVacanteParaCV(string $texto, string $asunto, string $remitente, array $vacantes): array
+    {
+        $opciones = array_map(function ($vacante) {
+            return [
+                'slug' => $vacante['slug'] ?? null,
+                'titulo' => $vacante['titulo'] ?? null,
+                'localidad' => $vacante['localidad'] ?? null,
+                'descripcion' => mb_substr((string) ($vacante['descripcion'] ?? ''), 0, 500),
+                'requisito_ia' => mb_substr((string) ($vacante['requisito_ia'] ?? ''), 0, 500),
+            ];
+        }, $vacantes);
+
+        $prompt = [
+            [
+                'role' => 'system',
+                'content' => 'Eres un asistente de reclutamiento. Responde solo JSON valido con las claves slug, confianza y razon. El slug debe ser uno de los slugs disponibles o null si no hay una opcion razonable. La ubicacion es una senal fuerte: Rionegro, Medellin, Antioquia, Oriente antioqueno, Marinilla, La Ceja, Guarne, El Carmen de Viboral, El Retiro, El Santuario, San Vicente, La Union, El Penol, Guatape, Llanogrande y Jose Maria Cordoba deben preferir vacantes con localidad Aeropuerto Internacional Jose Maria Cordoba. Cartagena, Manga o Puerto de Manga deben preferir vacantes de Cartagena. No asignes a Cartagena solo porque el cargo dice asesor si el CV o correo indica una ubicacion del Oriente antioqueno/Jose Maria Cordoba.',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'asunto_correo' => $asunto,
+                    'remitente' => $remitente,
+                    'vacantes_disponibles' => $opciones,
+                    'cv_texto' => mb_substr($texto, 0, 12000),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ];
+
+        try {
+            $response = $this->client->chat()->create([
+                'model' => 'gpt-4o',
+                'messages' => $prompt,
+                'temperature' => 0.0,
+                'max_tokens' => 700,
+            ]);
+        } catch (Exception $e) {
+            \Log::error('OpenAI vacancy routing failed: ' . $e->getMessage());
+
+            return [
+                'slug' => null,
+                'confianza' => 0,
+                'razon' => 'Error al clasificar vacante con IA: ' . $e->getMessage(),
+            ];
+        }
+
+        $content = $response->choices[0]->message->content ?? '';
+        $json = json_decode($content, true);
+
+        if (!is_array($json)) {
+            $block = $this->extractJsonBlock($content);
+            $json = $block ? json_decode($block, true) : null;
+        }
+
+        if (!is_array($json)) {
+            return [
+                'slug' => null,
+                'confianza' => 0,
+                'razon' => 'La IA no devolvio una respuesta JSON valida.',
+            ];
+        }
+
+        return [
+            'slug' => $json['slug'] ?? null,
+            'confianza' => (int) ($json['confianza'] ?? 0),
+            'razon' => (string) ($json['razon'] ?? 'Sin razon de clasificacion.'),
+        ];
+    }
+
+    public function resumirCVParaBandeja(string $texto, string $asunto, array $vacantes): array
+    {
+        $opciones = array_map(function ($vacante) {
+            return [
+                'slug' => $vacante['slug'] ?? null,
+                'titulo' => $vacante['titulo'] ?? null,
+                'localidad' => $vacante['localidad'] ?? null,
+                'requisito_ia' => mb_substr((string) ($vacante['requisito_ia'] ?? ''), 0, 400),
+            ];
+        }, $vacantes);
+
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'Eres un asistente ATS. Devuelve solo JSON valido con claves resumen, fortalezas, alertas, sugerencias. sugerencias debe ser una lista de maximo 3 objetos y SOLO puede incluir vacantes reales de vacantes_disponibles usando su slug y titulo exactos, con puntaje 0-100 y razon. Si el CV no es legible, deja sugerencias vacias y explica el problema en alertas. No inventes datos ni acciones como si fueran vacantes.',
+            ],
+            [
+                'role' => 'user',
+                'content' => json_encode([
+                    'asunto_correo' => $asunto,
+                    'vacantes_disponibles' => $opciones,
+                    'cv_texto' => mb_substr($texto, 0, 12000),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+        ];
+
+        try {
+            $response = $this->client->chat()->create([
+                'model' => 'gpt-4o',
+                'messages' => $messages,
+                'temperature' => 0.0,
+                'max_tokens' => 1200,
+            ]);
+        } catch (Exception $e) {
+            \Log::error('OpenAI CV summary failed: ' . $e->getMessage());
+
+            return [
+                'resumen' => 'No se pudo generar resumen IA: ' . $e->getMessage(),
+                'fortalezas' => [],
+                'alertas' => [],
+                'sugerencias' => [],
+            ];
+        }
+
+        $content = $response->choices[0]->message->content ?? '';
+        $json = json_decode($content, true);
+
+        if (!is_array($json)) {
+            $block = $this->extractJsonBlock($content);
+            $json = $block ? json_decode($block, true) : null;
+        }
+
+        if (!is_array($json)) {
+            return [
+                'resumen' => 'La IA no devolvio un resumen estructurado.',
+                'fortalezas' => [],
+                'alertas' => ['Respuesta IA invalida'],
+                'sugerencias' => [],
+            ];
+        }
+
+        return [
+            'resumen' => (string) ($json['resumen'] ?? 'Sin resumen.'),
+            'fortalezas' => array_values((array) ($json['fortalezas'] ?? [])),
+            'alertas' => array_values((array) ($json['alertas'] ?? [])),
+            'sugerencias' => array_values((array) ($json['sugerencias'] ?? [])),
+        ];
+    }
+
     /**
      * Extrae un bloque JSON bruto desde el primer '{' hasta la última '}'.
      */

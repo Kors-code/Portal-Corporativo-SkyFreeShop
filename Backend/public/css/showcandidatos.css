@@ -169,6 +169,80 @@ body {
     background-color: #ffe6e6 !important;
 }
 
+.candidate-tabs {
+    max-width: 1180px;
+    margin: 18px auto 12px;
+    padding: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid #eadce1;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.candidate-tabs a {
+    padding: 9px 14px;
+    border-radius: 6px;
+    color: #4b1022;
+    background: #faf7f8;
+    border: 1px solid transparent;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.candidate-tabs a.is-active,
+.candidate-tabs a:hover {
+    background: #840028;
+    color: #fff;
+    border-color: #840028;
+    text-decoration: none;
+}
+
+.candidate-inbox-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.candidate-inbox-state span {
+    display: inline-flex;
+    justify-content: center;
+    min-width: 86px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.candidate-inbox-state .pending {
+    color: #8a5200;
+    background: #fff4d6;
+}
+
+.candidate-inbox-state .seen {
+    color: #0f6848;
+    background: #dcf7ea;
+}
+
+button.inbox-action {
+    padding: 5px 9px;
+    border: 1px solid #d8bcc5;
+    border-radius: 6px;
+    background: #fff;
+    color: #840028;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+button.inbox-action:hover {
+    background: #f8edf1;
+    text-decoration: none;
+}
+
 @keyframes fadeInUp {
     0% {
         opacity: 0;
@@ -229,6 +303,21 @@ body {
 
     button[type="submit"]:hover {
         text-decoration: underline;
+    }
+
+    .candidate-inbox-state button.inbox-action[type="submit"] {
+        padding: 5px 9px;
+        border: 1px solid #d8bcc5;
+        border-radius: 6px;
+        background: #fff;
+        color: #840028;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .candidate-inbox-state button.inbox-action[type="submit"]:hover {
+        background: #f8edf1;
+        text-decoration: none;
     }
 
     @media screen and (max-width: 600px) {
