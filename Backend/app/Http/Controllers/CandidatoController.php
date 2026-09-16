@@ -230,7 +230,7 @@ if ($extension === 'pdf') {
 
         // 🤖 Evaluar con OpenAI
         try {
-            $openai = new OpenAIService();
+            $openai = new OpenAiService();
             $evaluacion = $openai->analizarCV(
                 $text,
                 $vacante->slug,

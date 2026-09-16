@@ -241,7 +241,7 @@ class CandidateCvImportService
     private function evaluate(string $text, Vacante $vacante): array
     {
         try {
-            return (new OpenAIService())->analizarCV(
+            return (new OpenAiService())->analizarCV(
                 $text,
                 $vacante->slug,
                 $vacante->requisito_ia,
@@ -268,7 +268,7 @@ class CandidateCvImportService
             ->orderByDesc('id')
             ->get();
 
-        $summary = (new OpenAIService())->resumirCVParaBandeja(
+        $summary = (new OpenAiService())->resumirCVParaBandeja(
             $text,
             $subject,
             $vacantes->map->toArray()->all()
@@ -388,7 +388,7 @@ class CandidateCvImportService
             ];
         }
 
-        $classification = (new OpenAIService())->elegirVacanteParaCV(
+        $classification = (new OpenAiService())->elegirVacanteParaCV(
             $text,
             (string) ($metadata['subject'] ?? ''),
             (string) ($metadata['email'] ?? ''),

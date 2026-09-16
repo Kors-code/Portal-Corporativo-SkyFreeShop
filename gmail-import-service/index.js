@@ -190,11 +190,23 @@ async function processJob(gmail, state, job) {
       }
 
       const filePath = await downloadAttachment(gmail, messageRef.id, attachment);
-      const result = await postFile(job, filePath, attachment.filename, {
-        sender,
-        subject,
-        messageId: messageRef.id,
-      });
+      let result;
+      try {
+        result = await postFile(job, filePath, attachment.filename, {
+          sender,
+          subject,
+          messageId: messageRef.id,
+        });
+      } catch (error) {
+        console.error("No se pudo importar adjunto:", describeHttpError(error, {
+          job: `${job.kind}:${job.name}`,
+          endpoint: job.endpoint,
+          filename: attachment.filename,
+          messageId: messageRef.id,
+        }));
+        continue;
+      }
+
       state.processed[stateKey] = {
         at: new Date().toISOString(),
         filename: attachment.filename,
@@ -379,6 +391,24 @@ function truncate(value, maxLength) {
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
+function describeHttpError(error, context = {}) {
+  const response = error?.response;
+
+  if (response) {
+    return {
+      ...context,
+      status: response.status,
+      statusText: response.statusText,
+      message: response.data?.message || error.message,
+    };
+  }
+
+  return {
+    ...context,
+    message: error?.message || String(error),
+  };
+}
+
 function trimRight(value, char) {
   let output = value;
   while (output.endsWith(char)) {
@@ -388,6 +418,6 @@ function trimRight(value, char) {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error("Gmail import service fallo:", describeHttpError(error));
   process.exit(1);
 });

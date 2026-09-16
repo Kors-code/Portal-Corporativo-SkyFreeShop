@@ -7,7 +7,7 @@ use DateTime;
 use Exception;
 use GuzzleHttp\Client as GuzzleClient;
 
-class OpenAIService
+class OpenAiService
 {
     protected $client;
 
