@@ -42,7 +42,7 @@ const statusOrder: Record<string, number> = {
 const statusLabel: Record<string, string> = {
   sin_stock: "Sin stock",
   critico: "Critico",
-  alto: "Alto",
+  alto: "Riesgo alto",
   medio: "Medio",
   estable: "Estable",
   sin_rotacion: "Sin rotacion",

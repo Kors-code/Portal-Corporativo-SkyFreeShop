@@ -167,7 +167,7 @@ BACKEND_URL=https://tu-backend.com
 IMPORT_AUTOMATION_TOKEN=el-mismo-token-de-Backend
 CRON_SCHEDULE=*/30 * * * *
 RESUME_AUTO_ENABLED=true
-RESUME_AUTO_QUERY=subject:(hoja de vida OR cv OR hv) has:attachment after:2026/09/16
+RESUME_AUTO_QUERY=(subject:postulacion OR subject:vida OR subject:cv OR subject:hv) has:attachment after:2026/09/16
 ```
 
 3. Deja credenciales y token en el volumen persistente:

@@ -61,6 +61,14 @@ Route::get('/welcome', [ShowInicioController::class, 'showWelcome'])
     ->name('welcome')
     ->middleware(['auth', 'permission:portal.view']);
 
+Route::get('/perfil', [UserController::class, 'verperfil'])
+    ->name('ver_perfil')
+    ->middleware(['auth']);
+
+Route::get('/perfil/enviar-verificacion', [UserController::class, 'enviarVerificacion'])
+    ->middleware(['auth', 'throttle:6,1'])
+    ->name('perfil.enviarVerificacion');
+
 Route::get('/presupuesto', [ShowInicioController::class, 'showPortal'])
     ->name('presupuesto')
     ->defaults('type', 'presupuesto')
@@ -192,8 +200,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/users/{user}/ver_user', [UserController::class, 'verusuario'])
         ->middleware(['permission:users.view'])->name('ver_user');
 
-    Route::get('/users/ver_perfil', [UserController::class, 'verperfil'])
-        ->name('ver_perfil');
+    Route::get('/users/ver_perfil', fn () => redirect()->route('ver_perfil'));
 
     Route::get('users', [UserController::class, 'index'])
         ->middleware(['permission:users.view'])->name('users.index');

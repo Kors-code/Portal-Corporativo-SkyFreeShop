@@ -218,7 +218,11 @@ async function processJob(gmail, state, job) {
         filename: attachment.filename,
         job: `${job.kind}:${job.name}`,
       };
-      console.log(`Importado ${attachment.filename} en ${job.endpoint}`);
+      if (result?.duplicate) {
+        console.log(`Duplicado detectado ${attachment.filename} (candidato_id=${result.candidato_id})`);
+      } else {
+        console.log(`Importado ${attachment.filename} en ${job.endpoint}`);
+      }
     }
   }
 }

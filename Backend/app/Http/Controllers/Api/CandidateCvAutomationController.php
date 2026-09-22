@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Candidato;
 use App\Models\Vacante;
 use App\Services\CandidateCvImportService;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +22,10 @@ class CandidateCvAutomationController extends Controller
             'email_subject' => ['nullable', 'string', 'max:500'],
             'gmail_message_id' => ['nullable', 'string', 'max:255'],
         ]);
+
+        if ($existing = $this->existingGmailCandidate($data['gmail_message_id'] ?? null)) {
+            return $this->existingCandidateResponse($existing);
+        }
 
         $vacante = Vacante::where('slug', $data['vacante_slug'])->firstOrFail();
         $candidato = $importer->importUploadedFile($request->file('cv'), $vacante, [
@@ -54,6 +59,10 @@ class CandidateCvAutomationController extends Controller
             'gmail_message_id' => ['nullable', 'string', 'max:255'],
         ]);
 
+        if ($existing = $this->existingGmailCandidate($data['gmail_message_id'] ?? null)) {
+            return $this->existingCandidateResponse($existing);
+        }
+
         $candidato = $importer->importUploadedFileWithAiRouting($request->file('cv'), [
             'name' => $data['sender_name'] ?? null,
             'email' => $data['sender_email'] ?? null,
@@ -72,5 +81,31 @@ class CandidateCvAutomationController extends Controller
             'puntaje' => $candidato->puntaje,
             'routing_method' => $candidato->routing_method,
         ], 201);
+    }
+
+    private function existingGmailCandidate(?string $messageId): ?Candidato
+    {
+        if (!$messageId) {
+            return null;
+        }
+
+        return Candidato::query()
+            ->where('source_channel', 'gmail')
+            ->where('source_email_message_id', $messageId)
+            ->latest()
+            ->first();
+    }
+
+    private function existingCandidateResponse(Candidato $candidato): JsonResponse
+    {
+        return response()->json([
+            'ok' => true,
+            'duplicate' => true,
+            'candidato_id' => $candidato->id,
+            'vacante_id' => $candidato->vacante_id,
+            'estado' => $candidato->estado,
+            'puntaje' => $candidato->puntaje,
+            'routing_method' => $candidato->routing_method,
+        ]);
     }
 }
