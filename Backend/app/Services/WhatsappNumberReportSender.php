@@ -80,9 +80,16 @@ class WhatsappNumberReportSender
             ->values()
             ->all();
 
-        $parameters = [$recipientLabel, $reportDate];
+        $parameters = [$this->dailyReportLabel($recipientLabel), $reportDate];
         $count = max(0, min(count($parameters), (int) config('services.whatsapp_cloud.daily_report_template_body_params', 2)));
 
         return array_slice($parameters, 0, $count);
+    }
+
+    private function dailyReportLabel(string $recipientLabel): string
+    {
+        $label = trim(preg_replace('/\bequipo\s+sky\b/i', '', $recipientLabel) ?? '');
+
+        return $label !== '' ? $label : 'Reporte de ventas';
     }
 }

@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class SendWhatsappMenu extends Command
 {
-    protected $signature = 'reports:send-whatsapp-menu {--to=*} {--name=Equipo Sky}';
+    protected $signature = 'reports:send-whatsapp-menu {--to=*} {--name=}';
 
     protected $description = 'Envia la plantilla aprobada del menu de reportes por WhatsApp.';
 
