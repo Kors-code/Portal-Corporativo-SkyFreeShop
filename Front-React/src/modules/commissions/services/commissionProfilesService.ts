@@ -72,6 +72,7 @@ export type CommissionProfileSummary = {
       rule_type: CommissionProfileRule["rule_type"];
       provider_name?: string | null;
       category_code?: string | null;
+      category_name?: string | null;
       participation_pct?: number;
       target_usd?: number;
       sales_count: number;

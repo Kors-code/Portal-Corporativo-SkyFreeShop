@@ -9,6 +9,7 @@ class InventoryReportService
 {
     public const DEFAULT_MAX_MONTHS = 12;
     public const MAX_ALLOWED_MONTHS = 20;
+    private const FILTERED_STOCK_STORE_IDS = [11];
 
     public function getStores(): array
     {
@@ -20,10 +21,11 @@ class InventoryReportService
             ->toArray();
     }
 
-    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null, ?int $maxMonths = null, ?array $productIds = null): array
+    public function getReport(?string $search = null, ?array $storeIds = null, ?string $asOfDate = null, ?int $maxMonths = null, ?array $productIds = null, ?array $filters = null): array
     {
         $maxMonths = $this->normalizeMaxMonths($maxMonths);
         $metricRange = $this->resolveMetricDateRange($asOfDate, $maxMonths);
+        $filters = $this->normalizeFilters($filters ?? []);
         $storeIds = collect($storeIds ?? [])
             ->filter(fn ($value) => $value !== null && $value !== '')
             ->map(fn ($value) => (int) $value)
@@ -36,6 +38,7 @@ class InventoryReportService
             ->unique()
             ->values()
             ->all();
+        $filteredStockBatchIds = $this->latestFilteredStockBatchIds($storeIds, $asOfDate);
 
         $latestInventoryDates = DB::connection('budget')->table('inventory as i')
             ->selectRaw('
@@ -46,6 +49,7 @@ class InventoryReportService
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
             ->when(!empty($productIds), fn ($q) => $q->whereIn('i.product_id', $productIds))
             ->when($asOfDate, fn ($q) => $q->whereDate('i.toDate', '<=', $asOfDate))
+            ->when(!empty($filteredStockBatchIds), fn ($q) => $this->applyFilteredStockSnapshotScope($q, $filteredStockBatchIds, 'i'))
             ->groupBy('i.product_id', 'i.store_id');
 
         $latestInventory = DB::connection('budget')->table('inventory as i')
@@ -87,6 +91,7 @@ class InventoryReportService
             ->select('i.product_id', 'i.store_id')
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
             ->when(!empty($productIds), fn ($q) => $q->whereIn('i.product_id', $productIds))
+            ->when(!empty($filteredStockBatchIds), fn ($q) => $this->applyFilteredStockSnapshotScope($q, $filteredStockBatchIds, 'i'))
             ->groupBy('i.product_id', 'i.store_id');
 
         $basePairs = $metricKeys->union($inventoryKeys);
@@ -186,6 +191,15 @@ class InventoryReportService
                         ->orWhere('inv.proveedor', 'like', $term);
                 });
             })
+            ->when($filters['brand'] !== null, function ($q) use ($filters) {
+                $q->whereRaw('COALESCE(inv.brand, p.brand, "") = ?', [$filters['brand']]);
+            })
+            ->when($filters['provider'] !== null, function ($q) use ($filters) {
+                $q->whereRaw('COALESCE(inv.supplier, inv.proveedor, p.provider_name, "") = ?', [$filters['provider']]);
+            })
+            ->when($filters['category'] !== null, function ($q) use ($filters) {
+                $q->whereRaw('COALESCE(p.classification_desc, "") = ?', [$filters['category']]);
+            })
             ->when(!empty($productIds), fn ($q) => $q->whereIn('p.id', $productIds))
             ->orderBy('st.name')
             ->orderByDesc('pm.maximo_mes')
@@ -280,11 +294,13 @@ class InventoryReportService
             ->unique()
             ->values()
             ->all();
+        $filteredStockBatchIds = $this->latestFilteredStockBatchIds($storeIds, $asOfDate);
 
         $latestInventoryDates = DB::connection('budget')->table('inventory as i')
             ->selectRaw('i.product_id, i.store_id, MAX(i.toDate) as last_inventory_date')
             ->when(!empty($storeIds), fn ($q) => $q->whereIn('i.store_id', $storeIds))
             ->when($asOfDate, fn ($q) => $q->whereDate('i.toDate', '<=', $asOfDate))
+            ->when(!empty($filteredStockBatchIds), fn ($q) => $this->applyFilteredStockSnapshotScope($q, $filteredStockBatchIds, 'i'))
             ->groupBy('i.product_id', 'i.store_id');
 
         return DB::connection('budget')->table('inventory as i')
@@ -428,6 +444,46 @@ class InventoryReportService
                 return $primary;
             })
             ->values();
+    }
+
+    private function latestFilteredStockBatchIds(array $storeIds, ?string $asOfDate = null): array
+    {
+        $filteredStoreIds = self::FILTERED_STOCK_STORE_IDS;
+        if (!empty($storeIds)) {
+            $filteredStoreIds = array_values(array_intersect($filteredStoreIds, $storeIds));
+        }
+
+        if (empty($filteredStoreIds)) {
+            return [];
+        }
+
+        return DB::connection('budget')
+            ->table('inventory_import_batches')
+            ->select('store_id', DB::raw('MAX(id) as batch_id'))
+            ->whereIn('store_id', $filteredStoreIds)
+            ->where('status', 'completed')
+            ->when($asOfDate, fn ($q) => $q->whereDate('to_date', '<=', $asOfDate))
+            ->groupBy('store_id')
+            ->pluck('batch_id', 'store_id')
+            ->mapWithKeys(fn ($batchId, $storeId) => [(int) $storeId => (int) $batchId])
+            ->all();
+    }
+
+    private function applyFilteredStockSnapshotScope($query, array $batchIdsByStore, string $alias)
+    {
+        $storeIds = array_keys($batchIdsByStore);
+
+        return $query->where(function ($scope) use ($batchIdsByStore, $storeIds, $alias) {
+            $scope->whereNotIn("{$alias}.store_id", $storeIds);
+
+            foreach ($batchIdsByStore as $storeId => $batchId) {
+                $scope->orWhere(function ($storeScope) use ($storeId, $batchId, $alias) {
+                    $storeScope
+                        ->where("{$alias}.store_id", (int) $storeId)
+                        ->where("{$alias}.batch_id", (int) $batchId);
+                });
+            }
+        });
     }
 
     private function uniqueSalesMetricRows($rows)
@@ -671,6 +727,26 @@ class InventoryReportService
         }
 
         return min($value, self::MAX_ALLOWED_MONTHS);
+    }
+
+    private function normalizeFilters(array $filters): array
+    {
+        return [
+            'brand' => $this->normalizeFilterValue($filters['brand'] ?? null),
+            'provider' => $this->normalizeFilterValue($filters['provider'] ?? null),
+            'category' => $this->normalizeFilterValue($filters['category'] ?? null),
+        ];
+    }
+
+    private function normalizeFilterValue(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+
+        return $text === '' ? null : $text;
     }
 
     private function resolveMetricDateRange(?string $asOfDate = null, ?int $maxMonths = null): ?array

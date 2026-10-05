@@ -61,9 +61,12 @@ function rowKey(row: EarnerRow) {
 }
 
 function ruleLabel(rule: EarnerRule) {
+  const categoryName = rule.category_name || (rule.category_code ? `Categoria ${rule.category_code}` : "Categoria ?");
+  const categoryLabel = rule.category_code ? `${categoryName} (Cat. ${rule.category_code})` : categoryName;
+
   if (rule.rule_type === "provider") return rule.provider_name || "Cualquier proveedor";
-  if (rule.rule_type === "category") return `Categoria ${rule.category_code ?? "?"}`;
-  return `${rule.provider_name || "Prov."} + Cat. ${rule.category_code ?? "?"}`;
+  if (rule.rule_type === "category") return categoryLabel;
+  return `${rule.provider_name || "Prov."} + ${categoryLabel}`;
 }
 
 function fulfillmentColor(pct: number) {

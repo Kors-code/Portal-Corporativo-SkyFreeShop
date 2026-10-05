@@ -28,6 +28,7 @@ import {
   importInventory,
   runInventoryMetrics,
   type InventoryItem,
+  type InventoryMetricFilters,
   type InventoryMetricItem,
   type Store,
 } from "../services/inventoryService";
@@ -45,6 +46,9 @@ type MetricsQuery = {
   storeIds: number[];
   asOfDate: string;
   search: string;
+  brand: string;
+  provider: string;
+  category: string;
 };
 
 export default function InventoryCoveragePage() {
@@ -73,6 +77,9 @@ export default function InventoryCoveragePage() {
     storeIds: [],
     asOfDate: "",
     search: "",
+    brand: "",
+    provider: "",
+    category: "",
   });
 
   useEffect(() => {
@@ -100,7 +107,9 @@ export default function InventoryCoveragePage() {
         undefined,
         search,
         selectedStoreIds.length > 0 ? selectedStoreIds : undefined,
-        asOfDate || undefined
+        asOfDate || undefined,
+        maxMonths,
+        currentMetricFilters(selectedBrand, selectedProvider, selectedCategory)
       );
 
       setData({
@@ -113,6 +122,9 @@ export default function InventoryCoveragePage() {
         storeIds: selectedStoreIds,
         asOfDate,
         search: search.trim(),
+        brand: selectedBrand,
+        provider: selectedProvider,
+        category: selectedCategory,
       });
     } catch (err: any) {
       console.error(err);
@@ -133,7 +145,8 @@ export default function InventoryCoveragePage() {
         search,
         selectedStoreIds.length > 0 ? selectedStoreIds : undefined,
         asOfDate || undefined,
-        maxMonths
+        maxMonths,
+        currentMetricFilters(selectedBrand, selectedProvider, selectedCategory)
       );
 
       setData(response);
@@ -141,6 +154,9 @@ export default function InventoryCoveragePage() {
         storeIds: selectedStoreIds,
         asOfDate,
         search: search.trim(),
+        brand: selectedBrand,
+        provider: selectedProvider,
+        category: selectedCategory,
       });
       setMessage(response?.message || "Cobertura recalculada correctamente.");
     } catch (err: any) {
@@ -179,7 +195,14 @@ export default function InventoryCoveragePage() {
           ? Array.from(new Set([...selectedStoreIds, Number(importStoreId)]))
           : [Number(importStoreId)];
 
-      const rows = await getInventoryMetrics(undefined, search, nextStoreIds, asOfDate || undefined);
+      const rows = await getInventoryMetrics(
+        undefined,
+        search,
+        nextStoreIds,
+        asOfDate || undefined,
+        maxMonths,
+        currentMetricFilters(selectedBrand, selectedProvider, selectedCategory)
+      );
 
       setData({
         message: "Cobertura cargada correctamente.",
@@ -191,6 +214,9 @@ export default function InventoryCoveragePage() {
         storeIds: nextStoreIds,
         asOfDate,
         search: search.trim(),
+        brand: selectedBrand,
+        provider: selectedProvider,
+        category: selectedCategory,
       });
     } catch (err: any) {
       console.error(err);
@@ -369,7 +395,10 @@ export default function InventoryCoveragePage() {
   const hasPendingMetricsFilters =
     !sameNumberSet(selectedStoreIds, appliedQuery.storeIds) ||
     asOfDate !== appliedQuery.asOfDate ||
-    search.trim() !== appliedQuery.search;
+    search.trim() !== appliedQuery.search ||
+    selectedBrand !== appliedQuery.brand ||
+    selectedProvider !== appliedQuery.provider ||
+    selectedCategory !== appliedQuery.category;
   const metricsActionText = !data
     ? "Presiona Actualizar vista para cargar la tabla con los filtros seleccionados."
     : hasPendingMetricsFilters
@@ -1845,6 +1874,18 @@ function sameNumberSet(left: number[], right: number[]): boolean {
   const rightSet = new Set(right);
 
   return left.every((value) => rightSet.has(value));
+}
+
+function currentMetricFilters(
+  brand: string,
+  provider: string,
+  category: string
+): InventoryMetricFilters {
+  return {
+    ...(brand ? { brand } : {}),
+    ...(provider ? { provider } : {}),
+    ...(category ? { category } : {}),
+  };
 }
 
 function slugify(value: string): string {

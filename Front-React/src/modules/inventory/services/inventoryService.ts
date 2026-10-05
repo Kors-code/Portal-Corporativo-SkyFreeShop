@@ -87,6 +87,13 @@ export interface InventoryMetricItem extends InventoryItem {
   stock_alert_label?: string | null;
   stock_alert_color?: string | null;
 }
+
+export type InventoryMetricFilters = {
+  brand?: string;
+  provider?: string;
+  category?: string;
+};
+
 export const getStores = async (): Promise<Store[]> => {
   const response = await api.get("stores");
   return response.data;
@@ -148,7 +155,8 @@ export const getInventoryMetrics = async (
   search?: string,
   storeIds?: number[],
   asOfDate?: string,
-  maxMonths?: number
+  maxMonths?: number,
+  filters?: InventoryMetricFilters
 ): Promise<InventoryMetricItem[]> => {
   const params: Record<string, string | number | number[]> = {};
 
@@ -157,6 +165,9 @@ export const getInventoryMetrics = async (
   if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
   if (asOfDate) params.as_of_date = asOfDate;
   if (maxMonths) params.max_months = maxMonths;
+  if (filters?.brand) params.brand = filters.brand;
+  if (filters?.provider) params.provider = filters.provider;
+  if (filters?.category) params.category = filters.category;
 
   const response = await api.get("inventory/metrics", { params });
   return response.data;
@@ -182,7 +193,8 @@ export const runInventoryMetrics = async (
   search?: string,
   storeIds?: number[],
   asOfDate?: string,
-  maxMonths?: number
+  maxMonths?: number,
+  filters?: InventoryMetricFilters
 ) => {
   const params: Record<string, string | number | number[]> = {};
 
@@ -191,6 +203,9 @@ export const runInventoryMetrics = async (
   if (storeIds && storeIds.length > 0) params.store_ids = storeIds;
   if (asOfDate) params.as_of_date = asOfDate;
   if (maxMonths) params.max_months = maxMonths;
+  if (filters?.brand) params.brand = filters.brand;
+  if (filters?.provider) params.provider = filters.provider;
+  if (filters?.category) params.category = filters.category;
 
   const response = await api.post("inventory/metrics/run", null, { params });
 

@@ -1476,11 +1476,34 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
 
         // --- days worked (group sales by shift date using hora if present)
         $shiftStartHour = 9;
-        $getShiftDate = function ($dateString, $timeString = null) use ($shiftStartHour) {
+        $nightShiftEvidenceHour = 20;
+        $nightShiftDatesBySeller = [];
+
+        foreach ($sales as $sale) {
+            $sellerId = (string) ($sale->seller_id ?? '');
+            $timeString = trim((string) ($sale->hora ?? ''));
+
+            if ($sellerId === '' || $timeString === '') {
+                continue;
+            }
+
+            try {
+                $saleTime = Carbon::parse(trim((string) $sale->sale_date . ' ' . $timeString));
+            } catch (\Throwable $e) {
+                continue;
+            }
+
+            if ((int) $saleTime->format('H') >= $nightShiftEvidenceHour) {
+                $nightShiftDatesBySeller[$sellerId][$saleTime->toDateString()] = true;
+            }
+        }
+
+        $getShiftDate = function ($dateString, $timeString = null, $sellerId = null) use ($shiftStartHour, $nightShiftDatesBySeller) {
             $dateString = (string) ($dateString ?? '');
             $timeString = (string) ($timeString ?? '');
+            $hasTime = trim($timeString) !== '';
 
-            if ($timeString !== '') {
+            if ($hasTime) {
                 $datetimeStr = trim($dateString . ' ' . $timeString);
             } else {
                 $datetimeStr = trim($dateString);
@@ -1492,12 +1515,19 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 try {
                     $dt = Carbon::parse($dateString);
                 } catch (\Throwable $e2) {
-                    $dt = Carbon::now();
+                    return null;
                 }
             }
 
-            if ((int)$dt->format('H') < $shiftStartHour) {
-                $dt = $dt->subDay();
+            if ($hasTime && (int)$dt->format('H') < $shiftStartHour) {
+                $previousDate = $dt->copy()->subDay()->toDateString();
+                $sellerKey = (string) ($sellerId ?? '');
+                $hasPreviousNightSales = $sellerKey !== ''
+                    && !empty($nightShiftDatesBySeller[$sellerKey][$previousDate]);
+
+                if ($hasPreviousNightSales) {
+                    $dt = $dt->subDay();
+                }
             }
 
             return $dt->toDateString();
@@ -1506,7 +1536,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $daysWorked = [];
         if ($sales->isNotEmpty()) {
             $grouped = $sales->groupBy(function ($s) use ($getShiftDate) {
-                return $getShiftDate($s->sale_date, $s->hora ?? null);
+                return $getShiftDate($s->sale_date, $s->hora ?? null, $s->seller_id ?? null);
             });
 
             foreach ($grouped as $date => $rows) {
@@ -1514,7 +1544,7 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 $sumCop = (float) $rows->sum(fn($r) => $r->amount_cop ?? 0);
 
                 $ticketKeys = $rows->map(function($r) use ($getShiftDate) {
-                    $shiftDate = $getShiftDate($r->sale_date, $r->hora ?? null);
+                    $shiftDate = $getShiftDate($r->sale_date, $r->hora ?? null, $r->seller_id ?? null);
                     return $r->folio ?? ('folio_null_' . $shiftDate . '_' . ($r->pdv ?? ''));
                 })->unique();
 
@@ -1536,6 +1566,83 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
         $daysWorkedCount = count($daysWorked);
 
         $user = User::select('id','name')->find($userId);
+        $periodLatestSaleDate = null;
+        $periodLatestSaleDateTime = null;
+        $lastImportPublishedAt = null;
+
+        $periodLatestSaleQuery = DB::connection('budget')
+            ->table('sales')
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+            ->whereBetween('sales.sale_date', [$startDate, $endDate]);
+
+        if (Schema::connection('budget')->hasColumn('sales','budget_id')) {
+            $periodLatestSaleQuery->whereIn('sales.budget_id', $budgetIds);
+        }
+
+        $periodLatestSaleDate = $periodLatestSaleQuery->max('sales.sale_date');
+        $latestSaleColumns = ['sales.sale_date', 'sales.hora'];
+        $hasSaleDateTimeColumn = Schema::connection('budget')->hasColumn('sales', 'sale_datetime');
+        if ($hasSaleDateTimeColumn) {
+            $latestSaleColumns[] = 'sales.sale_datetime';
+        }
+
+        $latestSaleQuery = DB::connection('budget')
+            ->table('sales')
+            ->select($latestSaleColumns)
+            ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+            ->whereBetween('sales.sale_date', [$startDate, $endDate]);
+
+        if (Schema::connection('budget')->hasColumn('sales','budget_id')) {
+            $latestSaleQuery->whereIn('sales.budget_id', $budgetIds);
+        }
+
+        if ($hasSaleDateTimeColumn) {
+            $latestSaleQuery->orderByDesc('sales.sale_datetime');
+        }
+
+        $latestSale = $latestSaleQuery
+            ->orderByDesc('sales.sale_date')
+            ->orderByDesc('sales.hora')
+            ->first();
+
+        if ($latestSale) {
+            if ($hasSaleDateTimeColumn && !empty($latestSale->sale_datetime)) {
+                $periodLatestSaleDateTime = Carbon::parse($latestSale->sale_datetime)->format('Y-m-d H:i:s');
+            } elseif (!empty($latestSale->sale_date) && !empty($latestSale->hora)) {
+                $periodLatestSaleDateTime = Carbon::parse($latestSale->sale_date . ' ' . $latestSale->hora)->format('Y-m-d H:i:s');
+            } elseif (!empty($latestSale->sale_date)) {
+                $periodLatestSaleDateTime = Carbon::parse($latestSale->sale_date)->toDateString();
+            }
+        }
+
+        if (
+            Schema::connection('budget')->hasTable('import_batches')
+            && Schema::connection('budget')->hasColumn('sales', 'import_batch_id')
+        ) {
+            $importDateColumns = [];
+            foreach (['sales_data_updated_at', 'published_at', 'import_date', 'created_at'] as $column) {
+                if (Schema::connection('budget')->hasColumn('import_batches', $column)) {
+                    $importDateColumns[] = "import_batches.$column";
+                }
+            }
+
+            if (!empty($importDateColumns)) {
+                $lastImportQuery = DB::connection('budget')
+                    ->table('sales')
+                    ->join('import_batches', 'import_batches.id', '=', 'sales.import_batch_id')
+                    ->whereIn('sales.pdv', ['COLS1', 'COLS2'])
+                    ->whereBetween('sales.sale_date', [$startDate, $endDate])
+                    ->whereNotNull('sales.import_batch_id');
+
+                if (Schema::connection('budget')->hasColumn('sales','budget_id')) {
+                    $lastImportQuery->whereIn('sales.budget_id', $budgetIds);
+                }
+
+                $lastImportPublishedAt = $lastImportQuery
+                    ->selectRaw('MAX(COALESCE(' . implode(', ', $importDateColumns) . ')) as last_imported_at')
+                    ->value('last_imported_at');
+            }
+        }
 
         return response()->json([
             'active' => true,
@@ -1559,6 +1666,12 @@ private function buildCommissionTierMap(array $budgetIds, ?int $roleId = null): 
                 'has_date_filter' => $hasDateFilter,
                 'target_amount' => $totalTarget,
                 'total_turns' => $totalTurns
+            ],
+            'data_freshness' => [
+                'sales_updated_through' => $periodLatestSaleDate,
+                'sales_updated_through_datetime' => $periodLatestSaleDateTime,
+                'user_last_sale_date' => $sales->max('sale_date'),
+                'last_import_published_at' => $lastImportPublishedAt,
             ],
             'tickets' => $userTicketsList,
             'tickets_summary' => $userTicketsSummary,

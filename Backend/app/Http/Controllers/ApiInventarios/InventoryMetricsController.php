@@ -20,9 +20,10 @@ class InventoryMetricsController extends Controller
         $storeIds = $this->resolveStoreIds($request);
         $asOfDate = $request->input('as_of_date');
         $maxMonths = $this->resolveMaxMonths($request);
+        $filters = $this->resolveFilters($request);
 
         return response()->json(
-            $service->getReport($search, $storeIds, $asOfDate, $maxMonths)
+            $service->getReport($search, $storeIds, $asOfDate, $maxMonths, null, $filters)
         );
     }
 
@@ -55,7 +56,7 @@ class InventoryMetricsController extends Controller
 
         $search = $request->get('search');
         $asOfDate = $request->input('as_of_date');
-        $rows = $service->getReport($search, $storeIds, $asOfDate, $maxMonths);
+        $rows = $service->getReport($search, $storeIds, $asOfDate, $maxMonths, null, $this->resolveFilters($request));
 
         return response()->json([
             'message' => 'Calculo ejecutado correctamente.',
@@ -93,5 +94,14 @@ class InventoryMetricsController extends Controller
         ]);
 
         return min($value ?: 12, 20);
+    }
+
+    private function resolveFilters(Request $request): array
+    {
+        return [
+            'brand' => $request->input('brand'),
+            'provider' => $request->input('provider'),
+            'category' => $request->input('category'),
+        ];
     }
 }

@@ -21,7 +21,7 @@ class ShowInicioController extends Controller
                 'title' => 'Portal Corporativo Sky Free Shop',
                 'subtitle' => 'Centro de acceso para operaciones, ventas, contabilidad, inventario, talento, analitica y administracion.',
                 'eyebrow' => 'Suite corporativa',
-                'area_order' => ['Comercial', 'Presupuesto', 'Informacional', 'Personal', 'Analitica', 'Contabilidad', 'Administracion'],
+                'area_order' => ['Comercial', 'Presupuesto', 'Informacional', 'Personal', 'Inventario', 'Analitica', 'Contabilidad', 'Administracion'],
                 'buttons' => [],
                 'showcase_groups' => [
                     [
@@ -345,6 +345,31 @@ class ShowInicioController extends Controller
                         'area' => 'Analitica',
                         'route' => '/panel/visualizaciones/inventario',
                         'permissions' => ['visualizations.view'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-boxes-stacked',
+                        'title' => 'Cobertura de Inventario',
+                        'text' => 'Consulta dias disponibles, riesgo y sugeridos por SKU y tienda.',
+                        'area' => 'Inventario',
+                        'route' => '/panel/inventarios/cobertura',
+                        'permissions' => ['inventarios.cobertura'],
+                        'featured' => true,
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-bell',
+                        'title' => 'Alertas de Inventario',
+                        'text' => 'Listas de seguimiento y notificaciones para productos criticos.',
+                        'area' => 'Inventario',
+                        'route' => '/panel/inventarios/alertas',
+                        'permissions' => ['inventarios.alertas'],
+                    ],
+                    [
+                        'icon' => 'fa-solid fa-warehouse',
+                        'title' => 'Importar Inventario',
+                        'text' => 'Historial y carga de movimientos de inventario por tienda.',
+                        'area' => 'Inventario',
+                        'route' => '/panel/InventoryImportsManagerPage',
+                        'permissions' => ['inventarios.importes'],
                     ],
                     [
                         'icon' => 'fa-solid fa-file-import',

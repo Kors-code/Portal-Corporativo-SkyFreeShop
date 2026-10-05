@@ -31,6 +31,7 @@
       'Presupuesto' => 'Presupuesto, reportes, cajeros e importes reunidos en una sola ruta de gestión.',
       'Informacional' => 'Material interno y consulta rápida para asesores.',
       'Personal' => 'Talento humano, vacantes, candidatos y procesos de seguimiento interno.',
+      'Inventario' => 'Cobertura, alertas e importaciones para gestionar stock por tienda y SKU.',
       'Analitica' => 'Visualizaciones ejecutivas, pasajeros, ventas por tienda, cierres e inventario.',
       'Contabilidad' => 'Importaciones bancarias, movimientos normalizados y archivos listos para gestión contable.',
       'Administracion' => 'Usuarios, permisos, configuraciones y gobierno del portal.',

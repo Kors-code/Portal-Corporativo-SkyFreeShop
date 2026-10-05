@@ -38,6 +38,13 @@ type TicketItem = {
   sale_date: string;
 };
 
+type DataFreshness = {
+  sales_updated_through?: string | null;
+  sales_updated_through_datetime?: string | null;
+  user_last_sale_date?: string | null;
+  last_import_published_at?: string | null;
+};
+
 const MIN_PCT_TO_QUALIFY = 80; // umbral que pediste
 
 export default function MyCommissionsPage() {
@@ -49,6 +56,7 @@ export default function MyCommissionsPage() {
   const [budget, setBudget] = useState<any>(null);
   const [userName, setUserName] = useState('Mis comisiones');
   const [userBudgetUsd, setUserBudgetUsd] = useState<number>(0);
+  const [dataFreshness, setDataFreshness] = useState<DataFreshness | null>(null);
 
   // budgets selection
   const [budgets, setBudgets] = useState<any[]>([]);
@@ -103,6 +111,7 @@ export default function MyCommissionsPage() {
       setBudget(null);
       setUserBudgetUsd(0);
       setUserName('Mis comisiones');
+      setDataFreshness(null);
       setTickets([]);
       setTicketsSummary(null);
       setDaysWorked([]);
@@ -123,6 +132,7 @@ export default function MyCommissionsPage() {
       setBudget(d.budget || null);
       setUserBudgetUsd(Number(d.user_budget_usd || 0));
       setUserName(d.user?.name ?? d.seller_name ?? 'Mis comisiones');
+      setDataFreshness(d.data_freshness || null);
 
       // tickets y resumen vienen directamente del backend
       setTickets(d.tickets || []);
@@ -165,6 +175,7 @@ export default function MyCommissionsPage() {
       setBudget(null);
       setUserBudgetUsd(0);
       setUserName('Mis comisiones');
+      setDataFreshness(null);
       setTickets([]);
       setTicketsSummary(null);
     } finally {
@@ -183,6 +194,44 @@ export default function MyCommissionsPage() {
       maximumFractionDigits:0
     }).format(v||0);
 
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return null;
+
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? `${value}T00:00:00`
+      : value;
+    const isoLike = normalized.replace(' ', 'T');
+    const date = new Date(isoLike);
+
+    if (Number.isNaN(date.getTime())) return value;
+
+    const hasTime = !/^\d{4}-\d{2}-\d{2}$/.test(value);
+
+    return new Intl.DateTimeFormat('es-CO', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      ...(hasTime ? { hour: 'numeric', minute: '2-digit' } : {}),
+    }).format(date);
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return null;
+
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? `${value}T00:00:00`
+      : value.replace(' ', 'T');
+    const date = new Date(normalized);
+
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat('es-CO', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(date);
+  };
+
   const totalSalesUsd = categories.reduce((s,c)=>s+Number(c.sales_sum_usd||0),0);
 
   const totalCommissionUsd =
@@ -199,6 +248,13 @@ export default function MyCommissionsPage() {
   const userPct = userBudgetUsd > 0 ? (totalSalesUsd / userBudgetUsd) * 100 : 0;
   const userPctRounded = Math.round((userPct + Number.EPSILON) * 100) / 100;
   const meetsBudget = userPct >= MIN_PCT_TO_QUALIFY;
+  const salesUpdatedThrough = formatDateTime(
+    dataFreshness?.sales_updated_through_datetime || dataFreshness?.sales_updated_through
+  );
+  const lastImportPublishedAt = formatDate(dataFreshness?.last_import_published_at);
+  const freshnessText = salesUpdatedThrough
+    ? `Ventas actualizadas hasta ${salesUpdatedThrough}`
+    : 'Fecha de actualización no disponible';
 
   const categoryCards = useMemo(() => {
     return categories.map(c => {
@@ -359,7 +415,14 @@ export default function MyCommissionsPage() {
         <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
           <div>
             <div className="text-sm text-gray-500">Comisiones de</div>
-            <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{userName}</h1>
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{userName}</h1>
+              {!loading && (
+                <span className="inline-flex w-fit items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 shadow-sm">
+                  {freshnessText}
+                </span>
+              )}
+            </div>
             {budget && (
               <div className="text-sm text-gray-400">
                 Periodo {budget.start_date} → {budget.end_date}
@@ -430,6 +493,17 @@ export default function MyCommissionsPage() {
                 </div>
               </div>
             </div>
+
+            {!loading && (
+              <div className="fixed bottom-4 right-4 z-40 max-w-[calc(100vw-2rem)] rounded-xl border border-emerald-200 bg-white/95 px-4 py-3 text-sm text-slate-700 shadow-lg backdrop-blur">
+                <div className="font-semibold text-emerald-800">{freshnessText}</div>
+                {lastImportPublishedAt && (
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    Última carga registrada: {lastImportPublishedAt}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* TOGGLE CATEGORY VIEW */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-3">

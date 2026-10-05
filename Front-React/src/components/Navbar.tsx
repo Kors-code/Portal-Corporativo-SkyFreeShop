@@ -32,6 +32,7 @@ const budgetNav: NavItem[] = [
   { label: "Presupuestos", to: "/budget", permissions: ["budget.admin.view"] },
   { label: "Ventas asesores", to: "/CommissionCardsPage", permissions: ["budget.commissions.view"] },
   { label: "Cajeros", to: "/CashierAwards", permissions: ["budget.cashier.view"] },
+  { label: "Mis ventas especializado", to: "/commissions/SpecialistCommissionsPanel", permissions: ["commissions.asesorSpecialist.view"] },
   { label: "Categorias", to: "/commissions/categories", permissions: ["budget.commissions.manage"] },
   { label: "Perfiles", to: "/commissions/profiles", permissions: ["budget.commissions.manage", "commission_profiles.manage"] },
   { label: "Comisionables", to: "/commissions/profile-earners", permissions: ["budget.commissions.view", "commission_profiles.view"] },
@@ -42,8 +43,6 @@ const budgetNav: NavItem[] = [
 const inventoryNav: NavItem[] = [
   { label: "Cobertura", to: "/inventarios/cobertura", permissions: ["inventarios.cobertura"] },
   { label: "Alertas", to: "/inventarios/alertas", permissions: ["inventarios.alertas"] },
-  { label: "Dashboard", to: "/InventoryDashboard", permissions: ["inventarios.cobertura"] },
-  { label: "Dashboard Pro", to: "/InventoryDashboardPro", permissions: ["inventarios.cobertura"] },
   { label: "Importar inventario", to: "/InventoryImportsManagerPage", permissions: ["inventarios.importes"] },
   { label: "Catalogo", to: "/CatalogImportCard", permissions: ["inventarios.importes"] },
   { label: "Metricas", to: "/InventoryMetricsRunner", permissions: ["inventarios.importes"] },

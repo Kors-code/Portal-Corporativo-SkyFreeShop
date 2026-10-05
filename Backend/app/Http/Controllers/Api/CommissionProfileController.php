@@ -237,6 +237,21 @@ class CommissionProfileController extends Controller
         $rows = [];
         $hasRuleParticipationPlan = $profile->rules->sum(fn ($rule) => (float) ($rule->participation_pct ?? 0)) > 0;
         $targetUsd = (float) ($profile->target_amount_usd ?? 0);
+        $categoryCodes = $profile->rules
+            ->pluck('category_code')
+            ->filter(fn ($code) => $code !== null && $code !== '')
+            ->map(fn ($code) => (string) $code)
+            ->unique()
+            ->values();
+
+        $categoryNamesByCode = $categoryCodes->isNotEmpty()
+            ? DB::connection('budget')
+                ->table('categories')
+                ->whereIn(DB::raw('CAST(classification_code AS CHAR)'), $categoryCodes)
+                ->pluck('name', 'classification_code')
+                ->mapWithKeys(fn ($name, $code) => [(string) $code => $name])
+                ->all()
+            : [];
 
         foreach ($profile->assignments as $assignment) {
             // Primera pasada: solo traemos las ventas de cada regla, sin decidir tramo todavia.
@@ -290,6 +305,9 @@ class CommissionProfileController extends Controller
                     'rule_type' => $rule->rule_type,
                     'provider_name' => $rule->provider_name,
                     'category_code' => $rule->category_code,
+                    'category_name' => isset($rule->category_code)
+                        ? ($categoryNamesByCode[(string) $rule->category_code] ?? null)
+                        : null,
                     'participation_pct' => round($ruleParticipationPct, 4),
                     'target_usd' => $ruleTargetUsd,
                     'sales_count' => (int) ($sales->rows_count ?? 0),
@@ -529,7 +547,7 @@ class CommissionProfileController extends Controller
                     }
 
                     if (in_array($rule->rule_type, ['category', 'provider_category'], true)) {
-                        $inner->whereRaw('CAST(products.classification AS CHAR) = ?', [(string) $rule->category_code]);
+                        $inner->whereIn(DB::raw('CAST(products.classification AS CHAR)'), $this->categoryCodesForRule($rule));
                     }
                 });
             }
@@ -543,8 +561,18 @@ class CommissionProfileController extends Controller
         }
 
         if (in_array($rule->rule_type, ['category', 'provider_category'], true)) {
-            $query->whereRaw('CAST(products.classification AS CHAR) = ?', [(string) $rule->category_code]);
+            $query->whereIn(DB::raw('CAST(products.classification AS CHAR)'), $this->categoryCodesForRule($rule));
         }
+    }
+
+    private function categoryCodesForRule($rule): array
+    {
+        $code = mb_strtolower(trim((string) ($rule->category_code ?? '')));
+
+        return match ($code) {
+            'fragancias', 'fragrances', 'fragances' => ['10', '11', '12'],
+            default => [(string) ($rule->category_code ?? '')],
+        };
     }
 
     private function ruleTargetAmount(float $profileTargetUsd, float $participationPct, bool $hasRuleParticipationPlan): float

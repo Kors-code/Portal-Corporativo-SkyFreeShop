@@ -67,9 +67,9 @@ export default function InventoryMonitoringDashboard() {
   const [loadingStores, setLoadingStores] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("ALL");
-  const [provider, setProvider] = useState("ALL");
-  const [brand, setBrand] = useState("ALL");
+  const [category, setCategory] = useState("");
+  const [provider, setProvider] = useState("");
+  const [brand, setBrand] = useState("");
   const [status, setStatus] = useState("ALL");
   const [sortBy, setSortBy] = useState<SortKey>("risk");
 
@@ -121,10 +121,13 @@ export default function InventoryMonitoringDashboard() {
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
+    const categoryTerm = normalizeSearch(category);
+    const providerTerm = normalizeSearch(provider);
+    const brandTerm = normalizeSearch(brand);
     const list = rows.filter((row) => {
-      if (category !== "ALL" && normalizeText(row.classification_desc) !== category) return false;
-      if (provider !== "ALL" && normalizeText(row.proveedor ?? row.supplier) !== provider) return false;
-      if (brand !== "ALL" && normalizeText(row.brand) !== brand) return false;
+      if (categoryTerm && !normalizeSearch(row.classification_desc).includes(categoryTerm)) return false;
+      if (providerTerm && !normalizeSearch(row.proveedor ?? row.supplier).includes(providerTerm)) return false;
+      if (brandTerm && !normalizeSearch(row.brand).includes(brandTerm)) return false;
       if (status !== "ALL" && normalizeStatus(row.stock_alert_level) !== status) return false;
       if (!term) return true;
 
@@ -335,9 +338,9 @@ export default function InventoryMonitoringDashboard() {
               />
             </label>
 
-            <SelectField label="Categoria" value={category} onChange={setCategory} options={categories} />
-            <SelectField label="Proveedor" value={provider} onChange={setProvider} options={providers} />
-            <SelectField label="Marca" value={brand} onChange={setBrand} options={brands} />
+            <SearchFilterField label="Categoria" value={category} onChange={setCategory} options={categories} placeholder="Escribe categoria" />
+            <SearchFilterField label="Proveedor" value={provider} onChange={setProvider} options={providers} placeholder="Escribe proveedor" />
+            <SearchFilterField label="Marca" value={brand} onChange={setBrand} options={brands} placeholder="Escribe marca" />
             <SelectField
               label="Estado"
               value={status}
@@ -364,9 +367,9 @@ export default function InventoryMonitoringDashboard() {
               type="button"
               onClick={() => {
                 setSearch("");
-                setCategory("ALL");
-                setProvider("ALL");
-                setBrand("ALL");
+                setCategory("");
+                setProvider("");
+                setBrand("");
                 setStatus("ALL");
                 setSortBy("risk");
               }}
@@ -442,7 +445,7 @@ export default function InventoryMonitoringDashboard() {
             ) : visibleRows.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm font-bold text-slate-500">No hay productos con esos filtros.</div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="max-h-[560px] divide-y divide-slate-100 overflow-y-auto">
                 {visibleRows.map((row, index) => {
                   const level = normalizeStatus(row.stock_alert_level);
                   return (
@@ -467,11 +470,23 @@ export default function InventoryMonitoringDashboard() {
                     </div>
                   );
                 })}
+                <div className="sticky bottom-0 border-t border-slate-200 bg-slate-950 p-4 text-white shadow-lg">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">Stock total</div>
+                      <div className="mt-1 text-sm font-black">{numberFmt.format(totalStock)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wide text-slate-300">Dias promedio</div>
+                      <div className="mt-1 text-sm font-black">{decimalFmt.format(avgDays)}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="hidden lg:block">
+          <div className="hidden max-h-[560px] overflow-y-auto lg:block">
             <table className="w-full table-fixed border-collapse">
               <colgroup>
                 <col className="w-[31%]" />
@@ -482,7 +497,7 @@ export default function InventoryMonitoringDashboard() {
                 <col className="w-[10%]" />
                 <col className="w-[10%]" />
               </colgroup>
-              <thead className="bg-slate-950 text-white">
+              <thead className="sticky top-0 z-10 bg-slate-950 text-white shadow-sm">
                 <tr className="text-left text-xs font-black uppercase tracking-wide">
                   <th className="px-3 py-3">Descripcion</th>
                   <th className="px-3 py-3">Tienda</th>
@@ -541,6 +556,16 @@ export default function InventoryMonitoringDashboard() {
                   })
                 )}
               </tbody>
+              <tfoot className="sticky bottom-0 z-10 bg-slate-950 text-white shadow-[0_-4px_12px_rgba(15,23,42,0.18)]">
+                <tr className="text-sm font-black">
+                  <td className="px-3 py-3" colSpan={4}>
+                    Totales de la tabla
+                  </td>
+                  <td className="px-3 py-3 text-right">{numberFmt.format(totalStock)}</td>
+                  <td className="px-3 py-3 text-right">{decimalFmt.format(avgDays)}</td>
+                  <td className="px-3 py-3 text-right text-xs uppercase tracking-wide text-slate-300">Stock / Dias</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -580,6 +605,40 @@ function InfoPill({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-1 break-words text-sm font-black text-slate-800">{value}</div>
     </div>
+  );
+}
+
+function SearchFilterField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder: string;
+}) {
+  const listId = `inventory-monitoring-${label.toLowerCase()}`;
+
+  return (
+    <label>
+      <span className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        list={listId}
+        placeholder={placeholder}
+        className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option} value={option} />
+        ))}
+      </datalist>
+    </label>
   );
 }
 
@@ -645,6 +704,13 @@ function uniqueValues(rows: InventoryMetricItem[], picker: (row: InventoryMetric
 
 function normalizeText(value: string | null | undefined): string {
   return String(value ?? "").trim();
+}
+
+function normalizeSearch(value: string | null | undefined): string {
+  return normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function normalizeStatus(value: string | null | undefined): string {

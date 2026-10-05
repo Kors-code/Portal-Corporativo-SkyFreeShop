@@ -24,8 +24,6 @@ import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistC
 import CommissionProfilesPage from "../modules/commissions/pages/CommissionProfilesPage";
 import CommissionProfileEarnersPage from "../modules/commissions/pages/CommissionProfileEarnersPage";
 import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
-import InventoryDashboard  from "../modules/inventory/InventoryDashboard";
-import InventoryDashboardPro from "../modules/inventory/InventoryDashboardPro";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
 import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
 import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
@@ -79,7 +77,7 @@ export default function AppRouter() {
           <Route path="/CatalogMatchPage" element={<CatalogMatchPage />} />
           <Route path="/AdminWishList" element={<AdminWishList />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
-          <Route path="/commissions/SpecialistCommissionsPanel" element={<SpecialistCommissionsPanel  />} />
+          <Route path="/commissions/SpecialistCommissionsPanel" element={<PermissionGate permission="commissions.asesorSpecialist.view"><SpecialistCommissionsPanel /></PermissionGate>} />
         <Route element={<MainLayout />}>
           <Route path="/" element={<HomePage />} />
 
@@ -89,8 +87,6 @@ export default function AppRouter() {
           <Route path="/importCatalog" element={<ImportCatalog />} />
 
           <Route path="/budget" element={<PermissionGate permission="budget.admin.view"><BudgetPage /></PermissionGate>} />
-          <Route path="/InventoryDashboard" element={<InventoryDashboard />} />
-          <Route path="/InventoryDashboardPro" element={<InventoryDashboardPro />} />
           <Route path="/InventoryMetricsRunner" element={<InventoryMetricsRunner />} />
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/inventarios/alertas" element={<InventoryAlertsPage />} />
