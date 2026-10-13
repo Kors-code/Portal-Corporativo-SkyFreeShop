@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Comisiones\Budget;
 use App\Models\Comisiones\Sale;
+use App\Services\BudgetClosureService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -190,7 +191,7 @@ public function updateCashierPrize(Request $request, $id)
         'cashier_prize' => $budget->cashier_prize
     ]);
 }
-public function close($id)
+public function close($id, BudgetClosureService $closureService)
 {
     $budget = Budget::find($id);
 
@@ -211,13 +212,12 @@ public function close($id)
         ], 403);
     }
 
-    $budget->is_closed = true;
-    $budget->closed_at = now();
-    $budget->save();
+    $result = $closureService->closeBudget((int) $id, 'manual', auth()->id());
 
     return response()->json([
         'message' => 'Presupuesto cerrado correctamente',
-        'budget' => $budget
+        'budget' => $budget->fresh(),
+        'closure' => $result,
     ]);
 }
     public function updateCashierPrizes(Request $request, $id)

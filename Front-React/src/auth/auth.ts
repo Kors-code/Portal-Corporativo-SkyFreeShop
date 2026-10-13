@@ -22,11 +22,19 @@ export function getCurrentPermissions(): string[] {
 }
 
 export function hasPermission(permission: string) {
+  if (import.meta.env.DEV && !document.querySelector('meta[name="laravel-permissions"]')) {
+    return true;
+  }
+
   return getCurrentPermissions().includes(permission);
 }
 
 export function hasAnyPermission(permissions?: string[]) {
   if (!permissions || permissions.length === 0) return true;
+  if (import.meta.env.DEV && !document.querySelector('meta[name="laravel-permissions"]')) {
+    return true;
+  }
+
   const current = new Set(getCurrentPermissions());
   return permissions.some((permission) => current.has(permission));
 }

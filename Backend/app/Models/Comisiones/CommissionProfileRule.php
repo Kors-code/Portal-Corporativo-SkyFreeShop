@@ -17,6 +17,8 @@ class CommissionProfileRule extends Model
         'brand',
         'product_code',
         'participation_pct',
+        'target_amount_usd',
+        'target_turns',
         'commission_percentage',
         'commission_percentage100',
         'commission_percentage120',
@@ -27,6 +29,8 @@ class CommissionProfileRule extends Model
         'commission_percentage100' => 'float',
         'commission_percentage120' => 'float',
         'participation_pct' => 'float',
+        'target_amount_usd' => 'float',
+        'target_turns' => 'float',
     ];
 
     public function profile()

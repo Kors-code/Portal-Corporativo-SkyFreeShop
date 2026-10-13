@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { hasAnyPermission } from "../auth/auth";
+import logoUrl from "../assets/logo3.png";
 
 type NavItem = {
   label: string;
@@ -32,7 +33,6 @@ const budgetNav: NavItem[] = [
   { label: "Presupuestos", to: "/budget", permissions: ["budget.admin.view"] },
   { label: "Ventas asesores", to: "/CommissionCardsPage", permissions: ["budget.commissions.view"] },
   { label: "Cajeros", to: "/CashierAwards", permissions: ["budget.cashier.view"] },
-  { label: "Mis ventas especializado", to: "/commissions/SpecialistCommissionsPanel", permissions: ["commissions.asesorSpecialist.view"] },
   { label: "Categorias", to: "/commissions/categories", permissions: ["budget.commissions.manage"] },
   { label: "Perfiles", to: "/commissions/profiles", permissions: ["budget.commissions.manage", "commission_profiles.manage"] },
   { label: "Comisionables", to: "/commissions/profile-earners", permissions: ["budget.commissions.view", "commission_profiles.view"] },
@@ -160,7 +160,7 @@ export default function Navbar() {
     <header className={`fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur transition-shadow ${scrolled ? "shadow-md" : "shadow-sm"}`}>
       <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <a href="/welcome" className="flex min-w-0 items-center gap-3" aria-label="Ir a bienvenida">
-          <img src="/logo3.png" alt="Sky Free Shop" className="h-12 w-auto shrink-0 object-contain" />
+          <img src={logoUrl} alt="Sky Free Shop" className="h-12 w-auto shrink-0 object-contain" />
           <span className="hidden min-w-0 border-l border-slate-200 pl-3 sm:block">
             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{context.eyebrow}</span>
             <span className="flex items-center gap-2 text-base font-bold text-slate-900">

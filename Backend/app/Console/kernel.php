@@ -13,6 +13,7 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('inventory:metrics')->dailyAt('01:00');
+        $schedule->command('budgets:close-monthly')->dailyAt('02:00');
     }
 
     /**

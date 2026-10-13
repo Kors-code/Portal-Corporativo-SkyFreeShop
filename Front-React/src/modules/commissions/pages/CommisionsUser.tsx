@@ -26,6 +26,7 @@ type Category = {
   pct_user_of_category_budget: number | null;
   applied_commission_pct: number;
   commission_sum_usd: number | null;
+  commission_sum_cop?: number | null;
 };
 
 type TicketItem = {
@@ -86,6 +87,9 @@ export default function MyCommissionsPage() {
   // const turnos Totales 
   const [turnosTotales, setTurnosTotales] = useState<number>(0);
 
+  // Trm Promedio 
+  const [avgTrm, setAvgTrm] = useState<number>(0);
+
   /* ================= EFFECTS ================= */
   useEffect(() => {
     // load budgets list
@@ -144,6 +148,7 @@ export default function MyCommissionsPage() {
       // días laborados
       setDaysWorked(d.days_worked || []);
       setFilterDate(null);
+      setAvgTrm(Number(d.totals?.avg_trm || 0));
 
       // Sales: no recalcular comisión en frontend; usamos lo que venga del backend
       const computedSales: SaleRow[] = (d.sales || []).map((s: any, i: number) => {
@@ -234,8 +239,9 @@ export default function MyCommissionsPage() {
 
   const totalSalesUsd = categories.reduce((s,c)=>s+Number(c.sales_sum_usd||0),0);
 
+  const totalCommissionCop = Number(totals?.total_commission_cop || 0);
   const totalCommissionUsd =
-    Number(totals?.total_commission_cop||0) / Number(totals?.avg_trm||1);
+    totalCommissionCop / Number(totals?.avg_trm || 1);
 
   const avgUnitsPerTicket = Number(
     ticketsSummary?.avg_units_per_ticket ??
@@ -268,10 +274,11 @@ export default function MyCommissionsPage() {
         diff: sales - ppto,
         pct: Number(c.pct_user_of_category_budget||0),
         commissionUsd: Number(c.commission_sum_usd||0),
+        commissionCop: Number(c.commission_sum_cop ?? 0) || (avgTrm ? Number(c.commission_sum_usd || 0) * avgTrm : 0),
         appliedPct: Number(c.applied_commission_pct||0)
       };
     });
-  }, [categories]);
+  }, [categories, avgTrm]);
 
   /* ================= filters derived lists ================= */
   const providers = useMemo(() => Array.from(new Set(sales.map(s => s.provider).filter(Boolean))), [sales]);
@@ -452,10 +459,16 @@ export default function MyCommissionsPage() {
             <div className="mb-6">
               {/* MOBILE: horizontal scroll (visible en <sm) */}
               <div className="flex gap-4 overflow-x-auto pb-2 sm:hidden">
-                <Kpi className="min-w-[220px] p-4" label="Ventas USD" value={moneyUSD(totalSalesUsd) } icon="💰"/>
+                <Kpi className="min-w-[220px] p-4" label="Ventas USD" value={moneyUSD(totalSalesUsd)} icon="💰" sub={`TRM: ${avgTrm ? avgTrm.toFixed(2) : "—"}`}/>
                 <Kpi className="min-w-[200px] p-4" label="PPTO USD" value={moneyUSD(userBudgetUsd)} icon="🎯"/>
                 <KpiProgress className="min-w-[220px] p-4" label="Cumplimiento" pct={userPctRounded} minPct={MIN_PCT_TO_QUALIFY}/>
-                <Kpi className="min-w-[220px] p-4" label="Comisión USD" value={meetsBudget ? moneyUSD(totalCommissionUsd) : '—'} icon="🏆" sub={!meetsBudget ? 'No cumple 80%' : undefined}/>
+                <Kpi
+                  className="min-w-[220px] p-4"
+                  label="Comisión USD"
+                  value={meetsBudget ? moneyUSD(totalCommissionUsd) : '—'}
+                  icon="🏆"
+                  sub={meetsBudget ? `${moneyCOP(totalCommissionCop)} COP` : 'No cumple 80%'}
+                />
                 <Kpi 
                   className="p-4" 
                   label="Tickets por Día" 
@@ -472,10 +485,16 @@ export default function MyCommissionsPage() {
               <div className="hidden sm:block">
                 {/* Primera fila */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                  <Kpi className="p-4" label="Ventas USD" value={ moneyUSD(totalSalesUsd)} icon="💰"/>
+                  <Kpi className="p-4" label="Ventas USD" value={ moneyUSD(totalSalesUsd)} icon="💰" sub={`TRM: ${avgTrm ? avgTrm.toFixed(2) : "—"}`}/>
                   <Kpi className="p-4" label="PPTO USD" value={moneyUSD(userBudgetUsd)} icon="🎯"/>
                   <KpiProgress className="p-4" label="Cumplimiento" pct={userPctRounded} minPct={MIN_PCT_TO_QUALIFY}/>
-                  <Kpi className="p-4" label="Comisión USD" value={meetsBudget ? moneyUSD(totalCommissionUsd) : '—'} icon="🏆" sub={!meetsBudget ? 'No cumple 80%' : undefined}/>
+                  <Kpi
+                    className="p-4"
+                    label="Comisión USD"
+                    value={meetsBudget ? moneyUSD(totalCommissionUsd) : '—'}
+                    icon="🏆"
+                    sub={meetsBudget ? `${moneyCOP(totalCommissionCop)} COP` : 'No cumple 80%'}
+                  />
                 </div>
 
                 {/* Segunda fila */}
@@ -553,7 +572,10 @@ export default function MyCommissionsPage() {
 
                               <div className="text-sm grid grid-cols-2 gap-y-1">
                                 <span className="text-gray-500">Comisión</span>
-                                <span className="text-right">{moneyUSD(c.commissionUsd)}</span>
+                                <span className="text-right">
+                                  <span className="block">{moneyUSD(c.commissionUsd)}</span>
+                                  <span className="block text-xs font-medium text-gray-500">{moneyCOP(c.commissionCop)} COP</span>
+                                </span>
 
                                 <span className="text-gray-500">PPTO</span>
                                 <span className="text-right">{moneyUSD(c.ppto)}</span>
@@ -604,7 +626,10 @@ export default function MyCommissionsPage() {
 
                               <div className="text-sm grid grid-cols-2 gap-y-1">
                                 <span className="text-gray-500">Comisión</span>
-                                <span className="text-right">{moneyUSD(c.commissionUsd)}</span>
+                                <span className="text-right">
+                                  <span className="block">{moneyUSD(c.commissionUsd)}</span>
+                                  <span className="block text-xs font-medium text-gray-500">{moneyCOP(c.commissionCop)} COP</span>
+                                </span>
 
                                 <span className="text-gray-500">PPTO</span>
                                 <span className="text-right">{moneyUSD(c.ppto)}</span>
@@ -656,7 +681,10 @@ export default function MyCommissionsPage() {
 
                         <div className="text-sm grid grid-cols-2 gap-y-1">
                           <span className="text-gray-500">Comisión</span>
-                          <span className="text-right">{moneyUSD(c.commissionUsd)}</span>
+                          <span className="text-right">
+                            <span className="block">{moneyUSD(c.commissionUsd)}</span>
+                            <span className="block text-xs font-medium text-gray-500">{moneyCOP(c.commissionCop)} COP</span>
+                          </span>
 
                           <span className="text-gray-500">PPTO</span>
                           <span className="text-right">{moneyUSD(c.ppto)}</span>
@@ -676,7 +704,7 @@ export default function MyCommissionsPage() {
                     <tr>
                       <th className="p-3 text-left">Categoría</th>
                       <th className="p-3 text-right">PPTO</th>
-                      <th className="p-3 text-right">Comisión USD</th>
+                      <th className="p-3 text-right">Comisión</th>
                       <th className="p-3 text-right">Dif.</th>
                       <th className="p-3 text-right">% Cumpl.</th>
                       <th className="p-3 text-right">Ventas</th>
@@ -687,7 +715,10 @@ export default function MyCommissionsPage() {
                       <tr key={c.code} className="border-t">
                         <td className="p-3">{c.name}</td>
                         <td className="p-3 text-right">{moneyUSD(c.ppto)}</td>
-                        <td className="p-3 text-right font-semibold text-green-600">{moneyUSD(c.commissionUsd)}</td>
+                        <td className="p-3 text-right font-semibold text-green-600">
+                          <span className="block">{moneyUSD(c.commissionUsd)}</span>
+                          <span className="block text-xs font-medium text-gray-500">{moneyCOP(c.commissionCop)} COP</span>
+                        </td>
                         <td className="p-3 text-right">{moneyUSD(c.diff)}</td>
                         <td className="p-3 text-right">{c.pct.toFixed(1)}%</td>
                         <td className="p-3 text-right font-semibold">{moneyUSD(c.sales)}</td>

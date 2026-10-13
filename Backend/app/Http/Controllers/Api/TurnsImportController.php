@@ -11,8 +11,10 @@ use App\Models\Comisiones\Budget;
 use App\Models\Comisiones\User;
 use Throwable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use PhpOffice\PhpSpreadsheet\Calculation\Calculation;
 use PhpOffice\PhpSpreadsheet\Settings;
+use Illuminate\Support\Str;
 
 class TurnsImportController extends Controller
 {
@@ -60,7 +62,7 @@ class TurnsImportController extends Controller
                 throw new \Exception('El archivo está vacío');
             }
 
-            $rows = $sheets[0]->skip(1);
+            $rows = $sheets[0]->skip(1)->values();
 
             $errors = [];
             $imported = 0;
@@ -72,6 +74,7 @@ class TurnsImportController extends Controller
                 $fila = $i + 2;
 
                 $mesNumero = (int) trim((string)($row[0] ?? ''));
+                $nombre    = trim((string)($row[1] ?? ''));
                 $codigo    = trim((string)($row[2] ?? ''));
                 $turns     = (int) ($row[3] ?? 0);
                 $codigoRaw = trim((string)($row[2] ?? ''));
@@ -97,7 +100,7 @@ class TurnsImportController extends Controller
                     continue;
                 }
 
-                if (!$codigo) {
+                if ($codigo === '') {
                     $errors[] = "Fila $fila: código vendedor vacío";
                     continue;
                 }
@@ -109,6 +112,7 @@ class TurnsImportController extends Controller
 
                 $budget = Budget::whereMonth('start_date', '<=', $mesNumero)
                     ->whereMonth('end_date', '>=', $mesNumero)
+                    ->orderByDesc('start_date')
                     ->first();
 
                 if (!$budget) {
@@ -116,12 +120,26 @@ class TurnsImportController extends Controller
                     continue;
                 }
 
+                if ($this->isNonAdvisorRow($nombre, $codigo)) {
+                    $errors[] = "Fila $fila: fila informativa omitida ($nombre / $codigo)";
+                    continue;
+                }
+
                 $user = User::where('codigo_vendedor', $codigo)->first();
 
                 if (!$user) {
-                    $errors[] = "Fila $fila: vendedor $codigo no existe";
-                    continue;
+                    if (!$nombre) {
+                        $errors[] = "Fila $fila: vendedor $codigo no existe y no hay nombre para crearlo";
+                        continue;
+                    }
+
+                    $user = $this->findOrCreateAdvisor($nombre, $codigo);
+                } elseif ($nombre && trim((string) $user->name) === '') {
+                    $user->name = mb_substr($nombre, 0, 255);
+                    $user->save();
                 }
+
+                $this->ensureAdvisorRoleForBudget((int) $user->id, $budget);
 
                 DB::connection('budget')->table('budget_user_turns')->updateOrInsert(
                     [
@@ -167,6 +185,131 @@ class TurnsImportController extends Controller
             ], 500);
 
         }
+    }
+
+    private function isNonAdvisorRow(string $name, string $code): bool
+    {
+        $normalizedName = Str::of($name)
+            ->lower()
+            ->ascii()
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+
+        return in_array($code, ['0', '40', '9999'], true)
+            || str_contains($normalizedName, 'no seller')
+            || str_contains($normalizedName, 'ventas mostrador')
+            || str_contains($normalizedName, 'ventas divididas');
+    }
+
+    private function localEmailForAdvisor(string $name, string $code): string
+    {
+        $slug = Str::slug($name);
+        if ($slug === '') {
+            $slug = 'asesor-' . $code;
+        }
+
+        return strtolower($slug . '@local');
+    }
+
+    private function findOrCreateAdvisor(string $name, string $code): User
+    {
+        $email = mb_substr($this->localEmailForAdvisor($name, $code), 0, 255);
+        $name = mb_substr($name, 0, 255);
+
+        $user = User::where('email', $email)->first();
+        if ($user) {
+            $changed = false;
+
+            if (!$user->codigo_vendedor) {
+                $user->codigo_vendedor = $code;
+                $changed = true;
+            }
+
+            if (!$user->name) {
+                $user->name = $name;
+                $changed = true;
+            }
+
+            if ($changed) {
+                $user->save();
+            }
+
+            return $user;
+        }
+
+        return User::create([
+            'name' => $name,
+            'email' => $email,
+            'codigo_vendedor' => $code,
+        ]);
+    }
+
+    private function ensureAdvisorRoleForBudget(int $userId, Budget $budget): void
+    {
+        $roleId = DB::connection('budget')->table('roles')
+            ->whereRaw('LOWER(name) = ?', ['vendedor'])
+            ->value('id');
+
+        if (!$roleId) {
+            $rolePayload = [
+                'name' => 'vendedor',
+            ];
+
+            if (Schema::connection('budget')->hasColumn('roles', 'created_at')) {
+                $rolePayload['created_at'] = now();
+            }
+
+            if (Schema::connection('budget')->hasColumn('roles', 'updated_at')) {
+                $rolePayload['updated_at'] = now();
+            }
+
+            $roleId = DB::connection('budget')->table('roles')->insertGetId($rolePayload);
+        }
+
+        $hasRoleInBudget = DB::connection('budget')->table('user_roles as ur')
+            ->join('roles as r', 'r.id', '=', 'ur.role_id')
+            ->where('ur.user_id', $userId)
+            ->where(function ($roleQ) {
+                $roleQ->whereRaw('LOWER(r.name) = ?', ['vendedor'])
+                    ->orWhereRaw('LOWER(r.name) LIKE ?', ['asesor%']);
+            })
+            ->where(function ($dateQ) use ($budget) {
+                $dateQ->whereNull('ur.start_date')
+                    ->orWhere('ur.start_date', '<=', $budget->end_date);
+            })
+            ->where(function ($dateQ) use ($budget) {
+                $dateQ->whereNull('ur.end_date')
+                    ->orWhere('ur.end_date', '>=', $budget->start_date);
+            })
+            ->exists();
+
+        if ($hasRoleInBudget) {
+            return;
+        }
+
+        $userRolePayload = [
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'start_date' => $budget->start_date,
+            'end_date' => $budget->end_date,
+        ];
+
+        if (Schema::connection('budget')->hasColumn('user_roles', 'created_at')) {
+            $userRolePayload['created_at'] = now();
+        }
+
+        if (Schema::connection('budget')->hasColumn('user_roles', 'updated_at')) {
+            $userRolePayload['updated_at'] = now();
+        }
+
+        DB::connection('budget')->table('user_roles')->updateOrInsert(
+            [
+                'user_id' => $userId,
+                'start_date' => $budget->start_date,
+            ],
+            $userRolePayload
+        );
     }
 
     public function deleteBatch($batchId)

@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Log;
+
 
 class CommissionProfileController extends Controller
 {
@@ -48,6 +50,8 @@ class CommissionProfileController extends Controller
             ->get()
             ->keyBy('id');
 
+
+            Log::info($profiles);
         return response()->json([
             'profiles' => $profiles->map(fn ($profile) => $this->serializeProfile($profile, $users)),
         ]);
@@ -56,6 +60,7 @@ class CommissionProfileController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatedProfileData($request);
+        $this->ensureBudgetIsOpen($data['profile']['budget_id'] ?? null);
 
         $profile = DB::connection('budget')->transaction(function () use ($data) {
             $profile = CommissionProfile::create($data['profile']);
@@ -72,6 +77,8 @@ class CommissionProfileController extends Controller
     {
         $profile = CommissionProfile::findOrFail($id);
         $data = $this->validatedProfileData($request);
+        $this->ensureBudgetIsOpen($profile->budget_id);
+        $this->ensureBudgetIsOpen($data['profile']['budget_id'] ?? null);
 
         $profile = DB::connection('budget')->transaction(function () use ($profile, $data) {
             $profile->update($data['profile']);
@@ -86,7 +93,9 @@ class CommissionProfileController extends Controller
 
     public function destroy(int $id)
     {
-        CommissionProfile::findOrFail($id)->delete();
+        $profile = CommissionProfile::findOrFail($id);
+        $this->ensureBudgetIsOpen($profile->budget_id);
+        $profile->delete();
 
         return response()->json(['message' => 'Perfil eliminado']);
     }
@@ -100,13 +109,33 @@ class CommissionProfileController extends Controller
             ->selectRaw('TRIM(provider_name) as name')
             ->distinct()
             ->orderBy('name')
-            ->limit(300)
+            ->limit(5000)
             ->pluck('name');
 
         $categories = DB::connection('budget')
             ->table('categories')
             ->select('id', 'classification_code as code', 'name')
             ->orderBy('name')
+            ->get();
+
+        $brands = DB::connection('budget')
+            ->table('products')
+            ->whereNotNull('brand')
+            ->whereRaw("TRIM(brand) <> ''")
+            ->selectRaw('TRIM(brand) as name')
+            ->distinct()
+            ->orderBy('name')
+            ->limit(5000)
+            ->pluck('name');
+
+        $products = DB::connection('budget')
+            ->table('products')
+            ->whereNotNull('product_code')
+            ->whereRaw("TRIM(product_code) <> ''")
+            ->selectRaw('TRIM(product_code) as code, MAX(description) as description, MAX(brand) as brand, MAX(sku_mia) as sku_mia, MAX(upc) as upc, MAX(upc2) as upc2, MAX(upc3) as upc3')
+            ->groupBy(DB::raw('TRIM(product_code)'))
+            ->orderBy('code')
+            ->limit(25000)
             ->get();
 
         $users = DB::connection('budget')
@@ -118,6 +147,8 @@ class CommissionProfileController extends Controller
 
         return response()->json([
             'providers' => $providers,
+            'brands' => $brands,
+            'products' => $products,
             'categories' => $categories,
             'users' => $users,
             'roles' => DB::connection('budget')
@@ -130,9 +161,13 @@ class CommissionProfileController extends Controller
                 ['value' => 'asesor_especializado', 'label' => 'Asesor especializado'],
             ],
             'rule_types' => [
+                ['value' => 'custom', 'label' => 'Filtros combinados'],
                 ['value' => 'provider', 'label' => 'Proveedor'],
                 ['value' => 'category', 'label' => 'Categoria'],
+                ['value' => 'brand', 'label' => 'Sky Marca'],
+                ['value' => 'sku', 'label' => 'SKU'],
                 ['value' => 'provider_category', 'label' => 'Proveedor + categoria'],
+                ['value' => 'provider_brand', 'label' => 'Proveedor + marca'],
             ],
         ]);
     }
@@ -235,8 +270,6 @@ class CommissionProfileController extends Controller
     private function buildRowsForProfile(CommissionProfile $profile, ?int $budgetId, $budget): array
     {
         $rows = [];
-        $hasRuleParticipationPlan = $profile->rules->sum(fn ($rule) => (float) ($rule->participation_pct ?? 0)) > 0;
-        $targetUsd = (float) ($profile->target_amount_usd ?? 0);
         $categoryCodes = $profile->rules
             ->pluck('category_code')
             ->filter(fn ($code) => $code !== null && $code !== '')
@@ -256,6 +289,7 @@ class CommissionProfileController extends Controller
         foreach ($profile->assignments as $assignment) {
             // Primera pasada: solo traemos las ventas de cada regla, sin decidir tramo todavia.
             $ruleSales = [];
+            $assignedTurns = $this->assignedTurnsForUser($assignment->user_id, $budgetId);
             foreach ($profile->rules as $rule) {
                 $query = DB::connection('budget')
                     ->table('sales')
@@ -278,13 +312,14 @@ class CommissionProfileController extends Controller
                 $ruleSales[] = ['rule' => $rule, 'sales' => $sales];
             }
 
-            // Cumplimiento de la PERSONA contra la meta total del perfil: esto es lo que decide
-            // el tramo 80/100/120 de cada regla, sin importar que tan chica sea su participacion.
             $personSalesUsd = array_sum(array_map(fn ($rs) => (float) ($rs['sales']->sales_usd ?? 0), $ruleSales));
-            $personFulfillment = $targetUsd > 0 ? round(($personSalesUsd / $targetUsd) * 100, 2) : null;
+            $personTargetUsd = array_sum(array_map(
+                fn ($rs) => $this->effectiveRuleTargetUsd($rs['rule'], $assignedTurns),
+                $ruleSales
+            ));
+            $personFulfillment = $personTargetUsd > 0 ? round(($personSalesUsd / $personTargetUsd) * 100, 2) : null;
 
-            // Segunda pasada: con el cumplimiento de la persona ya calculado, resolvemos el tramo
-            // y la comision de cada regla (la meta prorrateada por regla sigue siendo informativa).
+            // Segunda pasada: cada regla tiene su meta propia y decide su tramo 80/100/120.
             $ruleRows = [];
             foreach ($ruleSales as $entry) {
                 $rule = $entry['rule'];
@@ -292,32 +327,46 @@ class CommissionProfileController extends Controller
 
                 $salesUsd = (float) ($sales->sales_usd ?? 0);
                 $ruleParticipationPct = (float) ($rule->participation_pct ?? 0);
-                $ruleTargetUsd = $this->ruleTargetAmount($targetUsd, $ruleParticipationPct, $hasRuleParticipationPlan);
+                $ruleBaseTargetUsd = (float) ($rule->target_amount_usd ?? 0);
+                $ruleTargetTurns = (float) ($rule->target_turns ?? 0);
+                $ruleTargetUsd = $this->effectiveRuleTargetUsd($rule, $assignedTurns);
                 $ruleFulfillment = $ruleTargetUsd > 0 ? round(($salesUsd / $ruleTargetUsd) * 100, 2) : null;
-                $appliedPct = ($hasRuleParticipationPlan && $ruleTargetUsd <= 0)
-                    ? 0.0
-                    : $this->resolveRuleCommissionPct($rule, $personFulfillment);
+                $appliedPct = $this->resolveRuleCommissionPct($rule, $ruleFulfillment);
                 $eligible = $salesUsd > 0 && $appliedPct > 0;
                 $commissionUsd = $eligible ? round($salesUsd * ($appliedPct / 100), 2) : 0.0;
+                $salesCop = (float) ($sales->sales_cop ?? 0);
+                $avgTrm = $salesUsd > 0 && $salesCop > 0
+                    ? round($salesCop / $salesUsd, 2)
+                    : null;
+                $commissionCop = $avgTrm !== null
+                    ? round($commissionUsd * $avgTrm, 2)
+                    : 0.0;
 
                 $ruleRows[] = [
                     'rule_id' => $rule->id,
                     'rule_type' => $rule->rule_type,
                     'provider_name' => $rule->provider_name,
+                    'brand' => $rule->brand,
+                    'product_code' => $rule->product_code,
                     'category_code' => $rule->category_code,
                     'category_name' => isset($rule->category_code)
                         ? ($categoryNamesByCode[(string) $rule->category_code] ?? null)
                         : null,
                     'participation_pct' => round($ruleParticipationPct, 4),
+                    'base_target_usd' => round($ruleBaseTargetUsd, 2),
                     'target_usd' => $ruleTargetUsd,
+                    'target_turns' => $ruleTargetTurns > 0 ? $ruleTargetTurns : null,
+                    'assigned_turns' => $assignedTurns,
                     'sales_count' => (int) ($sales->rows_count ?? 0),
                     'units' => (float) ($sales->units ?? 0),
                     'sales_usd' => round($salesUsd, 2),
-                    'sales_cop' => round((float) ($sales->sales_cop ?? 0), 2),
+                    'sales_cop' => round($salesCop, 2),
+                    'avg_trm' => $avgTrm,
                     'fulfillment_pct' => $ruleFulfillment,
                     'eligible' => $eligible,
                     'applied_commission_pct' => $appliedPct,
                     'commission_usd' => $commissionUsd,
+                    'commission_cop' => $commissionCop,
                 ];
             }
 
@@ -330,6 +379,10 @@ class CommissionProfileController extends Controller
             $salesUsd = array_sum(array_column($ruleRows, 'sales_usd'));
             $salesCop = array_sum(array_column($ruleRows, 'sales_cop'));
             $commissionUsd = array_sum(array_column($ruleRows, 'commission_usd'));
+            $commissionCop = array_sum(array_column($ruleRows, 'commission_cop'));
+            $avgTrm = $salesUsd > 0 && $salesCop > 0
+                ? round($salesCop / $salesUsd, 2)
+                : null;
             $ruleTargetUsd = array_sum(array_column($ruleRows, 'target_usd'));
             $weightedPct = $salesUsd > 0
                 ? array_sum(array_map(fn ($ruleRow) => $ruleRow['sales_usd'] * $ruleRow['applied_commission_pct'], $ruleRows)) / $salesUsd
@@ -341,13 +394,16 @@ class CommissionProfileController extends Controller
                 'seller_code' => $user->codigo_vendedor ?? null,
                 'sales_count' => (int) array_sum(array_column($ruleRows, 'sales_count')),
                 'units' => (float) array_sum(array_column($ruleRows, 'units')),
+                'assigned_turns' => $assignedTurns,
                 'target_usd' => round($ruleTargetUsd, 2),
                 'sales_usd' => round($salesUsd, 2),
                 'sales_cop' => round($salesCop, 2),
+                'avg_trm' => $avgTrm,
                 'fulfillment_pct' => $personFulfillment,
                 'eligible' => $commissionUsd > 0,
                 'applied_commission_pct' => round($weightedPct, 4),
                 'commission_usd' => round($commissionUsd, 2),
+                'commission_cop' => round($commissionCop, 2),
                 'rules' => $ruleRows,
             ];
         }
@@ -357,11 +413,16 @@ class CommissionProfileController extends Controller
 
     private function totalsForRows(array $rows): array
     {
+        $salesUsd = array_sum(array_column($rows, 'sales_usd'));
+        $salesCop = array_sum(array_column($rows, 'sales_cop'));
+
         return [
-            'sales_usd' => round(array_sum(array_column($rows, 'sales_usd')), 2),
-            'sales_cop' => round(array_sum(array_column($rows, 'sales_cop')), 2),
+            'sales_usd' => round($salesUsd, 2),
+            'sales_cop' => round($salesCop, 2),
             'target_usd' => round(array_sum(array_column($rows, 'target_usd')), 2),
             'commission_usd' => round(array_sum(array_column($rows, 'commission_usd')), 2),
+            'commission_cop' => round(array_sum(array_column($rows, 'commission_cop')), 2),
+            'avg_trm' => $salesUsd > 0 && $salesCop > 0 ? round($salesCop / $salesUsd, 2) : null,
             'sales_count' => array_sum(array_column($rows, 'sales_count')),
         ];
     }
@@ -384,11 +445,15 @@ class CommissionProfileController extends Controller
             'valid_to' => ['nullable', 'date', 'after_or_equal:valid_from'],
             'note' => ['nullable', 'string'],
             'rules' => ['required', 'array', 'min:1'],
-            'rules.*.rule_type' => ['required', 'string', Rule::in(['provider', 'category', 'provider_category'])],
+            'rules.*.rule_type' => ['nullable', 'string', Rule::in(['custom', 'provider', 'category', 'brand', 'sku', 'provider_category', 'provider_brand'])],
             'rules.*.provider_name' => ['nullable', 'string', 'max:160'],
+            'rules.*.brand' => ['nullable', 'string', 'max:120'],
             'rules.*.category_id' => ['nullable', 'integer'],
             'rules.*.category_code' => ['nullable', 'string', 'max:60'],
+            'rules.*.product_code' => ['nullable', 'string', 'max:80'],
             'rules.*.participation_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rules.*.target_amount_usd' => ['nullable', 'numeric', 'min:0'],
+            'rules.*.target_turns' => ['nullable', 'numeric', 'min:0'],
             'rules.*.commission_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
             'rules.*.commission_percentage100' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'rules.*.commission_percentage120' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -397,25 +462,9 @@ class CommissionProfileController extends Controller
         ]);
 
         foreach ($payload['rules'] as $rule) {
-            if (in_array($rule['rule_type'], ['provider', 'provider_category'], true) && empty($rule['provider_name'])) {
-                abort(422, 'El proveedor es obligatorio para reglas por proveedor.');
+            if (! $this->ruleHasAtLeastOneFilter($rule)) {
+                abort(422, 'Cada regla debe tener al menos un filtro: proveedor, marca, categoria o SKU.');
             }
-
-            if (in_array($rule['rule_type'], ['category', 'provider_category'], true)
-                && empty($rule['category_id'])
-                && empty($rule['category_code'])
-            ) {
-                abort(422, 'La categoria es obligatoria para reglas por categoria.');
-            }
-        }
-
-        $participationTotal = array_sum(array_map(
-            fn ($rule) => (float) ($rule['participation_pct'] ?? 0),
-            $payload['rules']
-        ));
-
-        if ($participationTotal > 100.0001) {
-            abort(422, 'La participacion total de las reglas no puede superar el 100% de la meta del perfil.');
         }
 
         return [
@@ -446,7 +495,7 @@ class CommissionProfileController extends Controller
         $profile->rules()->delete();
 
         foreach ($rules as $rule) {
-            $categoryCode = $rule['category_code'] ?? null;
+            $categoryCode = $this->nullableTrim($rule['category_code'] ?? null);
             if (! $categoryCode && ! empty($rule['category_id'])) {
                 $categoryCode = DB::connection('budget')
                     ->table('categories')
@@ -455,11 +504,15 @@ class CommissionProfileController extends Controller
             }
 
             $profile->rules()->create([
-                'rule_type' => $rule['rule_type'],
-                'provider_name' => $rule['provider_name'] ?? null,
+                'rule_type' => $this->classifyRuleType($rule),
+                'provider_name' => $this->nullableTrim($rule['provider_name'] ?? null),
+                'brand' => $this->nullableTrim($rule['brand'] ?? null),
                 'category_id' => $rule['category_id'] ?? null,
                 'category_code' => $categoryCode,
+                'product_code' => $this->nullableTrim($rule['product_code'] ?? null),
                 'participation_pct' => $rule['participation_pct'] ?? 0,
+                'target_amount_usd' => $rule['target_amount_usd'] ?? null,
+                'target_turns' => $rule['target_turns'] ?? null,
                 'commission_percentage' => $rule['commission_percentage'] ?? 0,
                 'commission_percentage100' => $rule['commission_percentage100'] ?? 0,
                 'commission_percentage120' => $rule['commission_percentage120'] ?? 0,
@@ -500,9 +553,13 @@ class CommissionProfileController extends Controller
                 'id' => $rule->id,
                 'rule_type' => $rule->rule_type,
                 'provider_name' => $rule->provider_name,
+                'brand' => $rule->brand,
+                'product_code' => $rule->product_code,
                 'category_id' => $rule->category_id,
                 'category_code' => $rule->category_code,
                 'participation_pct' => (float) ($rule->participation_pct ?? 0),
+                'target_amount_usd' => $rule->target_amount_usd === null ? null : (float) $rule->target_amount_usd,
+                'target_turns' => $rule->target_turns === null ? null : (float) $rule->target_turns,
                 'commission_percentage' => (float) $rule->commission_percentage,
                 'commission_percentage100' => (float) $rule->commission_percentage100,
                 'commission_percentage120' => (float) $rule->commission_percentage120,
@@ -537,17 +594,41 @@ class CommissionProfileController extends Controller
         }
     }
 
+    private function ensureBudgetIsOpen(?int $budgetId): void
+    {
+        if (! $budgetId) {
+            return;
+        }
+
+        $budget = DB::connection('budget')
+            ->table('budgets')
+            ->where('id', $budgetId)
+            ->first();
+
+        if ($budget && (bool) ($budget->is_closed ?? false)) {
+            abort(422, 'Este presupuesto ya esta cerrado y no permite modificar perfiles de comision.');
+        }
+    }
+
     private function applyProfileRules($query, $rules): void
     {
         $query->where(function ($outer) use ($rules) {
             foreach ($rules as $rule) {
                 $outer->orWhere(function ($inner) use ($rule) {
-                    if (in_array($rule->rule_type, ['provider', 'provider_category'], true)) {
+                    if ($this->hasValue($rule->provider_name ?? null)) {
                         $inner->whereRaw('UPPER(TRIM(products.provider_name)) = ?', [mb_strtoupper(trim((string) $rule->provider_name))]);
                     }
 
-                    if (in_array($rule->rule_type, ['category', 'provider_category'], true)) {
+                    if ($this->hasValue($rule->category_code ?? null)) {
                         $inner->whereIn(DB::raw('CAST(products.classification AS CHAR)'), $this->categoryCodesForRule($rule));
+                    }
+
+                    if ($this->hasValue($rule->brand ?? null)) {
+                        $inner->whereRaw('UPPER(TRIM(products.brand)) = ?', [mb_strtoupper(trim((string) $rule->brand))]);
+                    }
+
+                    if ($this->hasValue($rule->product_code ?? null)) {
+                        $this->applyProductCodeFilter($inner, (string) $rule->product_code);
                     }
                 });
             }
@@ -556,13 +637,109 @@ class CommissionProfileController extends Controller
 
     private function applySingleRule($query, $rule): void
     {
-        if (in_array($rule->rule_type, ['provider', 'provider_category'], true)) {
+        if ($this->hasValue($rule->provider_name ?? null)) {
             $query->whereRaw('UPPER(TRIM(products.provider_name)) = ?', [mb_strtoupper(trim((string) $rule->provider_name))]);
         }
 
-        if (in_array($rule->rule_type, ['category', 'provider_category'], true)) {
+        if ($this->hasValue($rule->category_code ?? null)) {
             $query->whereIn(DB::raw('CAST(products.classification AS CHAR)'), $this->categoryCodesForRule($rule));
         }
+
+        if ($this->hasValue($rule->brand ?? null)) {
+            $query->whereRaw('UPPER(TRIM(products.brand)) = ?', [mb_strtoupper(trim((string) $rule->brand))]);
+        }
+
+        if ($this->hasValue($rule->product_code ?? null)) {
+            $this->applyProductCodeFilter($query, (string) $rule->product_code);
+        }
+    }
+
+    private function ruleHasAtLeastOneFilter(array $rule): bool
+    {
+        return $this->hasValue($rule['provider_name'] ?? null)
+            || $this->hasValue($rule['brand'] ?? null)
+            || $this->hasValue($rule['category_code'] ?? null)
+            || ! empty($rule['category_id'])
+            || $this->hasValue($rule['product_code'] ?? null);
+    }
+
+    private function classifyRuleType(array $rule): string
+    {
+        $hasProvider = $this->hasValue($rule['provider_name'] ?? null);
+        $hasBrand = $this->hasValue($rule['brand'] ?? null);
+        $hasCategory = $this->hasValue($rule['category_code'] ?? null) || ! empty($rule['category_id']);
+        $hasProduct = $this->hasValue($rule['product_code'] ?? null);
+        $count = ($hasProvider ? 1 : 0) + ($hasBrand ? 1 : 0) + ($hasCategory ? 1 : 0) + ($hasProduct ? 1 : 0);
+
+        if ($count !== 1) {
+            return 'custom';
+        }
+
+        if ($hasProduct) {
+            return 'sku';
+        }
+
+        if ($hasProvider) {
+            return 'provider';
+        }
+
+        if ($hasBrand) {
+            return 'brand';
+        }
+
+        return 'category';
+    }
+
+    private function nullableTrim($value): ?string
+    {
+        $trimmed = trim((string) ($value ?? ''));
+
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function hasValue($value): bool
+    {
+        return trim((string) ($value ?? '')) !== '';
+    }
+
+    private function applyProductCodeFilter($query, string $productCode): void
+    {
+        $normalized = mb_strtoupper(trim($productCode));
+
+        $query->where(function ($inner) use ($normalized) {
+            foreach (['product_code', 'sku_mia', 'upc', 'upc2', 'upc3'] as $column) {
+                $inner->orWhereRaw("UPPER(TRIM(products.{$column})) = ?", [$normalized]);
+            }
+        });
+    }
+
+    private function assignedTurnsForUser(int $userId, ?int $budgetId): float
+    {
+        if (! $budgetId || ! Schema::connection('budget')->hasTable('budget_user_turns')) {
+            return 0.0;
+        }
+
+        return (float) DB::connection('budget')
+            ->table('budget_user_turns')
+            ->where('budget_id', $budgetId)
+            ->where('user_id', $userId)
+            ->sum('assigned_turns');
+    }
+
+    private function effectiveRuleTargetUsd($rule, float $assignedTurns): float
+    {
+        $baseTargetUsd = (float) ($rule->target_amount_usd ?? 0);
+        $targetTurns = (float) ($rule->target_turns ?? 0);
+
+        if ($baseTargetUsd <= 0) {
+            return 0.0;
+        }
+
+        if ($targetTurns <= 0) {
+            return round($baseTargetUsd, 2);
+        }
+
+        return round($baseTargetUsd * ($assignedTurns / $targetTurns), 2);
     }
 
     private function categoryCodesForRule($rule): array

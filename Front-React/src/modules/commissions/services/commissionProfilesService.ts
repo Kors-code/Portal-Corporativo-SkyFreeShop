@@ -2,11 +2,15 @@ import api from "../../../api/axios";
 
 export type CommissionProfileRule = {
   id?: number;
-  rule_type: "provider" | "category" | "provider_category";
+  rule_type: "custom" | "provider" | "category" | "brand" | "sku" | "provider_category" | "provider_brand";
   provider_name?: string | null;
+  brand?: string | null;
   category_id?: number | null;
   category_code?: string | null;
+  product_code?: string | null;
   participation_pct?: number;
+  target_amount_usd?: number | null;
+  target_turns?: number | null;
   commission_percentage: number;
   commission_percentage100?: number;
   commission_percentage120?: number;
@@ -46,6 +50,16 @@ export type CommissionProfilePayload = Omit<CommissionProfile, "id" | "users"> &
 
 export type CommissionProfileOptions = {
   providers: string[];
+  brands: string[];
+  products: Array<{
+    code: string;
+    description?: string | null;
+    brand?: string | null;
+    sku_mia?: string | null;
+    upc?: string | null;
+    upc2?: string | null;
+    upc3?: string | null;
+  }>;
   categories: Array<{ id: number; code: string; name: string }>;
   users: Array<{ id: number; name: string; email?: string | null; codigo_vendedor?: string | null }>;
   roles: Array<{ id: number; name: string }>;
@@ -60,33 +74,48 @@ export type CommissionProfileSummary = {
     seller_code?: string | null;
     sales_count: number;
     units: number;
+    assigned_turns?: number;
     target_usd?: number;
     sales_usd: number;
     sales_cop: number;
+    avg_trm?: number | null;
     fulfillment_pct?: number | null;
     eligible: boolean;
     applied_commission_pct: number;
     commission_usd: number;
+    commission_cop?: number;
     rules?: Array<{
       rule_id?: number;
       rule_type: CommissionProfileRule["rule_type"];
       provider_name?: string | null;
+      brand?: string | null;
+      product_code?: string | null;
       category_code?: string | null;
       category_name?: string | null;
       participation_pct?: number;
+      base_target_usd?: number;
       target_usd?: number;
+      target_turns?: number | null;
+      assigned_turns?: number;
       sales_count: number;
+      units?: number;
       sales_usd: number;
+      sales_cop?: number;
+      avg_trm?: number | null;
       fulfillment_pct?: number | null;
+      eligible?: boolean;
       applied_commission_pct: number;
       commission_usd: number;
+      commission_cop?: number;
     }>;
   }>;
   totals: {
     sales_usd: number;
     sales_cop: number;
+    avg_trm?: number | null;
     target_usd?: number;
     commission_usd: number;
+    commission_cop?: number;
     sales_count: number;
   };
 };

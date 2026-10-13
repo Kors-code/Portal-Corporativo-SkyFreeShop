@@ -61,10 +61,10 @@ class SecureHeaders
             ]);
         } else {
             $policy = array_merge($basePolicy, [
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-                "style-src 'self' 'unsafe-inline'",
-                "font-src 'self' data:",
-                "img-src 'self' data: https: blob:",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:5173 http://localhost:5173",
+                "style-src 'self' 'unsafe-inline' http://127.0.0.1:5173 http://localhost:5173",
+                "font-src 'self' data: http://127.0.0.1:5173 http://localhost:5173",
+                "img-src 'self' data: https: blob: http://127.0.0.1:5173 http://localhost:5173",
                 "connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:5173 http://localhost:5173 ws: wss:",
                 "frame-src 'self' blob:",
                 "media-src 'self'",

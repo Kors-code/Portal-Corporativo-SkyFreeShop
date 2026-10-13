@@ -16,12 +16,16 @@ class Budget extends Model
     'start_date',
     'end_date',
     'closed_at',
+    'closure_review_until',
+    'closure_snapshot_created_at',
     'is_closed',
 ];
 
 protected $casts = [
     'is_closed' => 'boolean',
     'closed_at' => 'datetime',
+    'closure_review_until' => 'date',
+    'closure_snapshot_created_at' => 'datetime',
 ];
 public function userRoles()
 {

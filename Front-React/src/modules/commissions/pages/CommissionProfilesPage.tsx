@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  BadgeDollarSign,
+  ChevronDown,
   Check,
-  Edit3,
   Percent,
   Plus,
   RefreshCw,
   Search,
-  Target,
   Trash2,
   UserPlus,
   X,
@@ -18,13 +16,11 @@ import {
   deleteCommissionProfile,
   getCommissionProfileOptions,
   getCommissionProfiles,
-  getCommissionProfileSummary,
   updateCommissionProfile,
   type CommissionProfile,
   type CommissionProfileOptions,
   type CommissionProfilePayload,
   type CommissionProfileRule,
-  type CommissionProfileSummary,
 } from "../services/commissionProfilesService";
 
 type Draft = {
@@ -33,7 +29,6 @@ type Draft = {
   name: string;
   profile_type: string;
   minimum_fulfillment_pct: string;
-  target_amount_usd: string;
   is_active: boolean;
   note: string;
   rules: CommissionProfileRule[];
@@ -41,11 +36,15 @@ type Draft = {
 };
 
 const emptyRule = (): CommissionProfileRule => ({
-  rule_type: "provider",
+  rule_type: "custom",
   provider_name: "",
+  brand: "",
   category_id: null,
   category_code: null,
+  product_code: "",
   participation_pct: 0,
+  target_amount_usd: null,
+  target_turns: null,
   commission_percentage: 0,
   commission_percentage100: 0,
   commission_percentage120: 0,
@@ -56,7 +55,6 @@ const emptyDraft = (budgetId: number | null): Draft => ({
   name: "",
   profile_type: "degustadora",
   minimum_fulfillment_pct: "",
-  target_amount_usd: "",
   is_active: true,
   note: "",
   rules: [emptyRule()],
@@ -66,11 +64,51 @@ const emptyDraft = (budgetId: number | null): Draft => ({
 const moneyUsd = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
 
-const moneyCop = (value: number) =>
-  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(Number(value || 0));
-
 // Muestra el numero tal cual (1.5 -> "1.5"), sin forzar 2 decimales (1.5 -> "1.50").
 const pct = (value: number | null | undefined) => String(Math.round(Number(value || 0) * 100) / 100);
+
+const numberInput = (value: number | string | null | undefined) => {
+  const numeric = Number(value ?? 0);
+  return numeric === 0 ? "" : String(value);
+};
+
+const normalizeFilterValue = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+const excludedCategoryCodes = ["25", "23"].map(normalizeFilterValue);
+const excludedCategoryNames = ["diamantes"].map(normalizeFilterValue);
+
+function deriveRuleType(rule: CommissionProfileRule): CommissionProfileRule["rule_type"] {
+  const hasProvider = Boolean(rule.provider_name?.trim());
+  const hasBrand = Boolean(rule.brand?.trim());
+  const hasCategory = Boolean(rule.category_code || rule.category_id);
+  const hasProduct = Boolean(rule.product_code?.trim());
+  const count = [hasProvider, hasBrand, hasCategory, hasProduct].filter(Boolean).length;
+
+  if (count !== 1) return "custom";
+  if (hasProduct) return "sku";
+  if (hasProvider) return "provider";
+  if (hasBrand) return "brand";
+  return "category";
+}
+
+function ruleFilterSummary(rule: CommissionProfileRule, options: CommissionProfileOptions | null) {
+  const category = options?.categories.find((item) => Number(item.id) === Number(rule.category_id));
+  const parts = [
+    category || rule.category_code
+      ? `Categoria: ${category?.name ?? "Sin nombre"}${rule.category_code ? ` (${rule.category_code})` : ""}`
+      : null,
+    rule.provider_name ? `Proveedor: ${rule.provider_name}` : null,
+    rule.brand ? `Marca: ${rule.brand}` : null,
+    rule.product_code ? `SKU: ${rule.product_code}` : null,
+  ].filter(Boolean);
+
+  return parts.join(" | ") || "Sin filtros seleccionados";
+}
 
 function draftFromProfile(profile: CommissionProfile): Draft {
   return {
@@ -79,7 +117,6 @@ function draftFromProfile(profile: CommissionProfile): Draft {
     name: profile.name,
     profile_type: profile.profile_type,
     minimum_fulfillment_pct: profile.minimum_fulfillment_pct == null ? "" : String(profile.minimum_fulfillment_pct),
-    target_amount_usd: profile.target_amount_usd == null ? "" : String(profile.target_amount_usd),
     is_active: Boolean(profile.is_active),
     note: profile.note ?? "",
     rules: profile.rules.length
@@ -89,6 +126,94 @@ function draftFromProfile(profile: CommissionProfile): Draft {
   };
 }
 
+function SearchableRuleSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string; searchText?: string }>;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selected = options.find((option) => option.value === value);
+  const active = Boolean(value);
+  const term = query.trim().toLowerCase();
+  const filtered = term
+    ? options
+        .filter((option) => `${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(term))
+        .slice(0, 80)
+    : options.slice(0, 80);
+
+  return (
+    <div className="relative min-w-0">
+      <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <input
+        value={open ? query : selected?.label ?? ""}
+        onFocus={() => {
+          setOpen(true);
+          setQuery("");
+        }}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+        }}
+        placeholder={active ? label : placeholder}
+        className={`h-10 w-full min-w-0 rounded-md border pl-9 pr-8 text-sm font-semibold ${
+          active ? "border-slate-200 bg-white text-slate-800" : "border-slate-200 bg-slate-100 text-slate-400"
+        }`}
+      />
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+      {open && (
+        <div className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onChange("");
+              setQuery("");
+              setOpen(false);
+            }}
+            className="block w-full px-3 py-2 text-left text-sm font-bold text-slate-400 hover:bg-slate-50"
+          >
+            {placeholder}
+          </button>
+
+          {filtered.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(option.value);
+                setQuery("");
+                setOpen(false);
+              }}
+              className={`block w-full px-3 py-2 text-left text-sm font-semibold hover:bg-primary/5 ${
+                option.value === value ? "text-primary" : "text-slate-700"
+              }`}
+              title={option.label}
+            >
+              <span className="block truncate">{option.label}</span>
+            </button>
+          ))}
+
+          {filtered.length === 0 && (
+            <div className="px-3 py-3 text-sm font-semibold text-slate-500">Sin resultados</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CommissionProfilesPage() {
   const [budgets, setBudgets] = useState<any[]>([]);
   const [budgetId, setBudgetId] = useState<number | null>(null);
@@ -96,13 +221,13 @@ export default function CommissionProfilesPage() {
   const [options, setOptions] = useState<CommissionProfileOptions | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<Draft>(() => emptyDraft(null));
-  const [summary, setSummary] = useState<CommissionProfileSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
+  const [showUserPicker, setShowUserPicker] = useState(false);
   const [tierModalIndex, setTierModalIndex] = useState<number | null>(null);
 
   const selectedProfile = useMemo(
@@ -113,6 +238,7 @@ export default function CommissionProfilesPage() {
   const filteredUsers = useMemo(() => {
     const term = userSearch.trim().toLowerCase();
     const users = options?.users ?? [];
+    if (!term && !showUserPicker) return [];
     if (!term) return users.slice(0, 80);
 
     return users
@@ -122,33 +248,15 @@ export default function CommissionProfilesPage() {
           .some((value) => String(value).toLowerCase().includes(term))
       )
       .slice(0, 80);
-  }, [options, userSearch]);
-
-  const profileTargetUsd = Number(draft.target_amount_usd || 0);
-  const participationTotal = useMemo(
-    () => draft.rules.reduce((sum, rule) => sum + Number(rule.participation_pct || 0), 0),
-    [draft.rules]
-  );
-  const participationOverLimit = participationTotal > 100;
-
-  const ruleTargetUsd = (rule: CommissionProfileRule) => {
-    const pct = Number(rule.participation_pct || 0);
-    if (profileTargetUsd <= 0) return 0;
-    if (participationTotal > 0 && pct <= 0) return 0;
-    return pct > 0 ? profileTargetUsd * (pct / 100) : profileTargetUsd;
-  };
+  }, [options, userSearch, showUserPicker]);
 
   const assignedTargetUsd = useMemo(
-    () => draft.rules.reduce((sum, rule) => sum + ruleTargetUsd(rule), 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draft.rules, profileTargetUsd, participationTotal]
+    () => draft.rules.reduce((sum, rule) => sum + Number(rule.target_amount_usd || 0), 0),
+    [draft.rules]
   );
-  const remainingTargetUsd = Math.max(0, profileTargetUsd - assignedTargetUsd);
 
   function updateRuleTargetUsd(index: number, dollarValue: number) {
-    if (profileTargetUsd <= 0) return;
-    const pct = Math.max(0, (dollarValue / profileTargetUsd) * 100);
-    updateRule(index, { participation_pct: pct });
+    updateRule(index, { target_amount_usd: dollarValue });
   }
 
   useEffect(() => {
@@ -158,6 +266,9 @@ export default function CommissionProfilesPage() {
         const [budgetRes, opt] = await Promise.all([api.get("/budgets"), getCommissionProfileOptions()]);
         const budgetRows = budgetRes.data || [];
         setBudgets(budgetRows);
+        if (budgetRows.length) {
+          setBudgetId((current) => current ?? Number(budgetRows[0].id));
+        }
         setOptions(opt);
       } catch (err: any) {
         setError(err?.response?.data?.message ?? "No se pudo cargar la configuracion inicial.");
@@ -175,17 +286,20 @@ export default function CommissionProfilesPage() {
   useEffect(() => {
     if (!selectedProfile) {
       setDraft(emptyDraft(budgetId));
-      setSummary(null);
       return;
     }
 
     setDraft(draftFromProfile(selectedProfile));
-    loadSummary(selectedProfile.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProfile?.id]);
 
   async function loadProfiles() {
     setError(null);
+    if (!budgetId) {
+      setProfiles([]);
+      setSelectedId(null);
+      return;
+    }
     try {
       const rows = await getCommissionProfiles({ budget_id: budgetId, search });
       setProfiles(rows);
@@ -200,27 +314,12 @@ export default function CommissionProfilesPage() {
     }
   }
 
-  async function loadSummary(profileId = selectedId) {
-    if (!profileId) return;
-    try {
-      const data = await getCommissionProfileSummary(profileId, budgetId);
-      setSummary(data);
-    } catch {
-      setSummary(null);
-    }
-  }
-
   function updateRule(index: number, patch: Partial<CommissionProfileRule>) {
     setDraft((current) => ({
       ...current,
       rules: current.rules.map((rule, ruleIndex) =>
         ruleIndex === index
-          ? {
-              ...rule,
-              ...patch,
-              ...(patch.rule_type === "provider" ? { category_id: null, category_code: null } : {}),
-              ...(patch.rule_type === "category" ? { provider_name: "" } : {}),
-            }
+          ? { ...rule, ...patch }
           : rule
       ),
     }));
@@ -260,12 +359,23 @@ export default function CommissionProfilesPage() {
       commission_percentage100: 0,
       commission_percentage120: 0,
       minimum_fulfillment_pct: null,
-      target_amount_usd: draft.target_amount_usd === "" ? null : Number(draft.target_amount_usd),
-      is_active: draft.is_active,
+      target_amount_usd: null,
+      is_active: true,
       valid_from: null,
       valid_to: null,
       note: draft.note.trim() || null,
-      rules: draft.rules,
+      rules: draft.rules.map((rule) => ({
+        ...rule,
+        rule_type: deriveRuleType(rule),
+        provider_name: rule.provider_name?.trim() || null,
+        brand: rule.brand?.trim() || null,
+        product_code: rule.product_code?.trim() || null,
+        target_amount_usd: rule.target_amount_usd == null ? null : Number(rule.target_amount_usd),
+        target_turns: rule.target_turns == null ? null : Number(rule.target_turns),
+        commission_percentage: Number(rule.commission_percentage || 0),
+        commission_percentage100: Number(rule.commission_percentage100 || 0),
+        commission_percentage120: Number(rule.commission_percentage120 || 0),
+      })),
       user_ids: draft.user_ids,
     };
   }
@@ -284,7 +394,6 @@ export default function CommissionProfilesPage() {
       setMessage(draft.id ? "Perfil actualizado." : "Perfil creado.");
       setSelectedId(saved.id);
       await loadProfiles();
-      await loadSummary(saved.id);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? "No se pudo guardar el perfil.");
     } finally {
@@ -308,11 +417,10 @@ export default function CommissionProfilesPage() {
       setSaving(false);
     }
   }
-
   const selectedUsers = options?.users.filter((user) => draft.user_ids.includes(user.id)) ?? [];
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="mx-auto w-full max-w-6xl space-y-6 overflow-x-hidden pb-10">
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -325,10 +433,12 @@ export default function CommissionProfilesPage() {
           <div className="flex flex-col gap-2 sm:flex-row">
             <select
               value={budgetId ?? ""}
-              onChange={(event) => setBudgetId(Number(event.target.value) || null)}
+              onChange={(event) => setBudgetId(Number(event.target.value))}
               className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
             >
-              <option value="">Todos los presupuestos</option>
+              <option value="" disabled>
+                Selecciona presupuesto
+              </option>
               {budgets.map((budget) => (
                 <option key={budget.id} value={budget.id}>
                   {budget.name} ({budget.start_date} - {budget.end_date})
@@ -343,7 +453,8 @@ export default function CommissionProfilesPage() {
                   ...emptyDraft(budgetId),
                 });
               }}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95"
+              disabled={!budgetId}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <Plus className="h-4 w-4" />
               Nuevo perfil
@@ -358,8 +469,8 @@ export default function CommissionProfilesPage() {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
-        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -401,9 +512,6 @@ export default function CommissionProfilesPage() {
                       <p className="font-bold text-slate-900">{profile.name}</p>
                       <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">{profile.profile_type.replaceAll("_", " ")}</p>
                     </div>
-                    <span className={`rounded-full px-2 py-1 text-xs font-bold ${profile.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {profile.is_active ? "Activo" : "Inactivo"}
-                    </span>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
                     {profile.rules.length} regla(s) · {profile.users.length} persona(s)
@@ -414,8 +522,8 @@ export default function CommissionProfilesPage() {
           </div>
         </aside>
 
-        <main className="grid gap-5 2xl:grid-cols-[1fr_420px]">
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <main className="grid min-w-0 gap-5">
+          <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-slate-500">{draft.id ? "Editar perfil" : "Nuevo perfil"}</p>
@@ -436,29 +544,23 @@ export default function CommissionProfilesPage() {
                 <button
                   type="button"
                   onClick={saveProfile}
-                  disabled={saving || participationOverLimit}
+                  disabled={saving}
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95 disabled:opacity-60"
                 >
                   <Check className="h-4 w-4" />
                   {saving ? "Guardando" : "Guardar"}
                 </button>
               </div>
-
-              {participationOverLimit && (
-                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-                  La suma de las metas por regla no puede superar la meta total del perfil ({moneyUsd(profileTargetUsd)}).
-                </div>
-              )}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid min-w-0 gap-4 md:grid-cols-2">
               <label className="space-y-1">
                 <span className="text-sm font-bold text-slate-700">Nombre</span>
                 <input
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Degustadora Mil Demonios"
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
+                  className="h-10 min-w-0 w-full rounded-md border border-slate-200 px-3 text-sm"
                 />
               </label>
 
@@ -467,7 +569,7 @@ export default function CommissionProfilesPage() {
                 <select
                   value={draft.profile_type}
                   onChange={(event) => setDraft((current) => ({ ...current, profile_type: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  className="h-10 min-w-0 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
                 >
                   {(options?.profile_types ?? []).map((type) => (
                     <option key={type.value} value={type.value}>
@@ -477,47 +579,13 @@ export default function CommissionProfilesPage() {
                 </select>
               </label>
 
-              <label className="space-y-1">
-                <span className="text-sm font-bold text-slate-700">Meta total USD</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={draft.target_amount_usd}
-                  onChange={(event) => setDraft((current) => ({ ...current, target_amount_usd: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
-                />
-              </label>
-
-              <label className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={draft.is_active}
-                  onChange={(event) => setDraft((current) => ({ ...current, is_active: event.target.checked }))}
-                  className="h-4 w-4"
-                />
-                <span className="text-sm font-bold text-slate-700">Habilitado para cálculo</span>
-              </label>
             </div>
 
             <div className="mt-6">
-              <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div className="mb-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">
-                    <Target className="h-4 w-4 text-primary" />
-                    Meta perfil
-                  </div>
-                  <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(profileTargetUsd)}</p>
-                </div>
-                <div className={`rounded-md border p-3 ${participationOverLimit ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
-                  <p className={`text-xs font-black uppercase tracking-wide ${participationOverLimit ? "text-red-600" : "text-slate-500"}`}>Meta asignada a reglas</p>
-                  <p className={`mt-1 text-lg font-black ${participationOverLimit ? "text-red-700" : "text-slate-950"}`}>
-                    {moneyUsd(assignedTargetUsd)}
-                  </p>
-                </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Meta disponible</p>
-                  <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(remainingTargetUsd)}</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Meta total de reglas</p>
+                  <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(assignedTargetUsd)}</p>
                 </div>
               </div>
 
@@ -533,85 +601,101 @@ export default function CommissionProfilesPage() {
                 {draft.rules.map((rule, index) => (
                   <div key={index} className="rounded-md border border-slate-200 p-3">
                     <div className="mb-3 flex items-start justify-between gap-3">
-                      <p className="text-sm font-black text-slate-900">Regla {index + 1}</p>
-                      <button
-                        type="button"
-                        onClick={() => removeRule(index)}
-                        disabled={draft.rules.length === 1}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-                        aria-label="Quitar regla"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-slate-900">Regla {index + 1}</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-slate-500" title={ruleFilterSummary(rule, options)}>
+                          {ruleFilterSummary(rule, options)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => removeRule(index)}
+                          disabled={draft.rules.length === 1}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                          aria-label="Quitar regla"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="grid gap-3 lg:grid-cols-[170px_1fr_1fr_150px_190px]">
-                      <select
-                        value={rule.rule_type}
-                        onChange={(event) => updateRule(index, { rule_type: event.target.value as CommissionProfileRule["rule_type"] })}
-                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      >
-                        {(options?.rule_types ?? []).map((type) => (
-                          <option key={type.value} value={type.value}>
-                            {type.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={rule.provider_name ?? ""}
-                        onChange={(event) => updateRule(index, { provider_name: event.target.value })}
-                        disabled={rule.rule_type === "category"}
-                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                      >
-                        <option value="">Proveedor</option>
-                        {(options?.providers ?? []).map((provider) => (
-                          <option key={provider} value={provider}>
-                            {provider}
-                          </option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={rule.category_id ?? ""}
-                        onChange={(event) => {
-                          const category = options?.categories.find((item) => item.id === Number(event.target.value));
-                          updateRule(index, { category_id: category?.id ?? null, category_code: category?.code ?? null });
+                    <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_170px]">
+                      <SearchableRuleSelect
+                        label="Categoria"
+                        value={rule.category_id ? String(rule.category_id) : ""}
+                        placeholder="Categoria: No aplica"
+                        options={(options?.categories ?? [])
+                          .filter((category) => {
+                            const code = normalizeFilterValue(category.code);
+                            const name = normalizeFilterValue(category.name);
+                            return !excludedCategoryCodes.includes(code) && !excludedCategoryNames.includes(name);
+                          })
+                          .map((category) => ({
+                            value: String(category.id),
+                            label: `${category.name} (${category.code})`,
+                            searchText: `${category.name} ${category.code}`,
+                          }))}
+                        onChange={(value) => {
+                          const category = options?.categories.find((item) => item.id === Number(value));
+                          updateRule(index, {
+                            category_id: category?.id ?? null,
+                            category_code: category?.code ?? null,
+                          });
                         }}
-                        disabled={rule.rule_type === "provider"}
-                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                      >
-                        <option value="">Categoria</option>
-                        {(options?.categories ?? []).map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name} ({category.code})
-                          </option>
-                        ))}
-                      </select>
+                      />
 
-                      <label className="relative" title={profileTargetUsd <= 0 ? "Define primero la meta total del perfil" : "Meta de esta regla, en dolares"}>
-                        <span className="pointer-events-none absolute left-3 top-2.5 text-sm font-bold text-slate-400">$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          disabled={profileTargetUsd <= 0}
-                          value={Math.round(ruleTargetUsd(rule) * 100) / 100}
-                          onChange={(event) => updateRuleTargetUsd(index, Number(event.target.value || 0))}
-                          placeholder={profileTargetUsd <= 0 ? "Meta total primero" : "0.00"}
-                          className="h-10 w-full rounded-md border border-slate-200 pl-6 pr-3 text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </label>
+                      <SearchableRuleSelect
+                        label="Proveedor"
+                        value={rule.provider_name ?? ""}
+                        placeholder="Proveedor: No aplica"
+                        options={(options?.providers ?? []).map((provider) => ({
+                          value: provider,
+                          label: provider,
+                        }))}
+                        onChange={(value) => updateRule(index, { provider_name: value || null })}
+                      />
+
+                      <SearchableRuleSelect
+                        label="Marca"
+                        value={rule.brand ?? ""}
+                        placeholder="Marca: No aplica"
+                        options={(options?.brands ?? []).map((brand) => ({
+                          value: brand,
+                          label: brand,
+                        }))}
+                        onChange={(value) => updateRule(index, { brand: value || null })}
+                      />
+
+                      <SearchableRuleSelect
+                        label="SKU"
+                        value={rule.product_code ?? ""}
+                        placeholder="SKU: No aplica"
+                        options={(options?.products ?? []).map((product) => ({
+                          value: product.code,
+                          label: `${product.code}${product.description ? ` - ${product.description}` : ""}`,
+                          searchText: [
+                            product.description,
+                            product.brand,
+                            product.sku_mia,
+                            product.upc,
+                            product.upc2,
+                            product.upc3,
+                          ].filter(Boolean).join(" "),
+                        }))}
+                        onChange={(value) => updateRule(index, { product_code: value || null })}
+                      />
 
                       <button
                         type="button"
                         onClick={() => setTierModalIndex(index)}
-                        className="inline-flex h-10 items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        title={`Meta regla: ${moneyUsd(Number(rule.target_amount_usd || 0))}${Number(rule.target_turns || 0) > 0 ? ` para ${numberInput(rule.target_turns)} turnos` : ""}`}
+                        className="inline-flex h-10 min-w-0 items-center justify-between rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
                       >
-                        <span>
+                        <span className="min-w-0 truncate">
                           80: {pct(rule.commission_percentage)} · 100: {pct(rule.commission_percentage100)} · 120: {pct(rule.commission_percentage120)}
                         </span>
-                        <Percent className="h-4 w-4 text-primary" />
+                        <Percent className="h-4 w-4 shrink-0 text-primary" />
                       </button>
                     </div>
                   </div>
@@ -619,7 +703,7 @@ export default function CommissionProfilesPage() {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1fr]">
+            <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
               <div>
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="font-black text-slate-900">Personas asignadas</h3>
@@ -649,14 +733,28 @@ export default function CommissionProfilesPage() {
               <div>
                 <label className="mb-3 block space-y-1">
                   <span className="text-sm font-bold text-slate-700">Buscar persona</span>
-                  <input
-                    value={userSearch}
-                    onChange={(event) => setUserSearch(event.target.value)}
-                    placeholder="Nombre, email o codigo"
-                    className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      value={userSearch}
+                      onChange={(event) => {
+                        setUserSearch(event.target.value);
+                        setShowUserPicker(true);
+                      }}
+                      onFocus={() => userSearch.trim() && setShowUserPicker(true)}
+                      placeholder="Nombre, email o codigo"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-slate-200 px-3 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowUserPicker((current) => !current)}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      aria-label="Mostrar personas"
+                    >
+                      <ChevronDown className={`h-4 w-4 transition ${showUserPicker ? "rotate-180" : ""}`} />
+                    </button>
+                  </div>
                 </label>
-                <div className="max-h-48 overflow-auto rounded-md border border-slate-200">
+                <div className={`max-h-48 overflow-auto rounded-md border border-slate-200 ${showUserPicker || userSearch.trim() ? "block" : "hidden"}`}>
                   {filteredUsers.map((user) => {
                     const active = draft.user_ids.includes(user.id);
                     return (
@@ -674,6 +772,11 @@ export default function CommissionProfilesPage() {
                       </button>
                     );
                   })}
+                  {filteredUsers.length === 0 && (
+                    <div className="px-3 py-4 text-sm font-semibold text-slate-500">
+                      Escribe para buscar o abre la lista.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -689,122 +792,6 @@ export default function CommissionProfilesPage() {
             </label>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-bold text-slate-500">Vista calculada</p>
-                <h2 className="text-xl font-black text-slate-950">Resumen</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => loadSummary()}
-                disabled={!selectedId}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                aria-label="Actualizar resumen"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            </div>
-
-            {!selectedId ? (
-              <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">Guarda o selecciona un perfil para ver ventas y comision.</div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Ventas</p>
-                    <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(summary?.totals.sales_usd ?? 0)}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Comision</p>
-                    <p className="mt-1 text-lg font-black text-slate-950">{moneyUsd(summary?.totals.commission_usd ?? 0)}</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {(summary?.rows ?? []).map((row) => (
-                    <div key={row.user_id} className="rounded-md border border-slate-200 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-bold text-slate-900">{row.user_name || `Usuario ${row.user_id}`}</p>
-                          <p className="text-xs text-slate-500">{row.seller_code || "Sin codigo"} · {row.sales_count} ventas</p>
-                        </div>
-                        <span className={`rounded-full px-2 py-1 text-xs font-bold ${row.eligible ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                          {row.eligible ? "Comisiona" : "No aplica"}
-                        </span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="text-xs font-bold text-slate-500">Ventas USD</p>
-                          <p className="font-black text-slate-900">{moneyUsd(row.sales_usd)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-500">Comision USD</p>
-                          <p className="font-black text-slate-900">{moneyUsd(row.commission_usd)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-500">Ventas COP</p>
-                          <p className="font-semibold text-slate-700">{moneyCop(row.sales_cop)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-500">Cumplimiento</p>
-                          <p className="font-semibold text-slate-700">{row.fulfillment_pct == null ? "Sin meta" : `${row.fulfillment_pct.toFixed(2)}%`}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-500">% aplicado</p>
-                          <p className="font-semibold text-slate-700">{Number(row.applied_commission_pct || 0).toFixed(2)}%</p>
-                        </div>
-                      </div>
-                      {!!row.rules?.length && (
-                        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                          {row.rules.map((rule) => (
-                            <div key={rule.rule_id} className="grid gap-2 rounded-md bg-slate-50 p-2 text-xs sm:grid-cols-[1fr_90px_90px_70px]">
-                              <div className="font-bold text-slate-700">
-                                {rule.provider_name || "Proveedor libre"} · {rule.category_code || "Categoria libre"}
-                              </div>
-                              <div className="text-slate-600">Meta {moneyUsd(rule.target_usd ?? 0)}</div>
-                              <div className="font-bold text-slate-900">{moneyUsd(rule.sales_usd)}</div>
-                              <div className={Number(rule.fulfillment_pct || 0) >= 80 ? "font-bold text-emerald-700" : "font-bold text-amber-700"}>
-                                {rule.fulfillment_pct == null ? "Sin meta" : `${Number(rule.fulfillment_pct).toFixed(0)}%`}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {summary && summary.rows.length === 0 && (
-                    <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">Este perfil no tiene personas asignadas.</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {selectedProfile && (
-              <div className="mt-5 rounded-md border border-slate-200 p-3">
-                <div className="flex items-center gap-2 text-sm font-black text-slate-900">
-                  <BadgeDollarSign className="h-4 w-4 text-primary" />
-                  Regla activa
-                </div>
-                <div className="mt-3 space-y-2">
-                  {selectedProfile.rules.map((rule) => (
-                    <div key={rule.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                      {rule.rule_type.replace("_", " + ")} · {rule.provider_name || "cualquier proveedor"} · {rule.category_code || "cualquier categoria"} · Meta: {moneyUsd(ruleTargetUsd(rule))} · 80: {pct(rule.commission_percentage)} / 100: {pct(rule.commission_percentage100)} / 120: {pct(rule.commission_percentage120)}
-                    </div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDraft(draftFromProfile(selectedProfile))}
-                  className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                >
-                  <Edit3 className="h-4 w-4" />
-                  Restaurar cambios
-                </button>
-              </div>
-            )}
-          </section>
         </main>
       </div>
 
@@ -826,6 +813,36 @@ export default function CommissionProfilesPage() {
               </button>
             </div>
 
+            <div className="mb-4 grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-sm font-bold text-slate-700">Meta regla</span>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-2.5 text-sm font-bold text-slate-400">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={numberInput(draft.rules[tierModalIndex].target_amount_usd)}
+                    onChange={(event) => updateRuleTargetUsd(tierModalIndex, Number(event.target.value || 0))}
+                    placeholder="Ej. 25000"
+                    className="h-10 w-full rounded-md border border-slate-200 pl-6 pr-3 text-sm font-semibold"
+                  />
+                </div>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-bold text-slate-700">Turnos base</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={numberInput(draft.rules[tierModalIndex].target_turns)}
+                  onChange={(event) => updateRule(tierModalIndex, { target_turns: Number(event.target.value || 0) })}
+                  placeholder="Ej. 25"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm font-semibold"
+                />
+              </label>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-3">
               <label className="space-y-1">
                 <span className="text-sm font-bold text-slate-700">Desde 80%</span>
@@ -833,7 +850,7 @@ export default function CommissionProfilesPage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={draft.rules[tierModalIndex].commission_percentage ?? 0}
+                  value={numberInput(draft.rules[tierModalIndex].commission_percentage)}
                   onChange={(event) => updateRule(tierModalIndex, { commission_percentage: Number(event.target.value || 0) })}
                   className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
                 />
@@ -844,7 +861,7 @@ export default function CommissionProfilesPage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={draft.rules[tierModalIndex].commission_percentage100 ?? 0}
+                  value={numberInput(draft.rules[tierModalIndex].commission_percentage100)}
                   onChange={(event) => updateRule(tierModalIndex, { commission_percentage100: Number(event.target.value || 0) })}
                   className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
                 />
@@ -855,7 +872,7 @@ export default function CommissionProfilesPage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={draft.rules[tierModalIndex].commission_percentage120 ?? 0}
+                  value={numberInput(draft.rules[tierModalIndex].commission_percentage120)}
                   onChange={(event) => updateRule(tierModalIndex, { commission_percentage120: Number(event.target.value || 0) })}
                   className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
                 />
