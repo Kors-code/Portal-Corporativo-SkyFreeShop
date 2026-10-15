@@ -43,6 +43,7 @@ const MODULES: ModuleDef[] = [
         n.startsWith('budget.') ||
         n.startsWith('budgets.') ||
         n.startsWith('commissions.') ||
+        n.startsWith('commission_profiles.') ||
         n.startsWith('reports.') ||
         n.startsWith('advisors.') ||
         n.includes('cashier') ||
