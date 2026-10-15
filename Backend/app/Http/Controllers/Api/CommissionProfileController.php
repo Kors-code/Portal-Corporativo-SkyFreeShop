@@ -432,7 +432,7 @@ class CommissionProfileController extends Controller
                 $this->applySingleRule($query, $rule);
 
                 $sales = $query
-                    ->selectRaw('COUNT(*) as rows_count')
+                    ->selectRaw('COUNT(DISTINCT sales.folio) as rows_count')
                     ->selectRaw('COALESCE(SUM(sales.value_usd), 0) as sales_usd')
                     ->selectRaw('COALESCE(SUM(sales.amount_cop), 0) as sales_cop')
                     ->selectRaw('COALESCE(SUM(sales.quantity), 0) as units')
@@ -441,6 +441,18 @@ class CommissionProfileController extends Controller
                     ->first();
 
                 $ruleSales[] = ['rule' => $rule, 'sales' => $sales];
+            }
+
+            // Tickets de la persona: folios unicos que cumplen alguna regla (un folio con productos de dos reglas cuenta una vez).
+            $personTickets = 0;
+            if ($profile->rules->isNotEmpty()) {
+                $ticketsQuery = DB::connection('budget')
+                    ->table('sales')
+                    ->leftJoin('products', 'products.id', '=', 'sales.product_id')
+                    ->where('sales.seller_id', $assignment->user_id);
+                $this->applyBudgetFilter($ticketsQuery, $budgetId, $budget);
+                $this->applyProfileRules($ticketsQuery, $profile->rules);
+                $personTickets = (int) $ticketsQuery->distinct()->count('sales.folio');
             }
 
             $personSalesUsd = array_sum(array_map(fn ($rs) => (float) ($rs['sales']->sales_usd ?? 0), $ruleSales));
@@ -523,7 +535,7 @@ class CommissionProfileController extends Controller
                 'user_id' => $assignment->user_id,
                 'user_name' => $user->name ?? null,
                 'seller_code' => $user->codigo_vendedor ?? null,
-                'sales_count' => (int) array_sum(array_column($ruleRows, 'sales_count')),
+                'sales_count' => $personTickets,
                 'units' => (float) array_sum(array_column($ruleRows, 'units')),
                 'assigned_turns' => $assignedTurns,
                 'target_usd' => round($ruleTargetUsd, 2),
