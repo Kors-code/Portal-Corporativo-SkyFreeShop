@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BadgeDollarSign, CalendarDays, CheckCircle2, Clock3, RefreshCw, Ticket, TrendingUp } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, CalendarDays, CheckCircle2, Clock3, RefreshCw, Ticket, TrendingUp } from "lucide-react";
 import {
   getMyProfileCommissions,
   type MyProfileCommissions,
@@ -93,11 +93,14 @@ export default function MyProfileCommissionsPage() {
   const budget = data?.budgets.find((item) => item.id === data.selected_budget_id);
   const profile = data?.rows[selectedProfileIndex];
   const closed = data?.source === "snapshot";
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+  const statusLabel = closed ? "Cerrado" : budget && today > budget.end_date ? "Por cerrar" : "En curso";
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 pb-10">
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          <a href="/welcome" className="mb-4 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"><ArrowLeft className="h-4 w-4" />Volver</a>
           <p className="text-xs font-bold uppercase text-primary">Comisiones</p>
           <h1 className="mt-1 text-2xl font-black text-slate-950">Mis perfiles</h1>
         </div>
@@ -126,9 +129,9 @@ export default function MyProfileCommissionsPage() {
         <>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
             <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" />{budget.start_date} al {budget.end_date}</span>
-            <span className={`inline-flex items-center gap-1.5 font-bold ${closed ? "text-emerald-700" : "text-amber-700"}`}>
+            <span className={`inline-flex items-center gap-1.5 font-bold ${closed ? "text-emerald-700" : "text-sky-700"}`}>
               {closed ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
-              {closed ? "Cerrado" : "Provisional"}
+              {statusLabel}
             </span>
           </div>
 
