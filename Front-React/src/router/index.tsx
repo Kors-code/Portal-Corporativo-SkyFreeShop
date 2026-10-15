@@ -78,6 +78,7 @@ export default function AppRouter() {
           <Route path="/AdminWishList" element={<AdminWishList />} />
         {/* Todas las rutas usan el layout (navbar visible en todas) */}
           <Route path="/commissions/SpecialistCommissionsPanel" element={<PermissionGate permission="commissions.asesorSpecialist.view"><SpecialistCommissionsPanel /></PermissionGate>} />
+          <Route path="/commissions/my-profiles" element={<PermissionGate permission="commission_profiles.my.view"><div className="min-h-screen bg-slate-50 p-4 sm:p-6"><MyProfileCommissionsPage /></div></PermissionGate>} />
         <Route element={<MainLayout />}>
           <Route path="/" element={<HomePage />} />
 
@@ -121,7 +122,6 @@ export default function AppRouter() {
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<PermissionGate permission="budget.commissions.manage"><CategoryCommissionsPage /></PermissionGate>} />
           <Route path="/commissions/profiles" element={<PermissionGate permission={["budget.commissions.manage", "commission_profiles.manage"]}><CommissionProfilesPage /></PermissionGate>} />
-          <Route path="/commissions/my-profiles" element={<PermissionGate permission="commission_profiles.my.view"><MyProfileCommissionsPage /></PermissionGate>} />
           <Route path="/commissions/profile-earners" element={<PermissionGate permission={["budget.commissions.view", "commission_profiles.view"]}><CommissionProfileEarnersPage /></PermissionGate>} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
           <Route
