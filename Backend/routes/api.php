@@ -248,6 +248,8 @@ Route::get('/v1/ping', function () {
         ->middleware('permission:budget.cashier.manage');
 
     // COMMISSION CONFIG
+    Route::get('commission-profiles/my', [CommissionProfileController::class, 'myCommissions'])
+        ->middleware('permission:commission_profiles.my.view');
     Route::get('commission-profiles/options', [CommissionProfileController::class, 'options'])
         ->middleware('permission:budget.commissions.view,commission_profiles.view');
     Route::get('commission-profiles/earners/export', [CommissionProfileController::class, 'exportEarners'])

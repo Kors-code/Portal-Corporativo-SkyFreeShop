@@ -120,6 +120,32 @@ export type CommissionProfileSummary = {
   };
 };
 
+export type MyProfileCommissions = {
+  budgets: Array<{
+    id: number;
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_closed: boolean;
+    closed_at?: string | null;
+  }>;
+  selected_budget_id: number | null;
+  source: "live" | "snapshot" | null;
+  rows: Array<CommissionProfileSummary["rows"][number] & {
+    profile_id: number | null;
+    profile_name: string;
+    profile_type: string;
+  }>;
+  totals: CommissionProfileSummary["totals"];
+};
+
+export async function getMyProfileCommissions(budgetId?: number) {
+  const { data } = await api.get("/commission-profiles/my", {
+    params: budgetId ? { budget_id: budgetId } : undefined,
+  });
+  return data as MyProfileCommissions;
+}
+
 export async function getCommissionProfiles(params?: { budget_id?: number | null; search?: string }) {
   const { data } = await api.get("/commission-profiles", { params });
   return data.profiles as CommissionProfile[];

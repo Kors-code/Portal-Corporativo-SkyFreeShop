@@ -40,6 +40,7 @@ export default function HomePage() {
         { title: "Seguimiento asesores", to: "/CommissionCardsPage", description: "Resumen de ventas, KPI y comisiones.", Icon: Target, permissions: ["budget.commissions.view"] },
         { title: "Seguimiento cajeros", to: "/CashierAwards", description: "Premios y comisiones por cajero.", Icon: WalletCards, permissions: ["budget.cashier.view"] },
         { title: "Perfiles de comision", to: "/commissions/profiles", description: "Reglas flexibles por proveedor, categoria y persona.", Icon: Users, permissions: ["budget.commissions.manage"] },
+        { title: "Perfiles", to: "/commissions/my-profiles", description: "Mis perfiles y comisiones por presupuesto.", Icon: BadgeDollarSign, permissions: ["commission_profiles.my.view"] },
         { title: "Quienes comisionan", to: "/commissions/profile-earners", description: "Personas con comision calculada y exportable.", Icon: BadgeDollarSign, permissions: ["budget.commissions.view"] },
         { title: "Asesores especializados", to: "/commissions/DualCommissionAdmin", description: "Distribucion y seguimiento por categoria.", Icon: Users, permissions: ["budget.commissions.manage"] },
         { title: "Importar turnos y ventas", to: "/ImportsManagerPage", description: "Carga, consulta y correccion de archivos comerciales.", Icon: Import, permissions: ["imports.create"] },

@@ -27,9 +27,8 @@
   $firstArea = ($areas ?? [])[0] ?? null;
   $quickNavCards = collect($featuredCards ?? [])->merge($cards ?? [])->unique('route')->take(6)->values();
   $areaDescriptions = [
-      'Comercial' => 'Accesos de uso diario para asesores, especialistas, cajeros, Wishlist y SHA.',
-      'Presupuesto' => 'Presupuesto, reportes, cajeros e importes reunidos en una sola ruta de gestión.',
-      'Informacional' => 'Material interno y consulta rápida para asesores.',
+      'Comisiones' => 'Accesos de uso diario para asesores, especialistas, perfiles y Wishlist.',
+      'Presupuesto' => 'Perfiles de comisión, presupuesto, vista admin de asesores e importes reunidos en una sola ruta de gestión.',
       'Personal' => 'Talento humano, vacantes, candidatos y procesos de seguimiento interno.',
       'Inventario' => 'Cobertura, alertas e importaciones para gestionar stock por tienda y SKU.',
       'Analitica' => 'Visualizaciones ejecutivas, pasajeros, ventas por tienda, cierres e inventario.',

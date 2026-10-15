@@ -243,6 +243,134 @@ class CommissionProfileController extends Controller
         ]);
     }
 
+    public function myCommissions(Request $request)
+    {
+        $request->validate(['budget_id' => ['nullable', 'integer', 'min:1']]);
+
+        $sellerCode = trim((string) ($request->user()->seller_code ?? ''));
+        $userId = $sellerCode !== ''
+            ? DB::connection('budget')->table('users')->where('codigo_vendedor', $sellerCode)->value('id')
+            : null;
+
+        if (! $userId) {
+            return response()->json([
+                'budgets' => [],
+                'selected_budget_id' => null,
+                'source' => null,
+                'rows' => [],
+                'totals' => $this->totalsForRows([]),
+            ]);
+        }
+
+        $userId = (int) $userId;
+        $snapshotBudgetIds = DB::connection('budget')
+            ->table('commission_profile_snapshots')
+            ->where('user_id', $userId)
+            ->distinct()
+            ->pluck('budget_id');
+        $assignedProfileIds = CommissionProfile::query()
+            ->where('is_active', true)
+            ->whereHas('assignments', fn ($query) => $query->where('user_id', $userId))
+            ->pluck('id');
+
+        $budgets = DB::connection('budget')
+            ->table('budgets')
+            ->select('id', 'name', 'start_date', 'end_date', 'is_closed', 'closed_at')
+            ->where(function ($query) use ($snapshotBudgetIds, $assignedProfileIds) {
+                $query->whereIn('id', $snapshotBudgetIds);
+
+                if ($assignedProfileIds->isNotEmpty()) {
+                    $query->orWhere(function ($open) use ($assignedProfileIds) {
+                        $open->where(function ($status) {
+                            $status->whereNull('is_closed')->orWhere('is_closed', false);
+                        })->whereDate('start_date', '<=', now('America/Bogota')->toDateString())
+                            ->whereExists(function ($profile) use ($assignedProfileIds) {
+                                $profile->selectRaw('1')
+                                    ->from('commission_profiles')
+                                    ->whereIn('id', $assignedProfileIds)
+                                    ->where(function ($scope) {
+                                        $scope->whereNull('budget_id')
+                                            ->orWhereColumn('budget_id', 'budgets.id');
+                                    });
+                            });
+                    });
+                }
+            })
+            ->orderByDesc('start_date')
+            ->get();
+
+        $budgetId = $request->query('budget_id')
+            ? (int) $request->query('budget_id')
+            : (int) ($budgets->first()->id ?? 0);
+        $budget = $budgets->firstWhere('id', $budgetId);
+
+        if ($request->query('budget_id') && ! $budget) {
+            abort(404, 'Presupuesto no disponible para este usuario.');
+        }
+
+        $rows = [];
+        $source = null;
+        if ($budget) {
+            if ($budget->is_closed) {
+                $source = 'snapshot';
+                $snapshots = DB::connection('budget')
+                    ->table('commission_profile_snapshots')
+                    ->where('budget_id', $budgetId)
+                    ->where('user_id', $userId)
+                    ->orderBy('profile_name_snapshot')
+                    ->get();
+
+                foreach ($snapshots as $snapshot) {
+                    $rows[] = [
+                        'profile_id' => $snapshot->commission_profile_id,
+                        'profile_name' => $snapshot->profile_name_snapshot,
+                        'profile_type' => $snapshot->profile_type_snapshot,
+                        'sales_count' => (int) $snapshot->sales_count,
+                        'units' => (float) $snapshot->units,
+                        'assigned_turns' => (float) $snapshot->assigned_turns,
+                        'target_usd' => (float) $snapshot->target_usd,
+                        'sales_usd' => (float) $snapshot->sales_usd,
+                        'sales_cop' => (float) $snapshot->sales_cop,
+                        'avg_trm' => $snapshot->avg_trm === null ? null : (float) $snapshot->avg_trm,
+                        'fulfillment_pct' => $snapshot->fulfillment_pct === null ? null : (float) $snapshot->fulfillment_pct,
+                        'eligible' => (bool) $snapshot->eligible,
+                        'applied_commission_pct' => (float) $snapshot->applied_commission_pct,
+                        'commission_usd' => (float) $snapshot->commission_usd,
+                        'commission_cop' => (float) $snapshot->commission_cop,
+                        'rules' => json_decode($snapshot->rules_snapshot ?? '[]', true) ?: [],
+                    ];
+                }
+            } else {
+                $source = 'live';
+                $profiles = CommissionProfile::with(['rules', 'assignments'])
+                    ->whereIn('id', $assignedProfileIds)
+                    ->where(function ($query) use ($budgetId) {
+                        $query->where('budget_id', $budgetId)->orWhereNull('budget_id');
+                    })
+                    ->orderBy('name')
+                    ->get();
+
+                foreach ($profiles as $profile) {
+                    foreach ($this->buildRowsForProfile($profile, $budgetId, $budget, $userId) as $row) {
+                        $rows[] = array_merge($row, [
+                            'profile_id' => $profile->id,
+                            'profile_name' => $profile->name,
+                            'profile_type' => $profile->profile_type,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'budgets' => $budgets,
+            'selected_budget_id' => $budget?->id,
+            'source' => $source,
+            'rows' => $rows,
+            'totals' => $this->totalsForRows($rows),
+        ]);
+    }
+
     public function exportEarners(Request $request)
     {
         $response = $this->earners($request);
@@ -267,7 +395,7 @@ class CommissionProfileController extends Controller
         return Excel::download(new CommissionProfileEarnersExport($rows), 'perfiles-comisionables.xlsx');
     }
 
-    private function buildRowsForProfile(CommissionProfile $profile, ?int $budgetId, $budget): array
+    private function buildRowsForProfile(CommissionProfile $profile, ?int $budgetId, $budget, ?int $onlyUserId = null): array
     {
         $rows = [];
         $categoryCodes = $profile->rules
@@ -287,6 +415,9 @@ class CommissionProfileController extends Controller
             : [];
 
         foreach ($profile->assignments as $assignment) {
+            if ($onlyUserId !== null && (int) $assignment->user_id !== $onlyUserId) {
+                continue;
+            }
             // Primera pasada: solo traemos las ventas de cada regla, sin decidir tramo todavia.
             $ruleSales = [];
             $assignedTurns = $this->assignedTurnsForUser($assignment->user_id, $budgetId);

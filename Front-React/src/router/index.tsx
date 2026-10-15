@@ -23,9 +23,9 @@ import DualCommissionAdmin from "../modules/commissions/pages/DualCommissionAdmi
 import SpecialistCommissionsPanel from "../modules/commissions/pages/SpecialistCommissionsPanel";
 import CommissionProfilesPage from "../modules/commissions/pages/CommissionProfilesPage";
 import CommissionProfileEarnersPage from "../modules/commissions/pages/CommissionProfileEarnersPage";
+import MyProfileCommissionsPage from "../modules/commissions/pages/MyProfileCommissionsPage";
 import CommissionLeadersPage from "../modules/commissions/pages/CommissionLeadersPage";
 import CatalogImportCard from "../modules/inventory/CatalogImportCard";
-import InventoryMetricsRunner from "../modules/inventory/InventoryMetricsRunner";
 import InventoryCoveragePage from "../modules/inventory/pages/InventoryCoveragePage";
 import InventoryAlertsPage from "../modules/inventory/pages/InventoryAlertsPage";
 import InventoryImportsManagerPage from "../modules/imports/pages/InventoryImportsManagerPage";
@@ -87,7 +87,6 @@ export default function AppRouter() {
           <Route path="/importCatalog" element={<ImportCatalog />} />
 
           <Route path="/budget" element={<PermissionGate permission="budget.admin.view"><BudgetPage /></PermissionGate>} />
-          <Route path="/InventoryMetricsRunner" element={<InventoryMetricsRunner />} />
           <Route path="/inventarios/cobertura" element={<InventoryCoveragePage />} />
           <Route path="/inventarios/alertas" element={<InventoryAlertsPage />} />
           <Route path="/visualizaciones" element={<VisualizacionesGuard><VisualizacionesHub /></VisualizacionesGuard>} />
@@ -122,6 +121,7 @@ export default function AppRouter() {
           <Route path="/CashierAwards" element={<CommisionCashier />} />
           <Route path="/commissions/categories" element={<PermissionGate permission="budget.commissions.manage"><CategoryCommissionsPage /></PermissionGate>} />
           <Route path="/commissions/profiles" element={<PermissionGate permission={["budget.commissions.manage", "commission_profiles.manage"]}><CommissionProfilesPage /></PermissionGate>} />
+          <Route path="/commissions/my-profiles" element={<PermissionGate permission="commission_profiles.my.view"><MyProfileCommissionsPage /></PermissionGate>} />
           <Route path="/commissions/profile-earners" element={<PermissionGate permission={["budget.commissions.view", "commission_profiles.view"]}><CommissionProfileEarnersPage /></PermissionGate>} />
           <Route path="/commissions/AdvisorSplitByCategory" element={<AdvisorSplitByCategory  />} />
           <Route

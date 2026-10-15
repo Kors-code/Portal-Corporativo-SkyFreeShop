@@ -37,6 +37,7 @@ class RolePermissionPresetService
             'panel.view',
             'budget.view',
             'commissions.user.view',
+            'commission_profiles.my.view',
             'wishlist.view',
             'advisor-info.view',
         ],
