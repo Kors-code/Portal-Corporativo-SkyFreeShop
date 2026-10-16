@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Comisiones\Budget;
 use App\Models\Comisiones\Sale;
 use App\Services\BudgetClosureService;
+use App\Services\CommissionProfileVersionService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -37,8 +38,13 @@ class BudgetController extends Controller
         'total_turns' => 'nullable|integer|min:0',
     ]);
 
-    $budget = Budget::create($data);
-    $this->copyCategoryCommissionsFromPreviousBudget($budget);
+    $budget = DB::connection('budget')->transaction(function () use ($data) {
+        $budget = Budget::create($data);
+        $this->copyCategoryCommissionsFromPreviousBudget($budget);
+        app(CommissionProfileVersionService::class)->copyFromPreviousBudget($budget);
+
+        return $budget;
+    });
 
 
     return response()->json($budget, 201);

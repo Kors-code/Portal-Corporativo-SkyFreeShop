@@ -11,7 +11,7 @@ use RuntimeException;
 
 class BudgetClosureService
 {
-    public function closeBudget(int $budgetId, string $triggeredBy = 'manual', ?int $closedBy = null, bool $force = false): array
+    public function closeBudget(int $budgetId, string $triggeredBy = 'manual', ?int $closedBy = null): array
     {
         $budget = DB::connection('budget')->table('budgets')->where('id', $budgetId)->first();
 
@@ -19,7 +19,7 @@ class BudgetClosureService
             throw new RuntimeException("No existe el presupuesto {$budgetId}.");
         }
 
-        if ((bool) ($budget->is_closed ?? false) && ! $force) {
+        if ((bool) ($budget->is_closed ?? false)) {
             return [
                 'status' => 'already_closed',
                 'budget_id' => $budgetId,
@@ -30,7 +30,7 @@ class BudgetClosureService
         $now = now('America/Bogota');
         $reviewUntil = $this->reviewUntilForBudget($budget);
 
-        if (! $force && $reviewUntil && $now->copy()->startOfDay()->lt($reviewUntil->copy()->startOfDay())) {
+        if ($reviewUntil && $now->copy()->startOfDay()->lt($reviewUntil->copy()->startOfDay())) {
             throw new RuntimeException("El presupuesto {$budgetId} esta en revision hasta {$reviewUntil->toDateString()}.");
         }
 

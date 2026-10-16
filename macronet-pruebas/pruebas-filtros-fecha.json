@@ -1,0 +1,87 @@
+[
+  {
+    "method": "POST",
+    "path": "/login",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Autenticado con éxito",
+      "estatus": 200
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=2023-01-01T11%3A50%3A52",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 1733,
+    "count": 1
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=%3E%3D2026-10-01",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 267,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "Cannot deserialize value of type `java.util.Date` from String \">=2026-10-01\": not a valid representation (error: Failed to parse Date value '>=2026-10-01': Unparseable date: \">=2026-10-01\")\n at [Source: UNKNOWN; byte offset: #UNKNOWN]",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=2026-10-01%2C2026-10-03",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 2,
+    "count": 0
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=2026-10-01%7C2026-10-03",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 2,
+    "count": 0
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha-desde=2026-10-01&fecha-hasta=2026-10-03",
+    "tenant": "skyfree",
+    "status": 400,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "No se encontró el filtro: fecha_desde",
+      "estatus": 400
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=2026-10-01&operador=MAYOR_IGUAL",
+    "tenant": "skyfree",
+    "status": 400,
+    "bytes": 63,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "No se encontró el filtro: operador",
+      "estatus": 400
+    }
+  }
+]

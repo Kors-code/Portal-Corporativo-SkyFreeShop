@@ -35,7 +35,6 @@ const budgetNav: NavItem[] = [
   { label: "Cajeros", to: "/CashierAwards", permissions: ["budget.cashier.view"] },
   { label: "Categorias", to: "/commissions/categories", permissions: ["budget.commissions.manage"] },
   { label: "Configurar perfiles", to: "/commissions/profiles", permissions: ["budget.commissions.manage", "commission_profiles.manage"] },
-  { label: "Perfiles", to: "/commissions/my-profiles", permissions: ["commission_profiles.my.view"] },
   { label: "Comisionables", to: "/commissions/profile-earners", permissions: ["budget.commissions.view", "commission_profiles.view"] },
   { label: "Especializados", to: "/commissions/DualCommissionAdmin", permissions: ["budget.commissions.manage"] },
   { label: "Importar turnos y ventas", to: "/ImportsManagerPage", permissions: ["imports.create"] },

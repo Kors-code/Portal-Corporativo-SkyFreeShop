@@ -10,8 +10,7 @@ class CloseMonthlyBudgets extends Command
 {
     protected $signature = 'budgets:close-monthly
         {--budget_id= : Cierra un presupuesto puntual}
-        {--date= : Fecha de referencia YYYY-MM-DD, por defecto hoy en America/Bogota}
-        {--force : Rehacer snapshots aunque el presupuesto ya este cerrado}';
+        {--date= : Fecha de referencia YYYY-MM-DD, por defecto hoy en America/Bogota}';
 
     protected $description = 'Cierra presupuestos que ya pasaron su ventana de revision y guarda snapshots historicos.';
 
@@ -22,7 +21,6 @@ class CloseMonthlyBudgets extends Command
             : now('America/Bogota');
 
         $budgetId = $this->option('budget_id') ? (int) $this->option('budget_id') : null;
-        $force = (bool) $this->option('force');
         $budgetIds = $budgetId ? [$budgetId] : $service->eligibleBudgetsForAutomaticClosure($date);
 
         if (empty($budgetIds)) {
@@ -32,7 +30,7 @@ class CloseMonthlyBudgets extends Command
 
         foreach ($budgetIds as $id) {
             try {
-                $result = $service->closeBudget((int) $id, 'automatic', null, $force);
+                $result = $service->closeBudget((int) $id, 'automatic');
 
                 if (($result['status'] ?? null) === 'already_closed') {
                     $this->line("Presupuesto {$id} ya estaba cerrado.");

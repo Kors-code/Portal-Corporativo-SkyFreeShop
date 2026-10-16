@@ -263,6 +263,7 @@ Route::get('/v1/ping', function () {
     Route::middleware('permission:budget.commissions.manage,commission_profiles.manage')->group(function () {
         Route::post('commission-profiles', [CommissionProfileController::class, 'store']);
         Route::put('commission-profiles/{id}', [CommissionProfileController::class, 'update']);
+        Route::patch('commission-profiles/{id}/status', [CommissionProfileController::class, 'setLifecycleStatus']);
         Route::delete('commission-profiles/{id}', [CommissionProfileController::class, 'destroy']);
     });
 

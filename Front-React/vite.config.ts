@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const backendUrl = env.VITE_BACKEND_URL || 'http://127.0.0.1:8000'
 
   return {
-    base: '/panel/',
+    base: mode === 'production' ? '/react/' : '/panel/',
     plugins: [react()],
     server: {
       host: '127.0.0.1',

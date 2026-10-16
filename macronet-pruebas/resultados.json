@@ -1,0 +1,198 @@
+[
+  {
+    "method": "POST",
+    "path": "/login",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Autenticado con éxito",
+      "estatus": 200
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/generales/sucursales",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 947,
+    "count": 3
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/tipo-operaciones",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 3270,
+    "count": 15
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/tipo-documentos",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 1498,
+    "count": 4
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=5&offset=0",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 8649,
+    "count": 5
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos/1",
+    "tenant": "skyfree",
+    "status": 400,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "No se encontró el recurso con el ID 1",
+      "estatus": 400
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/v3/api-docs",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/v2/api-docs",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/swagger-resources",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/swagger-ui/index.html",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/login",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Autenticado con éxito",
+      "estatus": 200
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=100&offset=0",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 173319,
+    "count": 100
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=5&offset=100",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 8664,
+    "count": 5
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos/3",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 1731,
+    "keys": [
+      "id",
+      "fecha",
+      "fecha_creacion",
+      "fecha_modificacion",
+      "folio",
+      "comentarios",
+      "prioridad",
+      "saldo_agotado",
+      "saldo_agotado_traslado",
+      "es_devolucion",
+      "entregado",
+      "entrega_diferida",
+      "sin_apartado",
+      "impreso",
+      "dias_credito",
+      "importe_bruto",
+      "importe",
+      "porcentaje_descuento",
+      "cargo_fet",
+      "ieps",
+      "iva",
+      "total",
+      "total_nota_credito",
+      "tipo_cambio",
+      "tipo_cambio_dolar"
+    ],
+    "message": {
+      "estatus": "ACTIVO"
+    }
+  }
+]

@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Api\CommissionProfileController;
 use App\Models\User;
+use App\Services\BudgetClosureService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -54,6 +57,7 @@ class MyProfileCommissionsTest extends TestCase
             $table->date('end_date');
             $table->boolean('is_closed')->default(false);
             $table->dateTime('closed_at')->nullable();
+            $table->timestamps();
         });
         Schema::connection('budget')->create('commission_profiles', function (Blueprint $table) {
             $table->id();
@@ -88,6 +92,8 @@ class MyProfileCommissionsTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->string('profile_name_snapshot');
             $table->string('profile_type_snapshot');
+            $table->string('user_name_snapshot')->nullable();
+            $table->string('seller_code_snapshot')->nullable();
             $table->unsignedInteger('sales_count');
             $table->decimal('units');
             $table->decimal('assigned_turns');
@@ -101,6 +107,20 @@ class MyProfileCommissionsTest extends TestCase
             $table->decimal('commission_usd');
             $table->decimal('commission_cop');
             $table->json('rules_snapshot');
+            $table->dateTime('calculated_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::connection('budget')->create('budget_closures', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('budget_id');
+            $table->string('status');
+            $table->string('triggered_by');
+            $table->dateTime('closed_at');
+            $table->unsignedBigInteger('closed_by')->nullable();
+            $table->date('review_until')->nullable();
+            $table->json('summary_json')->nullable();
+            $table->json('error_json')->nullable();
+            $table->timestamps();
         });
         Schema::connection('budget')->create('categories', function (Blueprint $table) {
             $table->id();
@@ -116,6 +136,7 @@ class MyProfileCommissionsTest extends TestCase
             $table->unsignedBigInteger('budget_id');
             $table->unsignedBigInteger('seller_id');
             $table->unsignedBigInteger('product_id');
+            $table->string('folio');
             $table->decimal('value_usd');
             $table->decimal('amount_cop');
             $table->decimal('quantity');
@@ -161,8 +182,8 @@ class MyProfileCommissionsTest extends TestCase
             ['id' => 2, 'brand' => 'B'],
         ]);
         $db->table('sales')->insert([
-            ['budget_id' => 1, 'seller_id' => 11, 'product_id' => 1, 'value_usd' => 100, 'amount_cop' => 400000, 'quantity' => 1],
-            ['budget_id' => 1, 'seller_id' => 22, 'product_id' => 2, 'value_usd' => 300, 'amount_cop' => 1200000, 'quantity' => 3],
+            ['budget_id' => 1, 'seller_id' => 11, 'product_id' => 1, 'folio' => 'A-1', 'value_usd' => 100, 'amount_cop' => 400000, 'quantity' => 1],
+            ['budget_id' => 1, 'seller_id' => 22, 'product_id' => 2, 'folio' => 'B-1', 'value_usd' => 300, 'amount_cop' => 1200000, 'quantity' => 3],
         ]);
         $db->table('commission_profile_snapshots')->insert([
             [
@@ -201,5 +222,59 @@ class MyProfileCommissionsTest extends TestCase
             ->assertJsonPath('rows.0.profile_name', 'Perfil eliminado');
 
         $this->getJson('/api/v1/commission-profiles/my?budget_id=3')->assertNotFound();
+    }
+
+    public function test_calculated_snapshot_remains_visible_after_profile_is_deleted(): void
+    {
+        $user = User::create([
+            'name' => 'Maria',
+            'email' => 'maria-history@example.test',
+            'password' => 'test-password',
+            'seller_code' => '101',
+            'role' => 'seller',
+        ]);
+        $permissionId = DB::table('permissions')->insertGetId(['name' => 'commission_profiles.my.view']);
+        DB::table('user_permissions')->insert(['user_id' => $user->id, 'permission_id' => $permissionId]);
+
+        $db = DB::connection('budget');
+        $db->table('users')->insert(['id' => 11, 'name' => 'Maria', 'codigo_vendedor' => '101']);
+        $db->table('budgets')->insert([
+            'id' => 4, 'name' => 'Presupuesto historico',
+            'start_date' => '2025-01-01', 'end_date' => '2025-01-31', 'is_closed' => false,
+        ]);
+        $db->table('commission_profiles')->insert([
+            'id' => 7, 'budget_id' => 4, 'name' => 'Perfil eliminado',
+            'profile_type' => 'degustadora', 'is_active' => true,
+        ]);
+        $db->table('commission_profile_users')->insert(['commission_profile_id' => 7, 'user_id' => 11]);
+        $db->table('commission_profile_rules')->insert([
+            'commission_profile_id' => 7, 'rule_type' => 'brand', 'brand' => 'A',
+            'target_amount_usd' => 100, 'commission_percentage' => 1,
+            'commission_percentage100' => 2,
+        ]);
+        $db->table('products')->insert(['id' => 1, 'brand' => 'A']);
+        $db->table('sales')->insert([
+            'budget_id' => 4, 'seller_id' => 11, 'product_id' => 1, 'folio' => 'H-1',
+            'value_usd' => 100, 'amount_cop' => 400000, 'quantity' => 1,
+        ]);
+
+        $this->actingAs($user)->getJson('/api/v1/commission-profiles/my?budget_id=4')
+            ->assertOk()->assertJsonPath('source', 'live');
+
+        $this->assertSame(1, app(BudgetClosureService::class)->closeBudget(4)['snapshots_created']);
+        $db->table('commission_profiles')->where('id', 7)->delete();
+
+        $this->getJson('/api/v1/commission-profiles/my?budget_id=4')
+            ->assertOk()
+            ->assertJsonPath('source', 'snapshot')
+            ->assertJsonPath('rows.0.profile_name', 'Perfil eliminado')
+            ->assertJsonPath('rows.0.sales_usd', 100)
+            ->assertJsonPath('rows.0.rules.0.sales_usd', 100);
+
+        $adminHistory = app(CommissionProfileController::class)
+            ->earners(Request::create('/api/v1/commission-profiles/earners', 'GET', ['budget_id' => 4]))
+            ->getData(true);
+        $this->assertSame('Perfil eliminado', $adminHistory['rows'][0]['profile_name']);
+        $this->assertEquals(2, $adminHistory['totals']['commission_usd']);
     }
 }

@@ -1,0 +1,152 @@
+[
+  {
+    "method": "POST",
+    "path": "/login",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 66,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Autenticado con éxito",
+      "estatus": 200
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/informes/75",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/reportes/75",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/informes/75",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/reportes/75",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/informes",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/reportes",
+    "tenant": "skyfree",
+    "status": 500,
+    "bytes": 51,
+    "keys": [
+      "mensaje",
+      "estatus",
+      "ruta"
+    ],
+    "message": {
+      "mensaje": "Error interno",
+      "estatus": 500
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha-inicial=2026-10-01&fecha-final=2026-10-03",
+    "tenant": "skyfree",
+    "status": 400,
+    "bytes": 68,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "No se encontró el filtro: fecha_inicial",
+      "estatus": 400
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha_inicio=2026-10-01&fecha_fin=2026-10-03",
+    "tenant": "skyfree",
+    "status": 400,
+    "bytes": 67,
+    "keys": [
+      "mensaje",
+      "estatus"
+    ],
+    "message": {
+      "mensaje": "No se encontró el filtro: fecha_inicio",
+      "estatus": 400
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ventas/documentos?limit=1&offset=0&fecha=2026-10-01",
+    "tenant": "skyfree",
+    "status": 200,
+    "bytes": 2,
+    "count": 0
+  }
+]

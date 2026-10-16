@@ -1,0 +1,53 @@
+[
+  {
+    "id": 1,
+    "clave": "01",
+    "nombre": "NEECHE",
+    "activo": true,
+    "zona_horaria": "America/Mazatlan",
+    "calle": "CARRETERA AEROPUERTO",
+    "ciudad": "TIJUANA",
+    "municipio": "TIJUANA",
+    "estado": "BAJA CALIFORNIA",
+    "pais": "MÉXICO",
+    "codigo_postal": "22435",
+    "colonia": "NUEVA TIJUANA",
+    "numero_exterior": "",
+    "numero_interior": "SN",
+    "usar_correo_sucursal": false
+  },
+  {
+    "id": 3,
+    "clave": "GDL01",
+    "nombre": "GDL MAC",
+    "activo": true,
+    "zona_horaria": "America/Mazatlan",
+    "calle": "",
+    "ciudad": "TIJUANA",
+    "municipio": "TIJUANA",
+    "estado": "BAJA CALIFORNIA",
+    "pais": "MÉXICO",
+    "codigo_postal": "22435",
+    "colonia": "NUEVA TIJUANA",
+    "numero_exterior": "PC01",
+    "numero_interior": "",
+    "usar_correo_sucursal": false
+  },
+  {
+    "id": 2,
+    "clave": "TIJ01",
+    "nombre": "TIJ A",
+    "activo": true,
+    "zona_horaria": "America/Tijuana",
+    "calle": "",
+    "ciudad": "TIJUANA",
+    "municipio": "TIJUANA",
+    "estado": "BAJA CALIFORNIA",
+    "pais": "MÉXICO",
+    "codigo_postal": "22435",
+    "colonia": "NUEVA TIJUANA",
+    "numero_exterior": "",
+    "numero_interior": "",
+    "usar_correo_sucursal": false
+  }
+]

@@ -26,6 +26,9 @@ export type CommissionProfileUser = {
 
 export type CommissionProfile = {
   id: number;
+  family_id?: number | null;
+  family_status?: "active" | "inactive" | "deleted";
+  is_inherited?: boolean;
   budget_id?: number | null;
   name: string;
   profile_type: string;
@@ -146,7 +149,7 @@ export async function getMyProfileCommissions(budgetId?: number) {
   return data as MyProfileCommissions;
 }
 
-export async function getCommissionProfiles(params?: { budget_id?: number | null; search?: string }) {
+export async function getCommissionProfiles(params?: { budget_id?: number | null; search?: string; include_archived?: boolean }) {
   const { data } = await api.get("/commission-profiles", { params });
   return data.profiles as CommissionProfile[];
 }
@@ -169,6 +172,11 @@ export async function updateCommissionProfile(id: number, payload: CommissionPro
 export async function deleteCommissionProfile(id: number) {
   const { data } = await api.delete(`/commission-profiles/${id}`);
   return data;
+}
+
+export async function setCommissionProfileStatus(id: number, status: "active" | "inactive") {
+  const { data } = await api.patch(`/commission-profiles/${id}/status`, { status });
+  return data as { status: "active" | "inactive" };
 }
 
 export async function getCommissionProfileSummary(id: number, budgetId?: number | null) {

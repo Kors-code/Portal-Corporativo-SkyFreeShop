@@ -1,0 +1,137 @@
+{
+  "info": {
+    "name": "Macronet SKYFREE - consultas verificadas",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "url",
+      "value": "http://74.208.89.166:8080"
+    },
+    {
+      "key": "tenantId",
+      "value": "skyfree"
+    },
+    {
+      "key": "usuario",
+      "value": "SCLMDE"
+    },
+    {
+      "key": "contrasena",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Login - completar variable contrasena",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{url}}/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"usuario\": \"{{usuario}}\",\n  \"contrasena\": \"{{contrasena}}\",\n  \"uuid\": \"9999-9999-99HG-SACC-UUID\",\n  \"tipo_sesion\": \"ESCRITORIO\",\n  \"direccion_mac\": \"FA:16:3E:49:A9:BF\",\n  \"reemplazar\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ventas - primera pagina",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/ventas/documentos?limit=100&offset=0"
+      }
+    },
+    {
+      "name": "Ventas - siguiente pagina",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/ventas/documentos?limit=100&offset=100"
+      }
+    },
+    {
+      "name": "Documento por ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/ventas/documentos/3"
+      }
+    },
+    {
+      "name": "Tipos de operacion",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/ventas/tipo-operaciones"
+      }
+    },
+    {
+      "name": "Tipos de documento",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/ventas/tipo-documentos"
+      }
+    },
+    {
+      "name": "Sucursales",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "tenantId",
+            "value": "{{tenantId}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{url}}/api/v1/generales/sucursales"
+      }
+    }
+  ]
+}

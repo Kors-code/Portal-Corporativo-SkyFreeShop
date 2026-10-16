@@ -10,6 +10,9 @@ class CommissionProfile extends Model
 
     protected $fillable = [
         'budget_id',
+        'family_id',
+        'inherited_from_id',
+        'is_inherited',
         'name',
         'profile_type',
         'commission_mode',
@@ -28,6 +31,7 @@ class CommissionProfile extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_inherited' => 'boolean',
         'category_role_id' => 'integer',
         'commission_percentage' => 'float',
         'commission_percentage100' => 'float',
@@ -41,6 +45,11 @@ class CommissionProfile extends Model
     public function rules()
     {
         return $this->hasMany(CommissionProfileRule::class);
+    }
+
+    public function family()
+    {
+        return $this->belongsTo(CommissionProfileFamily::class, 'family_id');
     }
 
     public function assignments()

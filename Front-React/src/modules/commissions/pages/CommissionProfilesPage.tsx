@@ -5,6 +5,7 @@ import {
   Percent,
   Plus,
   RefreshCw,
+  Power,
   Search,
   Trash2,
   UserPlus,
@@ -14,6 +15,7 @@ import api from "../../../api/axios";
 import {
   createCommissionProfile,
   deleteCommissionProfile,
+  setCommissionProfileStatus,
   getCommissionProfileOptions,
   getCommissionProfiles,
   updateCommissionProfile,
@@ -228,12 +230,18 @@ export default function CommissionProfilesPage() {
   const [search, setSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [showUserPicker, setShowUserPicker] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [tierModalIndex, setTierModalIndex] = useState<number | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedId) ?? null,
     [profiles, selectedId]
   );
+  const selectedBudget = budgets.find((budget) => Number(budget.id) === budgetId);
+  const reviewDeadline = selectedBudget?.end_date
+    ? new Date(`${selectedBudget.end_date}T00:00:00-05:00`).getTime() + 4 * 24 * 60 * 60 * 1000
+    : null;
+  const budgetIsClosed = Boolean(selectedBudget?.is_closed) || (reviewDeadline !== null && Date.now() >= reviewDeadline);
 
   const filteredUsers = useMemo(() => {
     const term = userSearch.trim().toLowerCase();
@@ -281,7 +289,7 @@ export default function CommissionProfilesPage() {
   useEffect(() => {
     loadProfiles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [budgetId]);
+  }, [budgetId, showArchived]);
 
   useEffect(() => {
     if (!selectedProfile) {
@@ -301,7 +309,7 @@ export default function CommissionProfilesPage() {
       return;
     }
     try {
-      const rows = await getCommissionProfiles({ budget_id: budgetId, search });
+      const rows = await getCommissionProfiles({ budget_id: budgetId, search, include_archived: showArchived || budgetIsClosed });
       setProfiles(rows);
       if (rows.length && !rows.some((profile) => profile.id === selectedId)) {
         setSelectedId(rows[0].id);
@@ -403,16 +411,31 @@ export default function CommissionProfilesPage() {
 
   async function removeProfile() {
     if (!draft.id) return;
-    if (!window.confirm("Eliminar este perfil de comision?")) return;
+    if (!window.confirm("Retirar este perfil de presupuestos futuros? Las versiones y comisiones anteriores se conservaran.")) return;
 
     setSaving(true);
     try {
       await deleteCommissionProfile(draft.id);
-      setMessage("Perfil eliminado.");
+      setMessage("Perfil retirado del uso futuro. El historial se conserva.");
       setSelectedId(null);
       await loadProfiles();
     } catch (err: any) {
       setError(err?.response?.data?.message ?? "No se pudo eliminar el perfil.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function toggleProfileStatus() {
+    if (!draft.id || !selectedProfile) return;
+    const next = selectedProfile.family_status === "inactive" ? "active" : "inactive";
+    setSaving(true);
+    setError(null);
+    try {
+      await setCommissionProfileStatus(draft.id, next);
+      setMessage(next === "active" ? "Perfil reactivado para presupuestos futuros." : "Perfil desactivado para presupuestos futuros.");
+      await loadProfiles();
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? "No se pudo cambiar el estado del perfil.");
     } finally {
       setSaving(false);
     }
@@ -453,7 +476,7 @@ export default function CommissionProfilesPage() {
                   ...emptyDraft(budgetId),
                 });
               }}
-              disabled={!budgetId}
+              disabled={!budgetId || budgetIsClosed}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <Plus className="h-4 w-4" />
@@ -471,6 +494,10 @@ export default function CommissionProfilesPage() {
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <label className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
+            Mostrar retirados
+          </label>
           <div className="mb-3 flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -516,6 +543,9 @@ export default function CommissionProfilesPage() {
                   <p className="mt-2 text-xs text-slate-500">
                     {profile.rules.length} regla(s) · {profile.users.length} persona(s)
                   </p>
+                  {profile.family_status && profile.family_status !== "active" && (
+                    <p className="mt-1 text-xs font-semibold text-slate-500">{profile.family_status === "deleted" ? "Retirado" : "Inactivo"}</p>
+                  )}
                 </button>
               ))
             )}
@@ -529,12 +559,18 @@ export default function CommissionProfilesPage() {
                 <p className="text-sm font-bold text-slate-500">{draft.id ? "Editar perfil" : "Nuevo perfil"}</p>
                 <h2 className="text-xl font-black text-slate-950">{draft.name || "Perfil sin nombre"}</h2>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
+                {draft.id && selectedProfile?.family_status !== "deleted" && (
+                  <button type="button" onClick={toggleProfileStatus} disabled={saving} title={selectedProfile?.family_status === "inactive" ? "Reactivar para presupuestos futuros" : "Desactivar para presupuestos futuros"} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 disabled:opacity-50">
+                    <Power className="h-4 w-4" />
+                    {selectedProfile?.family_status === "inactive" ? "Reactivar" : "Desactivar"}
+                  </button>
+                )}
                 {draft.id && (
                   <button
                     type="button"
                     onClick={removeProfile}
-                    disabled={saving}
+                    disabled={saving || selectedProfile?.family_status === "deleted"}
                     className="inline-flex h-10 items-center gap-2 rounded-md border border-red-200 px-3 text-sm font-bold text-red-700 hover:bg-red-50"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -544,7 +580,7 @@ export default function CommissionProfilesPage() {
                 <button
                   type="button"
                   onClick={saveProfile}
-                  disabled={saving}
+                  disabled={saving || budgetIsClosed || selectedProfile?.family_status === "deleted"}
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-bold text-white shadow-sm hover:brightness-95 disabled:opacity-60"
                 >
                   <Check className="h-4 w-4" />

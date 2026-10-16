@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Exports\CommissionProfileEarnersExport;
 use App\Models\Comisiones\CommissionProfile;
+use App\Models\Comisiones\CommissionProfileFamily;
+use App\Services\CommissionProfileVersionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -21,11 +23,17 @@ class CommissionProfileController extends Controller
         $search = trim((string) $request->query('search', ''));
 
         $profiles = CommissionProfile::query()
-            ->with(['rules', 'assignments'])
+            ->with(['rules', 'assignments', 'family'])
+            ->when(! $request->boolean('include_archived'), fn ($query) => $query->whereHas('family',
+                fn ($family) => $family->where('status', '!=', 'deleted')))
             ->when($budgetId, function ($q) use ($budgetId) {
                 $q->where(function ($inner) use ($budgetId) {
                     $inner->where('budget_id', (int) $budgetId)
-                        ->orWhereNull('budget_id');
+                        ->orWhere(function ($global) use ($budgetId) {
+                            $global->whereNull('budget_id')
+                                ->whereNotIn('family_id', CommissionProfile::query()
+                                    ->where('budget_id', (int) $budgetId)->select('family_id'));
+                        });
                 });
             })
             ->when($search !== '', function ($q) use ($search) {
@@ -60,14 +68,19 @@ class CommissionProfileController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatedProfileData($request);
+        if (empty($data['profile']['budget_id'])) {
+            abort(422, 'Selecciona un presupuesto para crear el perfil.');
+        }
         $this->ensureBudgetIsOpen($data['profile']['budget_id'] ?? null);
 
         $profile = DB::connection('budget')->transaction(function () use ($data) {
-            $profile = CommissionProfile::create($data['profile']);
+            $family = CommissionProfileFamily::create(['status' => 'active']);
+            $profile = CommissionProfile::create($data['profile'] + ['family_id' => $family->id]);
             $this->syncRules($profile, $data['rules']);
             $this->syncUsers($profile, $data['user_ids']);
+            app(CommissionProfileVersionService::class)->copyToExistingFutureBudgets($profile);
 
-            return $profile->fresh(['rules', 'assignments']);
+            return $profile->fresh(['rules', 'assignments', 'family']);
         });
 
         return response()->json(['profile' => $this->serializeProfile($profile)], 201);
@@ -79,11 +92,20 @@ class CommissionProfileController extends Controller
         $data = $this->validatedProfileData($request);
         $this->ensureBudgetIsOpen($profile->budget_id);
         $this->ensureBudgetIsOpen($data['profile']['budget_id'] ?? null);
+        if ($profile->family?->status === 'deleted') {
+            abort(422, 'Este perfil fue retirado y no puede editarse.');
+        }
+        if ((int) $profile->budget_id !== (int) $data['profile']['budget_id']) {
+            abort(422, 'La version de un perfil no puede moverse a otro presupuesto.');
+        }
 
         $profile = DB::connection('budget')->transaction(function () use ($profile, $data) {
+            $data['profile']['is_active'] = $profile->is_active;
             $profile->update($data['profile']);
+            $profile->update(['is_inherited' => false]);
             $this->syncRules($profile, $data['rules']);
             $this->syncUsers($profile, $data['user_ids']);
+            app(CommissionProfileVersionService::class)->refreshInheritedFutureVersions($profile->fresh(['rules', 'assignments']));
 
             return $profile->fresh(['rules', 'assignments']);
         });
@@ -94,10 +116,22 @@ class CommissionProfileController extends Controller
     public function destroy(int $id)
     {
         $profile = CommissionProfile::findOrFail($id);
-        $this->ensureBudgetIsOpen($profile->budget_id);
-        $profile->delete();
+        app(CommissionProfileVersionService::class)->setStatus($profile, 'deleted');
 
-        return response()->json(['message' => 'Perfil eliminado']);
+        return response()->json(['message' => 'Perfil retirado del uso futuro; su historial se conserva.']);
+    }
+
+    public function setLifecycleStatus(Request $request, int $id)
+    {
+        $data = $request->validate(['status' => ['required', Rule::in(['active', 'inactive'])]]);
+        $profile = CommissionProfile::with('family')->findOrFail($id);
+        if ($profile->family?->status === 'deleted') {
+            abort(422, 'Un perfil eliminado no puede reactivarse desde esta vista.');
+        }
+
+        $family = app(CommissionProfileVersionService::class)->setStatus($profile, $data['status']);
+
+        return response()->json(['status' => $family->status]);
     }
 
     public function options(Request $request)
@@ -181,6 +215,20 @@ class CommissionProfileController extends Controller
             ? DB::connection('budget')->table('budgets')->where('id', $budgetId)->first()
             : null;
 
+        if ($budget?->is_closed) {
+            $rows = DB::connection('budget')->table('commission_profile_snapshots')
+                ->where('budget_id', $budgetId)
+                ->where('commission_profile_id', $profile->id)
+                ->get()->map(fn ($snapshot) => $this->snapshotRow($snapshot))->all();
+
+            return response()->json([
+                'profile' => $this->serializeProfile($profile),
+                'budget' => $budget,
+                'rows' => $rows,
+                'totals' => $this->totalsForRows($rows),
+            ]);
+        }
+
         if (! $profile->is_active) {
             return response()->json([
                 'profile' => $this->serializeProfile($profile),
@@ -215,12 +263,26 @@ class CommissionProfileController extends Controller
             ? DB::connection('budget')->table('budgets')->where('id', $budgetId)->first()
             : null;
 
+        if ($budget?->is_closed) {
+            $rows = DB::connection('budget')->table('commission_profile_snapshots')
+                ->where('budget_id', $budgetId)
+                ->when($profileId, fn ($query) => $query->where('commission_profile_id', $profileId))
+                ->get()->map(fn ($snapshot) => $this->snapshotRow($snapshot))->all();
+
+            return response()->json(['rows' => $rows, 'totals' => $this->totalsForRows($rows)]);
+        }
+
         $profiles = CommissionProfile::with(['rules', 'assignments'])
             ->where('is_active', true)
             ->when($profileId, fn ($q) => $q->where('id', $profileId))
             ->when($budgetId, function ($q) use ($budgetId) {
                 $q->where(function ($inner) use ($budgetId) {
-                    $inner->where('budget_id', $budgetId)->orWhereNull('budget_id');
+                    $inner->where('budget_id', $budgetId)
+                        ->orWhere(function ($global) use ($budgetId) {
+                            $global->whereNull('budget_id')
+                                ->whereNotIn('family_id', CommissionProfile::query()
+                                    ->where('budget_id', $budgetId)->select('family_id'));
+                        });
                 });
             })
             ->orderBy('name')
@@ -321,31 +383,19 @@ class CommissionProfileController extends Controller
                     ->get();
 
                 foreach ($snapshots as $snapshot) {
-                    $rows[] = [
-                        'profile_id' => $snapshot->commission_profile_id,
-                        'profile_name' => $snapshot->profile_name_snapshot,
-                        'profile_type' => $snapshot->profile_type_snapshot,
-                        'sales_count' => (int) $snapshot->sales_count,
-                        'units' => (float) $snapshot->units,
-                        'assigned_turns' => (float) $snapshot->assigned_turns,
-                        'target_usd' => (float) $snapshot->target_usd,
-                        'sales_usd' => (float) $snapshot->sales_usd,
-                        'sales_cop' => (float) $snapshot->sales_cop,
-                        'avg_trm' => $snapshot->avg_trm === null ? null : (float) $snapshot->avg_trm,
-                        'fulfillment_pct' => $snapshot->fulfillment_pct === null ? null : (float) $snapshot->fulfillment_pct,
-                        'eligible' => (bool) $snapshot->eligible,
-                        'applied_commission_pct' => (float) $snapshot->applied_commission_pct,
-                        'commission_usd' => (float) $snapshot->commission_usd,
-                        'commission_cop' => (float) $snapshot->commission_cop,
-                        'rules' => json_decode($snapshot->rules_snapshot ?? '[]', true) ?: [],
-                    ];
+                    $rows[] = $this->snapshotRow($snapshot);
                 }
             } else {
                 $source = 'live';
                 $profiles = CommissionProfile::with(['rules', 'assignments'])
                     ->whereIn('id', $assignedProfileIds)
                     ->where(function ($query) use ($budgetId) {
-                        $query->where('budget_id', $budgetId)->orWhereNull('budget_id');
+                        $query->where('budget_id', $budgetId)
+                            ->orWhere(function ($global) use ($budgetId) {
+                                $global->whereNull('budget_id')
+                                    ->whereNotIn('family_id', CommissionProfile::query()
+                                        ->where('budget_id', $budgetId)->select('family_id'));
+                            });
                     })
                     ->orderBy('name')
                     ->get();
@@ -570,6 +620,31 @@ class CommissionProfileController extends Controller
         ];
     }
 
+    private function snapshotRow(object $snapshot): array
+    {
+        return [
+            'profile_id' => $snapshot->commission_profile_id,
+            'profile_name' => $snapshot->profile_name_snapshot,
+            'profile_type' => $snapshot->profile_type_snapshot,
+            'user_id' => $snapshot->user_id,
+            'user_name' => $snapshot->user_name_snapshot,
+            'seller_code' => $snapshot->seller_code_snapshot,
+            'sales_count' => (int) $snapshot->sales_count,
+            'units' => (float) $snapshot->units,
+            'assigned_turns' => (float) $snapshot->assigned_turns,
+            'target_usd' => (float) $snapshot->target_usd,
+            'sales_usd' => (float) $snapshot->sales_usd,
+            'sales_cop' => (float) $snapshot->sales_cop,
+            'avg_trm' => $snapshot->avg_trm === null ? null : (float) $snapshot->avg_trm,
+            'fulfillment_pct' => $snapshot->fulfillment_pct === null ? null : (float) $snapshot->fulfillment_pct,
+            'eligible' => (bool) $snapshot->eligible,
+            'applied_commission_pct' => (float) $snapshot->applied_commission_pct,
+            'commission_usd' => (float) $snapshot->commission_usd,
+            'commission_cop' => (float) $snapshot->commission_cop,
+            'rules' => json_decode($snapshot->rules_snapshot ?? '[]', true) ?: [],
+        ];
+    }
+
     private function validatedProfileData(Request $request): array
     {
         $payload = $request->validate([
@@ -678,6 +753,9 @@ class CommissionProfileController extends Controller
 
         return [
             'id' => $profile->id,
+            'family_id' => $profile->family_id,
+            'family_status' => $profile->family?->status ?? 'active',
+            'is_inherited' => (bool) $profile->is_inherited,
             'budget_id' => $profile->budget_id,
             'name' => $profile->name,
             'profile_type' => $profile->profile_type,
@@ -750,6 +828,12 @@ class CommissionProfileController extends Controller
 
         if ($budget && (bool) ($budget->is_closed ?? false)) {
             abort(422, 'Este presupuesto ya esta cerrado y no permite modificar perfiles de comision.');
+        }
+
+        if ($budget && $budget->end_date && now('America/Bogota')->startOfDay()->gte(
+            \Carbon\Carbon::parse($budget->end_date, 'America/Bogota')->addDays(4)->startOfDay()
+        )) {
+            abort(422, 'Termino la ventana de revision de este presupuesto; sus reglas ya no se pueden modificar.');
         }
     }
 
